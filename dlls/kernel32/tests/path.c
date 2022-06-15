@@ -450,6 +450,8 @@ static void test_CurrentDirectoryA(CHAR *origdir, CHAR *newdir)
   CHAR tmpstr[MAX_PATH],tmpstr1[MAX_PATH];
   char *buffer;
   DWORD len,len1;
+  HANDLE handle;
+  BOOL ret;
 /* Save the original directory, so that we can return to it at the end
    of the test
 */
@@ -505,10 +507,18 @@ static void test_CurrentDirectoryA(CHAR *origdir, CHAR *newdir)
   sprintf(tmpstr,"%s\\",newdir);
   test_setdir(origdir,tmpstr,newdir,1,"check 1");
   test_setdir(origdir,newdir,NULL,1,"check 2");
-/* Set the directory to the working area.  We just tested that this works,
-   so why check it again.
-*/
-  SetCurrentDirectoryA(newdir);
+
+/* Check that SetCurrentDirectory doesn't reopen directory file when setting the same directory. */
+  handle = NtCurrentTeb()->Peb->ProcessParameters->CurrentDirectory.Handle;
+  ret = SetCurrentDirectoryA(newdir);
+  ok(ret, "SetCurrentDirectoryA failed.\n");
+  ok(handle != NtCurrentTeb()->Peb->ProcessParameters->CurrentDirectory.Handle, "got same handle.\n");
+  handle = NtCurrentTeb()->Peb->ProcessParameters->CurrentDirectory.Handle;
+
+  ret = SetCurrentDirectoryA(newdir);
+  ok(ret, "SetCurrentDirectoryA failed.\n");
+  ok(handle == NtCurrentTeb()->Peb->ProcessParameters->CurrentDirectory.Handle, "got different handle.\n");
+
 /* Check that SetCurrentDirectory fails when a nonexistent dir is specified */
   sprintf(tmpstr,"%s\\%s\\%s",newdir,SHORTDIR,NONDIR_SHORT);
   test_setdir(newdir,tmpstr,NULL,0,"check 3");
