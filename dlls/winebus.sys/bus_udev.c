@@ -1168,6 +1168,19 @@ static void get_device_subsystem_info(struct udev_device *dev, const char *subsy
 
         if ((tmp = udev_device_get_sysattr_value(parent, "serial")))
             ntdll_umbstowcs(tmp, strlen(tmp) + 1, desc->serialnumber, ARRAY_SIZE(desc->serialnumber));
+
+        if ((tmp = udev_device_get_sysattr_value(parent, "busnum")))
+            desc->bus_num = atoi(tmp);
+
+        if ((tmp = udev_device_get_sysattr_value(parent, "devpath")))
+        {
+            desc->port_path = 0;
+            sscanf(tmp, "%hhu.%hhu.%hhu.%hhu.%hhu.%hhu.%hhu.%hhu", (UINT8 *)&desc->port_path,
+                   (UINT8 *)&desc->port_path + 1, (UINT8 *)&desc->port_path + 2,
+                   (UINT8 *)&desc->port_path + 3, (UINT8 *)&desc->port_path + 4,
+                   (UINT8 *)&desc->port_path + 5, (UINT8 *)&desc->port_path + 6,
+                   (UINT8 *)&desc->port_path + 7);
+        }
     }
 }
 
