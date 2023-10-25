@@ -25,13 +25,9 @@
 #endif
 
 #include "config.h"
+#include "macdrv.h"
 
 #include <poll.h>
-
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
-#include "macdrv.h"
-#include "oleidl.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(event);
 WINE_DECLARE_DEBUG_CHANNEL(imm);

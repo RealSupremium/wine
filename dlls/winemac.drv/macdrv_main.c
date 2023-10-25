@@ -25,15 +25,10 @@
 #endif
 
 #include "config.h"
+#include "macdrv.h"
 
 #include <Security/AuthSession.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
-
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
-#include "macdrv.h"
-#include "shellapi.h"
-#include "wine/server.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(macdrv);
 
