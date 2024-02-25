@@ -132,14 +132,30 @@ static BSTR read_file_to_bstr(const WCHAR *file_name)
     return ret;
 }
 
-static int search_option(WCHAR *option, hash_args inputs[], int icount)
+static int search_str(WCHAR *option, const WCHAR **strlist, int count)
 {
     int i;
-    for (i = 0; i < icount; i++) {
-       if (!wcsicmp(option, inputs[i].option))
+
+    for (i = 0; i < count; i++) {
+       if (!wcsicmp(option, strlist[i]))
            return i;
     }
+
     return -1;
+}
+
+static int search_option(WCHAR *option, hash_args inputs[], int icount)
+{
+    int i, ret;
+    const WCHAR **optlist;
+
+    optlist = malloc(icount * sizeof(WCHAR *));
+    for (i = 0; i < icount; i++)
+       optlist[i] = wcsdup(inputs[i].option);
+    ret = search_str(option, optlist, icount);
+    free(optlist);
+
+    return ret;
 }
 
 static BOOL check_args(int argc, WCHAR *argv[], hash_args inputs[], int icount)
@@ -216,6 +232,10 @@ static int change_command(int argc, WCHAR *argv[])
 
 static int create_command(int argc, WCHAR *argv[])
 {
+    static const WCHAR *sc_values[] = { L"minute",  L"hourly",  L"daily",
+                                        L"weekly",  L"monthly", L"once",
+                                        L"onstart", L"onlogon", L"onidle",
+                                        L"onevent" };
     hash_args create_args[7] = { {L"/tn",  TRUE,  FALSE},
                                  {L"/xml", TRUE,  FALSE},
                                  {L"/f",   TRUE,  TRUE},
@@ -274,6 +294,7 @@ static int create_command(int argc, WCHAR *argv[])
             ERR("/xml option can only be used with /ru /f /tn\n");
             return E_FAIL;
         }
+
         if (!create_args[3].value) {
             ERR("Missing /tr argument\n");
             return E_FAIL;
@@ -282,9 +303,15 @@ static int create_command(int argc, WCHAR *argv[])
                 ERR("Missing /sc argument\n");
                 return E_FAIL;
             }
+
+            if (search_str(create_args[4].value, sc_values, 10) == -1) {
+                ERR("Invalid schedule type %s\n", debugstr_w(create_args[4].value));
+                return E_FAIL;
+            }
         }
         return 0;
     }
+
     return E_FAIL;
 }
 

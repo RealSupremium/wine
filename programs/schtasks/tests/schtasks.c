@@ -238,7 +238,12 @@ START_TEST(schtasks)
                                         { "/delete /f /tn /tn wine\\test\\winetest", 1 },
                                         { "/delete /f /tn wine\\test\\winetest", 0 },
                                         { "/Change /tn wine\\test\\winetest /enable", 1 },
-                                        { "/create /xml test.xml /tn wine\\winetest", 0 },
+                                        { "/create /xml test.xml", E_FAIL },
+                                        { "/create /xml test.xml /tn", E_FAIL },
+                                        { "/create /xml /tn wine\\winetest", E_FAIL },										
+                                        { "/create /xml noexist.xml /tn wine\\winetest", 1 },
+                                        { "/create /xml empty.xml /tn wine\\winetest", 1 },
+                                        { "/create /xml test.xml /tn wine\\winetest", 0 },										
                                         { "/create /xml test.xml /tn wine\\winetest /tn", E_FAIL },
                                         { "/create /xml test.xml /tn wine\\winetest /xml", E_FAIL },
                                         { "/create /xml test.xml /tn wine\\winetest /tn test", E_FAIL },
@@ -249,9 +254,10 @@ START_TEST(schtasks)
                                         { "/create /xml test.xml /tn wine\\winetest", 1 },
                                         { "/create /xml test.xml /f /tn wine\\winetest /tr c:\\windows\\hh.exe", E_FAIL },
                                         { "/Delete /f /tn wine\\winetest", 0 },
+                                        { "/create /tn", E_FAIL },										
                                         { "/create /tn wine\\winetest", E_FAIL },
-                                        { "/create /tn wine\\winetest /tr c:\\windows\\hh.exe", E_FAIL, FALSE },
-                                        { "/create /tn wine\\winetest /tr c:\\windows\\hh.exe /sc wine", E_FAIL, TRUE },
+                                        { "/create /tn wine\\winetest /tr c:\\windows\\hh.exe", E_FAIL },
+                                        { "/create /tn wine\\winetest /tr c:\\windows\\hh.exe /sc wine", E_FAIL },
                                         { "/create /tn wine\\winetest /tr c:\\windows\\hh.exe /sc daily", 0 },
                                         { "/DELETE /f /tn wine\\winetest", 0, TRUE } };
     static WCHAR wineW[] = L"\\wine";
@@ -272,6 +278,8 @@ START_TEST(schtasks)
 
     create_file("test.xml", xml_a);
 
+    create_file("empty.xml", "");
+
     run_command_list(querylist, ARRAY_SIZE(querylist));
 
     register_task("winetest");
@@ -285,6 +293,9 @@ START_TEST(schtasks)
     register_task("wine\\test\\winetest");
 
     run_command_list(creatlist, ARRAY_SIZE(creatlist));
+
+    r = DeleteFileA("empty.xml");
+    ok(r, "DeleteFileA failed: %lu\n", GetLastError());
 
     r = DeleteFileA("test.xml");
     ok(r, "DeleteFileA failed: %lu\n", GetLastError());
