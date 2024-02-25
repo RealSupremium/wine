@@ -132,7 +132,7 @@ static BSTR read_file_to_bstr(const WCHAR *file_name)
     return ret;
 }
 
-static BOOL search_option(WCHAR *option, hash_args inputs[], int icount)
+static int search_option(WCHAR *option, hash_args inputs[], int icount)
 {
     int i;
     for (i = 0; i < icount; i++) {
@@ -216,9 +216,12 @@ static int change_command(int argc, WCHAR *argv[])
 
 static int create_command(int argc, WCHAR *argv[])
 {
-    hash_args create_args[4] = { {L"/tn",  TRUE,  FALSE},
+    hash_args create_args[7] = { {L"/tn",  TRUE,  FALSE},
                                  {L"/xml", TRUE,  FALSE},
                                  {L"/f",   TRUE,  TRUE},
+                                 {L"/tr",  FALSE, FALSE},
+                                 {L"/sc",  FALSE, FALSE},
+                                 {L"/rl",  FALSE, FALSE},
                                  {L"/ru",  FALSE, FALSE} };
     ITaskFolder *root = NULL;
     LONG flags = TASK_CREATE;
@@ -227,7 +230,7 @@ static int create_command(int argc, WCHAR *argv[])
     BSTR str, xml;
     HRESULT hres;
 
-    if (!check_args(argc, argv, create_args, 4 ))
+    if (!check_args(argc, argv, create_args, 7 ))
         return E_FAIL;
 
     if (!create_args[0].value) {
@@ -235,35 +238,54 @@ static int create_command(int argc, WCHAR *argv[])
         return E_FAIL;
     }
 
-    if (!create_args[1].value) {
-        ERR("Missing /xml argument\n");
-        return E_FAIL;
-    }
-
     if (create_args[2].enable) flags = TASK_CREATE_OR_UPDATE;
 
-    xml = read_file_to_bstr(create_args[1].value);
-    if (!xml)
-        return E_FAIL;
+    if (!create_args[3].value && !create_args[4].value) {
+        if (!create_args[1].value) {
+            ERR("Missing /xml argument\n");
+            return E_FAIL;
+        } else {
+            xml = read_file_to_bstr(create_args[1].value);
+            if (!xml)
+                return 1;
 
-    root = get_tasks_root_folder();
-    if (!root) {
-        SysFreeString(xml);
-        return 1;
+            root = get_tasks_root_folder();
+            if (!root) {
+                SysFreeString(xml);
+                return 1;
+            }
+
+            V_VT(&empty) = VT_EMPTY;
+            str = SysAllocString(create_args[0].value);
+            hres = ITaskFolder_RegisterTask(root, str, xml, flags, empty, empty,
+                                            TASK_LOGON_NONE, empty, &task);
+
+            SysFreeString(str);
+            SysFreeString(xml);
+            ITaskFolder_Release(root);
+            if (FAILED(hres))
+                return 1;
+
+            IRegisteredTask_Release(task);
+            return 0;
+        }
+    } else {
+        if (create_args[1].value) {
+            ERR("/xml option can only be used with /ru /f /tn\n");
+            return E_FAIL;
+        }
+        if (!create_args[3].value) {
+            ERR("Missing /tr argument\n");
+            return E_FAIL;
+        } else {
+            if (!create_args[4].value) {
+                ERR("Missing /sc argument\n");
+                return E_FAIL;
+            }
+        }
+        return 0;
     }
-
-    V_VT(&empty) = VT_EMPTY;
-    str = SysAllocString(create_args[0].value);
-    hres = ITaskFolder_RegisterTask(root, str, xml, flags, empty, empty,
-                                    TASK_LOGON_NONE, empty, &task);
-    SysFreeString(str);
-    SysFreeString(xml);
-    ITaskFolder_Release(root);
-    if (FAILED(hres))
-        return 1;
-
-    IRegisteredTask_Release(task);
-    return 0;
+    return E_FAIL;
 }
 
 static int delete_command(int argc, WCHAR *argv[])

@@ -32,6 +32,7 @@ static ITaskFolder *root;
 typedef struct _schtask_test {
             const char *cmd;
             DWORD expect;
+            BOOL todo;
 } schtask_test;
 
 static const char xml_a[] =
@@ -97,8 +98,9 @@ static BOOL check_win_version(int min_major, int min_minor)
 }
 #define is_win10_plus() check_win_version(10, 0)
 
-#define run_command(a, e) _run_command(__LINE__, a, e)
-static BOOL _run_command(unsigned line, const char *cmd, DWORD expected)
+#define run_command(a, e) _run_command(__LINE__, a, e, FALSE)
+#define run_command_todo(a, e) _run_command(__LINE__, a, e, TRUE)
+static BOOL _run_command(unsigned line, const char *cmd, DWORD expected, BOOL todo)
 {
     STARTUPINFOA si = {sizeof(STARTUPINFOA)};
     PROCESS_INFORMATION pi;
@@ -128,7 +130,10 @@ static BOOL _run_command(unsigned line, const char *cmd, DWORD expected)
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
 
-    ok_(__FILE__,line)(ret == expected, "Expected %lu, got = %lu\n", expected, ret);
+    if (todo)
+        todo_wine ok_(__FILE__,line)(ret == expected, "Expected %lu, got = %lu\n", expected, ret);
+    else
+        ok_(__FILE__,line)(ret == expected, "Expected %lu, got = %lu\n", expected, ret);
     return r;
 }
 
@@ -215,7 +220,10 @@ static void run_command_list(schtask_test *cmdlist, int len)
 
     for (i = 0; i < len; i++)
     {
-        run_command(cmdlist[i].cmd, cmdlist[i].expect);
+        if (cmdlist[i].todo)
+            run_command_todo(cmdlist[i].cmd, cmdlist[i].expect);
+        else
+            run_command(cmdlist[i].cmd, cmdlist[i].expect);
     }
 }
 
@@ -235,11 +243,17 @@ START_TEST(schtasks)
                                         { "/create /xml test.xml /tn wine\\winetest /xml", E_FAIL },
                                         { "/create /xml test.xml /tn wine\\winetest /tn test", E_FAIL },
                                         { "/create /xml test.xml /tn wine\\winetest /xml empty.xml", E_FAIL },
+                                        { "/create /xml test.xml /tn wine\\winetest /tr c:\\windows\\hh.exe", E_FAIL },
                                         { "/change /tn wine\\winetest /enable", 0 },
                                         { "/create /xml test.xml /f /tn wine\\winetest", 0 },
                                         { "/create /xml test.xml /tn wine\\winetest", 1 },
+                                        { "/create /xml test.xml /f /tn wine\\winetest /tr c:\\windows\\hh.exe", E_FAIL },
                                         { "/Delete /f /tn wine\\winetest", 0 },
-                                        { "/create /tn wine\\winetest", E_FAIL } };
+                                        { "/create /tn wine\\winetest", E_FAIL },
+                                        { "/create /tn wine\\winetest /tr c:\\windows\\hh.exe", E_FAIL, FALSE },
+                                        { "/create /tn wine\\winetest /tr c:\\windows\\hh.exe /sc wine", E_FAIL, TRUE },
+                                        { "/create /tn wine\\winetest /tr c:\\windows\\hh.exe /sc daily", 0 },
+                                        { "/DELETE /f /tn wine\\winetest", 0, TRUE } };
     static WCHAR wineW[] = L"\\wine";
     static WCHAR wine_testW[] = L"\\wine\\test";
     DWORD r;
