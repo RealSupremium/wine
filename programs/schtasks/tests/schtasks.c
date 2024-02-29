@@ -29,6 +29,11 @@
 static ITaskService *service;
 static ITaskFolder *root;
 
+typedef struct _schtask_test {
+            const char *cmd;
+            DWORD expect;
+} schtask_test;
+
 static const char xml_a[] =
     "<?xml version=\"1.0\"?>\n"
     "<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n"
@@ -92,8 +97,8 @@ static BOOL check_win_version(int min_major, int min_minor)
 }
 #define is_win10_plus() check_win_version(10, 0)
 
-#define run_command(a) _run_command(__LINE__,a)
-static DWORD _run_command(unsigned line, const char *cmd)
+#define run_command(a, e) _run_command(__LINE__, a, e)
+static BOOL _run_command(unsigned line, const char *cmd, DWORD expected)
 {
     STARTUPINFOA si = {sizeof(STARTUPINFOA)};
     PROCESS_INFORMATION pi;
@@ -106,10 +111,11 @@ static DWORD _run_command(unsigned line, const char *cmd)
     si.hStdOutput = INVALID_HANDLE_VALUE;
     si.hStdError  = INVALID_HANDLE_VALUE;
 
-    strcpy(command, cmd);
+    strcpy(command, "schtasks.exe ");
+    strcat(command, cmd);
     r = CreateProcessA(NULL, command, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
     ok_(__FILE__,line)(r, "CreateProcess failed: %lu\n", GetLastError());
-    if(!r) return -1;
+    if(!r) return FALSE;
 
     ret = WaitForSingleObject(pi.hProcess, 10000);
     ok_(__FILE__,line)(ret == WAIT_OBJECT_0, "wait failed\n");
@@ -121,7 +127,9 @@ static DWORD _run_command(unsigned line, const char *cmd)
 
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    return ret;
+
+    ok_(__FILE__,line)(ret == expected, "Expected %lu, got = %lu\n", expected, ret);
+    return r;
 }
 
 #define register_task(a) _register_task(__LINE__,a)
@@ -201,8 +209,37 @@ static BOOL initialize_task_service(void)
     return TRUE;
 }
 
+static void run_command_list(schtask_test *cmdlist, int len)
+{
+    int i;
+
+    for (i = 0; i < len; i++)
+    {
+        run_command(cmdlist[i].cmd, cmdlist[i].expect);
+    }
+}
+
 START_TEST(schtasks)
 {
+    static schtask_test querylist[] = { { "", 0 },
+                                        { "/wine", 1 } };
+    static schtask_test changlist[] = { { "/change /tn winetest /enable", 0 },
+                                        { "/change /tn winetest /tn /enable", 1,} };
+    static schtask_test unreglist[] = { { "/change /tn winetest /enable", 1 } };
+    static schtask_test creatlist[] = { { "/CHANGE /tn wine\\test\\winetest /enable", 0 },
+                                        { "/delete /f /tn /tn wine\\test\\winetest", 1 },
+                                        { "/delete /f /tn wine\\test\\winetest", 0 },
+                                        { "/Change /tn wine\\test\\winetest /enable", 1 },
+                                        { "/create /xml test.xml /tn wine\\winetest", 0 },
+                                        { "/create /xml test.xml /tn wine\\winetest /tn", E_FAIL },
+                                        { "/create /xml test.xml /tn wine\\winetest /xml", E_FAIL },
+                                        { "/create /xml test.xml /tn wine\\winetest /tn test", E_FAIL },
+                                        { "/create /xml test.xml /tn wine\\winetest /xml empty.xml", E_FAIL },
+                                        { "/change /tn wine\\winetest /enable", 0 },
+                                        { "/create /xml test.xml /f /tn wine\\winetest", 0 },
+                                        { "/create /xml test.xml /tn wine\\winetest", 1 },
+                                        { "/Delete /f /tn wine\\winetest", 0 },
+                                        { "/create /tn wine\\winetest", E_FAIL } };
     static WCHAR wineW[] = L"\\wine";
     static WCHAR wine_testW[] = L"\\wine\\test";
     DWORD r;
@@ -219,55 +256,28 @@ START_TEST(schtasks)
         return;
     }
 
-    r = run_command("schtasks");
-    ok(r == 0, "r = %lu\n", r);
+    create_file("test.xml", xml_a);
+
+    run_command_list(querylist, ARRAY_SIZE(querylist));
 
     register_task("winetest");
 
-    r = run_command("schtasks /change /tn winetest /enable");
-    ok(r == 0, "r = %lu\n", r);
+    run_command_list(changlist, ARRAY_SIZE(changlist));
 
     unregister_task("winetest");
 
-    r = run_command("schtasks /change /tn winetest /enable");
-    ok(r == 1, "r = %lu\n", r);
+    run_command_list(unreglist, ARRAY_SIZE(unreglist));
 
     register_task("wine\\test\\winetest");
 
-    r = run_command("schtasks /CHANGE /tn wine\\test\\winetest /enable");
-    ok(r == 0, "r = %lu\n", r);
-
-    r = run_command("schtasks /delete /f /tn wine\\test\\winetest");
-    ok(r == 0, "r = %lu\n", r);
-
-    r = run_command("schtasks /Change /tn wine\\test\\winetest /enable");
-    ok(r == 1, "r = %lu\n", r);
-
-    create_file("test.xml", xml_a);
-
-    r = run_command("schtasks /create /xml test.xml /tn wine\\winetest");
-    ok(r == 0, "r = %lu\n", r);
-
-    r = run_command("schtasks /change /tn wine\\winetest /enable");
-    ok(r == 0, "r = %lu\n", r);
-
-    r = run_command("schtasks /create /xml test.xml /f /tn wine\\winetest");
-    ok(r == 0, "r = %lu\n", r); /* task already exists, but /f argument provided */
-
-    r = run_command("schtasks /create /xml test.xml /tn wine\\winetest");
-    ok(r == 1, "r = %lu\n", r); /* task already exists */
-
-    r = run_command("schtasks /create /tn wine\\winetest");
-    ok(r == E_FAIL, "r = %lx\n", r); /* missing arguments */
-
-    r = run_command("schtasks /Delete /f /tn wine\\winetest");
-    ok(r == 0, "r = %lu\n", r);
+    run_command_list(creatlist, ARRAY_SIZE(creatlist));
 
     r = DeleteFileA("test.xml");
     ok(r, "DeleteFileA failed: %lu\n", GetLastError());
 
     r = ITaskFolder_DeleteFolder(root, wine_testW, 0);
     ok(r == S_OK, "DeleteFolder(\\wine\\test) failed: %lx\n", r);
+
     r = ITaskFolder_DeleteFolder(root, wineW, 0);
     ok(r == S_OK, "DeleteFolder(\\wine) failed: %lx\n", r);
 

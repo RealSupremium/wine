@@ -25,6 +25,16 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(schtasks);
 
+typedef struct _hash_args {
+    WCHAR option[7];
+    BOOL is_supported;
+    BOOL is_single;
+    union {
+        BOOL enable;
+        WCHAR *value;
+    };
+} hash_args;
+
 static ITaskFolder *get_tasks_root_folder(void)
 {
     ITaskService *service;
@@ -111,7 +121,7 @@ static BSTR read_file_to_bstr(const WCHAR *file_name)
 
     if (read_size > 2 && data[0] == 0xff && data[1] == 0xfe) { /* UTF-16 BOM */
         ret = SysAllocStringLen((const WCHAR *)(data + 2), (read_size - 2) / sizeof(WCHAR));
-    }else {
+    } else {
         size = MultiByteToWideChar(CP_ACP, 0, (const char *)data, read_size, NULL, 0);
         ret = SysAllocStringLen(NULL, size);
         if (ret)
@@ -122,64 +132,76 @@ static BSTR read_file_to_bstr(const WCHAR *file_name)
     return ret;
 }
 
+static BOOL search_option(WCHAR *option, hash_args inputs[], int icount)
+{
+    int i;
+    for (i = 0; i < icount; i++) {
+       if (!wcsicmp(option, inputs[i].option))
+           return i;
+    }
+    return -1;
+}
+
+static BOOL check_args(int argc, WCHAR *argv[], hash_args inputs[], int icount)
+{
+    int index;
+
+    while (argc) {
+        index = search_option(argv[0], inputs, icount);
+        if (index != -1) {
+             if (inputs[index].is_single) {
+                 inputs[index].enable = TRUE;
+                 argc--;
+                 argv++;
+            } else {
+                 if (argc < 2 || !wcsncmp(argv[1], L"/", 1)) {
+                     ERR("Missing %s value\n", debugstr_w(inputs[index].option));
+                     return FALSE;
+                 }
+                 if (inputs[index].value) {
+                     ERR("Duplicated %s argument\n", debugstr_w(inputs[index].option));
+                     return FALSE;
+                 }
+                 inputs[index].value = argv[1];
+                 argc -= 2;
+                 argv += 2;
+             }
+             if (!inputs[index].is_supported)
+                 FIXME("Unsupported %s option %s\n", debugstr_w(inputs[index].option),debugstr_w(inputs[index].value));
+        } else {
+             FIXME("Unsupported arguments %s\n", debugstr_w(argv[0]));
+             return FALSE;
+        }
+    }
+    return TRUE;
+}
+
 static int change_command(int argc, WCHAR *argv[])
 {
-    BOOL have_option = FALSE, enable = FALSE;
-    const WCHAR *task_name = NULL;
+    hash_args change_args[3] = { {L"/tn",     TRUE, FALSE},
+                                 {L"/tr",     TRUE, FALSE},
+                                 {L"/enable", TRUE, TRUE} };
     IRegisteredTask *task;
     HRESULT hres;
 
-    while (argc) {
-        if (!wcsicmp(argv[0], L"/tn")) {
-            if (argc < 2) {
-                FIXME("Missing /tn value\n");
-                return 1;
-            }
+    if (!check_args(argc, argv, change_args, 3 ))
+        return 1;
 
-            if (task_name) {
-                FIXME("Duplicated /tn argument\n");
-                return 1;
-            }
-
-            task_name = argv[1];
-            argc -= 2;
-            argv += 2;
-        } else if (!wcsicmp(argv[0], L"/enable")) {
-            enable = TRUE;
-            have_option = TRUE;
-            argc--;
-            argv++;
-        } else if (!wcsicmp(argv[0], L"/tr")) {
-            if (argc < 2) {
-                FIXME("Missing /tr value\n");
-                return 1;
-            }
-
-            FIXME("Unsupported /tr option %s\n", debugstr_w(argv[1]));
-            have_option = TRUE;
-            argc -= 2;
-            argv += 2;
-        }else {
-            FIXME("Unsupported arguments %s\n", debugstr_w(argv[0]));
-            return 1;
-        }
-    }
-
-    if (!task_name) {
-        FIXME("Missing /tn option\n");
+    if (!change_args[0].value) {
+        ERR("Missing /tn option\n");
         return 1;
     }
 
-    if (!have_option) {
-        FIXME("Missing change options\n");
+    if (!change_args[2].enable && !change_args[1].value) {
+        ERR("Missing change options\n");
         return 1;
     }
 
-    task = get_registered_task(task_name);
+    task = get_registered_task(change_args[0].value);
     if (!task)
         return 1;
 
-    if (enable) {
+    if (change_args[2].enable) {
         hres = IRegisteredTask_put_Enabled(task, VARIANT_TRUE);
         if (FAILED(hres)) {
             IRegisteredTask_Release(task);
@@ -194,7 +216,10 @@ static int change_command(int argc, WCHAR *argv[])
 
 static int create_command(int argc, WCHAR *argv[])
 {
-    const WCHAR *task_name = NULL, *xml_file = NULL;
+    hash_args create_args[4] = { {L"/tn",  TRUE,  FALSE},
+                                 {L"/xml", TRUE,  FALSE},
+                                 {L"/f",   TRUE,  TRUE},
+                                 {L"/ru",  FALSE, FALSE} };
     ITaskFolder *root = NULL;
     LONG flags = TASK_CREATE;
     IRegisteredTask *task;
@@ -202,67 +227,24 @@ static int create_command(int argc, WCHAR *argv[])
     BSTR str, xml;
     HRESULT hres;
 
-    while (argc) {
-        if (!wcsicmp(argv[0], L"/xml")) {
-            if (argc < 2) {
-                FIXME("Missing /xml value\n");
-                return 1;
-            }
+    if (!check_args(argc, argv, create_args, 4 ))
+        return E_FAIL;
 
-            if (xml_file) {
-                FIXME("Duplicated /xml argument\n");
-                return 1;
-            }
-
-            xml_file = argv[1];
-            argc -= 2;
-            argv += 2;
-        } else if (!wcsicmp(argv[0], L"/tn")) {
-            if (argc < 2) {
-                FIXME("Missing /tn value\n");
-                return 1;
-            }
-
-            if (task_name) {
-                FIXME("Duplicated /tn argument\n");
-                return 1;
-            }
-
-            task_name = argv[1];
-            argc -= 2;
-            argv += 2;
-        } else if (!wcsicmp(argv[0], L"/f")) {
-            flags = TASK_CREATE_OR_UPDATE;
-            argc--;
-            argv++;
-        } else if (!wcsicmp(argv[0], L"/ru")) {
-            if (argc < 2) {
-                FIXME("Missing /ru value\n");
-                return 1;
-            }
-
-            FIXME("Unsupported /ru option %s\n", debugstr_w(argv[1]));
-            argc -= 2;
-            argv += 2;
-        }else {
-            FIXME("Unsupported argument %s\n", debugstr_w(argv[0]));
-            return 1;
-        }
-    }
-
-    if (!task_name) {
-        FIXME("Missing /tn argument\n");
-        return 1;
-    }
-
-    if (!xml_file) {
-        FIXME("Missing /xml argument\n");
+    if (!create_args[0].value) {
+        ERR("Missing /tn argument\n");
         return E_FAIL;
     }
 
-    xml = read_file_to_bstr(xml_file);
+    if (!create_args[1].value) {
+        ERR("Missing /xml argument\n");
+        return E_FAIL;
+    }
+
+    if (create_args[2].enable) flags = TASK_CREATE_OR_UPDATE;
+
+    xml = read_file_to_bstr(create_args[1].value);
     if (!xml)
-        return 1;
+        return E_FAIL;
 
     root = get_tasks_root_folder();
     if (!root) {
@@ -271,7 +253,7 @@ static int create_command(int argc, WCHAR *argv[])
     }
 
     V_VT(&empty) = VT_EMPTY;
-    str = SysAllocString(task_name);
+    str = SysAllocString(create_args[0].value);
     hres = ITaskFolder_RegisterTask(root, str, xml, flags, empty, empty,
                                     TASK_LOGON_NONE, empty, &task);
     SysFreeString(str);
@@ -286,38 +268,17 @@ static int create_command(int argc, WCHAR *argv[])
 
 static int delete_command(int argc, WCHAR *argv[])
 {
-    const WCHAR *task_name = NULL;
+    hash_args delete_args[2] = { {L"/tn",  TRUE, FALSE},
+                                 {L"/f",   TRUE, TRUE} };
     ITaskFolder *root = NULL;
     BSTR str;
     HRESULT hres;
 
-    while (argc) {
-        if (!wcsicmp(argv[0], L"/f")) {
-            TRACE("force opt\n");
-            argc--;
-            argv++;
-        } else if (!wcsicmp(argv[0], L"/tn")) {
-            if (argc < 2) {
-                FIXME("Missing /tn value\n");
-                return 1;
-            }
+    if (!check_args(argc, argv, delete_args, 2 ))
+        return 1;
 
-            if (task_name) {
-                FIXME("Duplicated /tn argument\n");
-                return 1;
-            }
-
-            task_name = argv[1];
-            argc -= 2;
-            argv += 2;
-        }else {
-            FIXME("Unsupported argument %s\n", debugstr_w(argv[0]));
-            return 1;
-        }
-    }
-
-    if (!task_name) {
-        FIXME("Missing /tn argument\n");
+    if (!delete_args[0].value) {
+        ERR("Missing /tn argument\n");
         return 1;
     }
 
@@ -325,7 +286,7 @@ static int delete_command(int argc, WCHAR *argv[])
     if (!root)
         return 1;
 
-    str = SysAllocString(task_name);
+    str = SysAllocString(delete_args[0].value);
     hres = ITaskFolder_DeleteTask(root, str, 0);
     SysFreeString(str);
     ITaskFolder_Release(root);
@@ -354,7 +315,10 @@ int __cdecl wmain(int argc, WCHAR *argv[])
     else if (!wcsicmp(argv[1], L"/delete"))
         ret = delete_command(argc - 2, argv + 2);
     else
+    {
         FIXME("Unsupported command %s\n", debugstr_w(argv[1]));
+        ret = 1;
+    }
 
     CoUninitialize();
     return ret;
