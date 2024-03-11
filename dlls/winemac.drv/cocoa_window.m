@@ -1543,7 +1543,7 @@ static CVReturn WineDisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTi
                         reordered = TRUE;
                     }
                     else
-                        ERR(@"shouldn't happen: %@ thinks %@ is a latent child, but it doesn't agree\n", self, child);
+                        ERR("shouldn't happen: %@ thinks %@ is a latent child, but it doesn't agree\n", self, child);
                     [indexesToRemove addIndex:i];
                 }
             }
