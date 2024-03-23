@@ -67,6 +67,16 @@
  */
 #define BOOL DoNotUseBOOLInThisFile
 
+/* Include OpenGL here to avoid typedef conflicts between Windows wgl and OpenGL.framework */
+#define GL_SILENCE_DEPRECATION
+#define __gl_h_
+#define __gltypes_h_
+#include <OpenGL/OpenGL.h>
+#include <OpenGL/gl.h>
+#include <OpenGL/glext.h>
+#include <OpenGL/glu.h>
+#include <OpenGL/CGLRenderers.h>
+
 
 extern bool allow_vsync;
 extern bool allow_set_gamma;
