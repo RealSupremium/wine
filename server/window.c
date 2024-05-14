@@ -1446,6 +1446,18 @@ static struct region *crop_region_to_win_rect( struct window *win, struct region
     struct region *tmp;
 
     if (!get_window_visible_rect( win, &rect, frame )) return NULL;
+
+    if (win->parent && is_window_using_parent_dc( win ))
+    {
+        int offset_x, offset_y;
+
+        if (!get_window_visible_rect( win->parent, &rect, 0 )) return NULL;
+
+        offset_x = win->parent->client_rect.left - win->parent->window_rect.left + win->window_rect.left;
+        offset_y = win->parent->client_rect.top - win->parent->window_rect.top + win->window_rect.top;
+        offset_rect( &rect, -offset_x, -offset_y );
+    }
+
     if (!(tmp = create_empty_region())) return NULL;
     set_region_rect( tmp, &rect );
 
