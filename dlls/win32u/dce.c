@@ -1523,6 +1523,8 @@ static HRGN send_ncpaint( HWND hwnd, HWND *child, UINT *flags )
     HRGN client_rgn = 0;
     DWORD style;
 
+    TRACE( "hwnd %p, flags %08x\n", hwnd, *flags );
+
     if (child) hwnd = *child;
 
     if (hwnd == get_desktop_window()) return whole_rgn;
@@ -1544,23 +1546,20 @@ static HRGN send_ncpaint( HWND hwnd, HWND *child, UINT *flags )
             update.left < rects.client.left || update.top < rects.client.top ||
             update.right > rects.client.right || update.bottom > rects.client.bottom)
         {
-            client_rgn = NtGdiCreateRectRgn( rects.client.left, rects.client.top, rects.client.right, rects.client.bottom );
-            NtGdiCombineRgn( client_rgn, client_rgn, whole_rgn, RGN_AND );
-
             /* check if update rgn contains complete nonclient area */
-            if (type == SIMPLEREGION && EqualRect( &rects.window, &update ))
+            if (type == SIMPLEREGION && update.left <= rects.window.left && update.top <= rects.window.top &&
+                update.right >= rects.window.right && update.bottom >= rects.window.bottom)
             {
-                NtGdiDeleteObjectApp( whole_rgn );
-                whole_rgn = (HRGN)1;
+                client_rgn = (HRGN)1;
+            }
+            else
+            {
+                client_rgn = NtGdiCreateRectRgn( rects.client.left, rects.client.top, rects.client.right, rects.client.bottom );
+                NtGdiCombineRgn( client_rgn, client_rgn, whole_rgn, RGN_AND );
             }
         }
-        else
-        {
-            client_rgn = whole_rgn;
-            whole_rgn = 0;
-        }
 
-        if (whole_rgn) /* NOTE: WM_NCPAINT allows wParam to be 1 */
+        if (client_rgn) /* NOTE: WM_NCPAINT allows wParam to be 1 */
         {
             if (*flags & UPDATE_NONCLIENT)
             {
@@ -1571,13 +1570,13 @@ static HRGN send_ncpaint( HWND hwnd, HWND *child, UINT *flags )
                 if (style & WS_VSCROLL)
                     set_standard_scroll_painted( hwnd, SB_VERT, FALSE );
 
-                send_message( hwnd, WM_NCPAINT, (WPARAM)whole_rgn, 0 );
+                send_message( hwnd, WM_NCPAINT, (WPARAM)client_rgn, 0 );
             }
-            if (whole_rgn > (HRGN)1) NtGdiDeleteObjectApp( whole_rgn );
+            if (client_rgn > (HRGN)1) NtGdiDeleteObjectApp( client_rgn );
         }
         set_thread_dpi_awareness_context( context );
     }
-    return client_rgn;
+    return whole_rgn;
 }
 
 /***********************************************************************
@@ -1699,6 +1698,8 @@ HDC WINAPI NtUserBeginPaint( HWND hwnd, PAINTSTRUCT *ps )
     RECT rect;
     UINT flags = UPDATE_NONCLIENT | UPDATE_ERASE | UPDATE_PAINT | UPDATE_INTERNALPAINT | UPDATE_NOCHILDREN;
 
+    TRACE( "hwnd %p\n", hwnd );
+
     NtUserHideCaret( hwnd );
 
     if (!(hrgn = send_ncpaint( hwnd, NULL, &flags ))) return 0;
@@ -1723,6 +1724,8 @@ HDC WINAPI NtUserBeginPaint( HWND hwnd, PAINTSTRUCT *ps )
  */
 BOOL WINAPI NtUserEndPaint( HWND hwnd, const PAINTSTRUCT *ps )
 {
+    TRACE( "hwnd %p\n", hwnd );
+
     NtUserShowCaret( hwnd );
     flush_window_surfaces( FALSE );
     if (!ps) return FALSE;
