@@ -1594,6 +1594,8 @@ static BOOL send_erase( HWND hwnd, UINT flags, HRGN client_rgn,
     HDC hdc = 0;
     RECT dummy;
 
+    TRACE( "hwnd %p, flags %08x, client_rgn %p\n", hwnd, flags, client_rgn );
+
     if (!clip_rect) clip_rect = &dummy;
     if (hdc_ret || (flags & UPDATE_ERASE))
     {
@@ -1603,6 +1605,13 @@ static BOOL send_erase( HWND hwnd, UINT flags, HRGN client_rgn,
         if ((hdc = NtUserGetDCEx( hwnd, client_rgn, dcx_flags )))
         {
             INT type = NtGdiGetAppClipBox( hdc, clip_rect );
+
+            if (get_class_long( hwnd, GCL_STYLE, FALSE ) & CS_PARENTDC)
+            {
+                RECT client_rect;
+                get_client_rect( hwnd, &client_rect, get_thread_dpi() );
+                intersect_rect( clip_rect, clip_rect, &client_rect );
+            }
 
             if (flags & UPDATE_ERASE)
             {
