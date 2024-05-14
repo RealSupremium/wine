@@ -1664,7 +1664,24 @@ static void redraw_window( struct window *win, struct region *region, unsigned i
             const int frame = nested;  /* validating nested child; include frame */
             if ((tmp = crop_region_to_win_rect( win, region, frame )))
             {
-                if (!subtract_region( tmp, win->update_region, tmp ))
+                if ((child_rgn = create_empty_region()))
+                {
+                    struct rectangle rect = win->window_rect;
+
+                    offset_rect( &rect, -rect.left, -rect.top );
+                    set_region_rect( child_rgn, &rect );
+
+                    if (subtract_region( child_rgn, child_rgn, tmp ) && is_region_empty( child_rgn ) )
+                    {
+                        /* region covers whole window: validate everything */
+                        free_region( tmp );
+                        tmp = NULL;
+                    }
+
+                    free_region( child_rgn );
+                }
+
+                if (tmp && !subtract_region( tmp, win->update_region, tmp ))
                 {
                     free_region( tmp );
                     return;
