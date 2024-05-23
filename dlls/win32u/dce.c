@@ -1920,12 +1920,19 @@ INT WINAPI NtUserGetUpdateRgn( HWND hwnd, HRGN hrgn, BOOL erase )
 BOOL WINAPI NtUserGetUpdateRect( HWND hwnd, RECT *rect, BOOL erase )
 {
     UINT flags = UPDATE_NOCHILDREN;
-    HRGN update_rgn;
+    HRGN update_rgn, client_rgn;
+    struct window_rects rects;
     BOOL need_erase;
 
     if (erase) flags |= UPDATE_NONCLIENT | UPDATE_ERASE;
 
     if (!(update_rgn = send_ncpaint( hwnd, NULL, &flags ))) return FALSE;
+
+    get_window_rects( hwnd, COORDS_SCREEN, &rects, get_thread_dpi() );
+
+    client_rgn = NtGdiCreateRectRgn( rects.client.left, rects.client.top, rects.client.right, rects.client.bottom );
+    NtGdiCombineRgn( update_rgn, update_rgn, client_rgn, RGN_AND );
+    NtGdiDeleteObjectApp( client_rgn );
 
     if (rect && NtGdiGetRgnBox( update_rgn, rect ) != NULLREGION)
     {
