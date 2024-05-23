@@ -1893,7 +1893,15 @@ INT WINAPI NtUserGetUpdateRgn( HWND hwnd, HRGN hrgn, BOOL erase )
 
     if ((update_rgn = send_ncpaint( hwnd, NULL, &flags )))
     {
-        retval = NtGdiCombineRgn( hrgn, update_rgn, 0, RGN_COPY );
+        struct window_rects rects;
+        HRGN client_rgn;
+
+        get_window_rects( hwnd, COORDS_SCREEN, &rects, get_thread_dpi() );
+
+        client_rgn = NtGdiCreateRectRgn( rects.client.left, rects.client.top, rects.client.right, rects.client.bottom );
+        retval = NtGdiCombineRgn( hrgn, update_rgn, client_rgn, RGN_AND );
+        NtGdiDeleteObjectApp( client_rgn );
+
         if (send_erase( hwnd, flags, update_rgn, NULL, NULL ))
         {
             flags = UPDATE_DELAYED_ERASE;
