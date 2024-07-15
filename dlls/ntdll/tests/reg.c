@@ -1454,7 +1454,7 @@ static void test_redirection(void)
     KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
     KEY_FULL_INFORMATION *full_info = (KEY_FULL_INFORMATION *)buffer;
     DWORD dw, len;
-    HANDLE key, key32, key64, root, root32, root64;
+    HANDLE key, key32, key64, root, root32, root64, hkcu;
     int subkeys64, subkeys32;
 
     if (ptr_size != 64)
@@ -2012,6 +2012,62 @@ static void test_redirection(void)
 
     pNtDeleteKey( key32 );
     pNtClose( key32 );
+
+    /* HKCU\\Software is shared. */
+    pRtlOpenCurrentUser( KEY_ALL_ACCESS, (HANDLE *)&hkcu );
+    attr.RootDirectory = hkcu;
+    pRtlInitUnicodeString( &str, L"Software\\Wow6432Node\\tmp" );
+    status = pNtCreateKey( &key, KEY_WOW64_32KEY | KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
+    ok( !status, "got %#lx.\n", status );
+    pNtDeleteKey( key );
+    pNtClose( key );
+
+    pRtlInitUnicodeString( &str, L"Software\\TestKey" );
+    status = pNtCreateKey( &root64, KEY_WOW64_32KEY | KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
+    ok( !status, "got %#lx.\n", status );
+
+    pRtlInitUnicodeString( &str, L"Software\\Wow6432Node\\TestKey" );
+    status = pNtOpenKey( &root32, KEY_WOW64_64KEY | KEY_ALL_ACCESS, &attr );
+    ok ( status == STATUS_OBJECT_NAME_NOT_FOUND, "got %#lx.\n", status );
+    status = pNtCreateKey( &root32, KEY_WOW64_32KEY | KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
+    ok( !status, "got %#lx.\n", status );
+
+    dw = 1;
+    status = pNtSetValueKey( root64, &value_str, 0, REG_DWORD, &dw, sizeof(dw) );
+    ok( !status, "got %#lx.\n", status );
+    dw = 2;
+    status = pNtSetValueKey( root32, &value_str, 0, REG_DWORD, &dw, sizeof(dw) );
+    ok( !status, "got %#lx.\n", status );
+
+    attr.RootDirectory = root64;
+    pRtlInitUnicodeString( &str, L"subkey" );
+    status = pNtCreateKey( &key64, KEY_WOW64_64KEY | KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
+    ok( !status, "got %#lx.\n", status );
+    dw = 1;
+    status = pNtSetValueKey( key64, &value_str, 0, REG_DWORD, &dw, sizeof(dw) );
+    ok( !status, "got %#lx.\n", status );
+
+    attr.RootDirectory = root32;
+    status = pNtCreateKey( &key32, KEY_WOW64_64KEY | KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
+    ok( !status, "got %#lx.\n", status );
+    dw = 2;
+    status = pNtSetValueKey( key32, &value_str, 0, REG_DWORD, &dw, sizeof(dw) );
+    ok( !status, "got %#lx.\n", status );
+
+    check_key_value( hkcu, "Software\\TestKey", KEY_WOW64_64KEY, 1 );
+    check_key_value( hkcu, "Software\\TestKey", KEY_WOW64_32KEY, 1 );
+    check_key_value( hkcu, "Software\\TestKey\\subkey", KEY_WOW64_64KEY, 1 );
+    check_key_value( hkcu, "Software\\TestKey\\subkey", KEY_WOW64_32KEY, 1 );
+
+    pNtDeleteKey( key64 );
+    pNtClose( key64 );
+    pNtDeleteKey( key32 );
+    pNtClose( key32 );
+    pNtDeleteKey( root32 );
+    pNtClose( root32 );
+    pNtDeleteKey( root64 );
+    pNtClose( root64 );
+    pNtClose( hkcu );
 }
 
 static void test_long_value_name(void)
