@@ -709,11 +709,8 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
         }
 
         async->state = ASYNC_COMPLETED;
-        if (!async->signaled)
-        {
-            async->signaled = 1;
-            wake_up( &async->obj, 0 );
-        }
+        async->signaled = 1;
+        wake_up( &async->obj, 0 );
 
         async_call_completion_callback( async );
 
