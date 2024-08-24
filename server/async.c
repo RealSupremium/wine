@@ -167,6 +167,11 @@ static int async_terminated( const struct async *async )
     return async->terminated;
 }
 
+static int async_alerted( const struct async *async )
+{
+    return async->alerted;
+}
+
 /* notifies client thread of new status of its async request */
 void async_terminate( struct async *async, unsigned int status )
 {
@@ -501,7 +506,7 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
 
     if (async->unknown_status) async_set_initial_status( async, status );
 
-    if (async->alerted && status == STATUS_PENDING)  /* restart it */
+    if (async_alerted( async ) && status == STATUS_PENDING)  /* restart it */
     {
         async->terminated = 0;
         async->alerted = 0;
@@ -871,7 +876,7 @@ DECL_HANDLER(set_async_direct_result)
 
     if (!async) return;
 
-    if (!async->unknown_status || !async_terminated( async ) || !async->alerted)
+    if (!async->unknown_status || !async_terminated( async ) || !async_alerted( async ))
     {
         set_error( STATUS_INVALID_PARAMETER );
         release_object( &async->obj );
