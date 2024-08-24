@@ -172,6 +172,11 @@ static int async_alerted( const struct async *async )
     return async->alerted;
 }
 
+static int async_unknown_status( const struct async *async )
+{
+    return async->unknown_status;
+}
+
 /* notifies client thread of new status of its async request */
 void async_terminate( struct async *async, unsigned int status )
 {
@@ -327,7 +332,7 @@ void set_async_pending( struct async *async )
 
 void async_wake_obj( struct async *async )
 {
-    assert( !async->unknown_status );
+    assert( !async_unknown_status( async ) );
     if (!async->blocking)
     {
         async->signaled = 1;
@@ -347,7 +352,7 @@ obj_handle_t async_handoff( struct async *async, data_size_t *result, int force_
 {
     async->blocking = force_blocking || async->blocking;
 
-    if (async->unknown_status)
+    if (async_unknown_status( async ))
     {
         /* even the initial status is not known yet */
         set_error( STATUS_PENDING );
@@ -504,7 +509,7 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
 
     assert( async_terminated( async ) );  /* it must have been woken up if we get a result */
 
-    if (async->unknown_status) async_set_initial_status( async, status );
+    if (async_unknown_status( async )) async_set_initial_status( async, status );
 
     if (async_alerted( async ) && status == STATUS_PENDING)  /* restart it */
     {
@@ -570,7 +575,7 @@ int async_queue_has_waiting_asyncs( struct async_queue *queue )
     struct async *async;
 
     LIST_FOR_EACH_ENTRY( async, &queue->queue, struct async, queue_entry )
-        if (!async->unknown_status) return 1;
+        if (!async_unknown_status( async )) return 1;
 
     return 0;
 }
@@ -876,7 +881,7 @@ DECL_HANDLER(set_async_direct_result)
 
     if (!async) return;
 
-    if (!async->unknown_status || !async_terminated( async ) || !async_alerted( async ))
+    if (!async_unknown_status( async ) || !async_terminated( async ) || !async_alerted( async ))
     {
         set_error( STATUS_INVALID_PARAMETER );
         release_object( &async->obj );
