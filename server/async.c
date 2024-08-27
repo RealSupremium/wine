@@ -94,7 +94,6 @@ struct async
     enum async_state     state;
     unsigned int         pending :1;      /* request successfully queued, but pending */
     unsigned int         alerted :1;      /* fd is signaled, but we are waiting for client-side I/O */
-    unsigned int         terminated :1;   /* async has been terminated */
     unsigned int         canceled :1;     /* have we already queued cancellation for this async? */
     unsigned int         unknown_status :1; /* initial status is not known yet */
     unsigned int         blocking :1;     /* async is blocking */
@@ -230,21 +229,18 @@ static int async_terminated( const struct async *async )
     case ASYNC_INITIAL:
     case ASYNC_INITIAL_DIRECT_RESULT:
     case ASYNC_IN_PROGRESS:
-        assert( async->terminated == 0 );
-        break;
+        return 0;
     case ASYNC_UNKNOWN_STATUS:
     case ASYNC_ALERTED:
     case ASYNC_FINALIZING_SYNC_APC_RESULT:
     case ASYNC_FINALIZING_SYNC_DIRECT_RESULT:
     case ASYNC_FINALIZING_ASYNC:
     case ASYNC_COMPLETED:
-        assert( async->terminated == 1 );
-        break;
+        return 1;
     default:
         assert( 0 );
-        break;
+        return 0;
     }
-    return async->terminated;
 }
 
 static int async_alerted( const struct async *async )
@@ -311,7 +307,6 @@ void async_terminate( struct async *async, unsigned int status )
             async->state = ASYNC_FINALIZING_ASYNC;
     }
 
-    async->terminated = 1;
     if (async->iosb && async->iosb->status == STATUS_PENDING) async->iosb->status = status;
     if (status == STATUS_ALERTED)
         async->alerted = 1;
@@ -422,7 +417,6 @@ struct async *create_async( struct fd *fd, struct thread *thread, const struct a
     async->pending       = 1;
     async->wait_handle   = 0;
     async->alerted       = 0;
-    async->terminated    = 0;
     async->canceled      = 0;
     async->unknown_status = 0;
     async->blocking      = !is_fd_overlapped( fd );
@@ -460,8 +454,7 @@ void async_set_initial_status( struct async *async, unsigned int status )
 
 void set_async_pending( struct async *async )
 {
-    assert( (!async->terminated) == (async->state == ASYNC_INITIAL_DIRECT_RESULT || async->state == ASYNC_UNKNOWN_STATUS) );
-    if (!async->terminated)
+    if (async->state == ASYNC_INITIAL_DIRECT_RESULT || async->state == ASYNC_UNKNOWN_STATUS)
         async->pending = 1;
 }
 
@@ -652,7 +645,6 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
     {
         assert( async->state == ASYNC_INITIAL || async->state == ASYNC_ALERTED );
         async->state = ASYNC_IN_PROGRESS;
-        async->terminated = 0;
         async->alerted = 0;
         async_reselect( async );
     }
@@ -660,7 +652,6 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
     {
         if (async->timeout) remove_timeout_user( async->timeout );
         async->timeout = NULL;
-        async->terminated = 1;
         if (async->iosb) async->iosb->status = status;
 
         /* don't signal completion if the async failed synchronously
