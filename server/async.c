@@ -92,7 +92,6 @@ struct async
     obj_handle_t         wait_handle;     /* pre-allocated wait handle */
     unsigned int         initial_status;  /* status returned from initial request */
     enum async_state     state;
-    unsigned int         signaled :1;
     unsigned int         pending :1;      /* request successfully queued, but pending */
     unsigned int         alerted :1;      /* fd is signaled, but we are waiting for client-side I/O */
     unsigned int         terminated :1;   /* async has been terminated */
@@ -159,27 +158,22 @@ static int async_signaled( struct object *obj, struct wait_queue_entry *entry )
     case ASYNC_INITIAL_DIRECT_RESULT:
     case ASYNC_UNKNOWN_STATUS:
     case ASYNC_FINALIZING_SYNC_APC_RESULT:
-        assert( async->signaled == 0 );
-        break;
+        return 0;
     case ASYNC_FINALIZING_SYNC_DIRECT_RESULT:
         /* The client will "wait" on the async to signal completion. */
-        assert( async->signaled == 1 );
-        break;
+        return 1;
     case ASYNC_IN_PROGRESS:
     case ASYNC_ALERTED:
     case ASYNC_FINALIZING_ASYNC:
         /* If nonblocking, the client will "wait" on the async to close it. */
-        assert( async->signaled == (!async->blocking) );
-        break;
+        return !async->blocking;
     case ASYNC_COMPLETED:
         /* If there is an open async handle, notify the waiter of completion. */
-        assert( async->signaled == 1 );
-        break;
+        return 1;
     default:
         assert( 0 );
-        break;
+        return 0;
     }
-    return async->signaled;
 }
 
 static void async_satisfied( struct object *obj, struct wait_queue_entry *entry )
@@ -325,7 +319,6 @@ void async_terminate( struct async *async, unsigned int status )
     if (async->state == ASYNC_FINALIZING_SYNC_DIRECT_RESULT ||
         ((async->state == ASYNC_ALERTED || async->state == ASYNC_FINALIZING_ASYNC) && !async->blocking))
     {
-        async->signaled = 1;
         wake_up( &async->obj, 0 );
     }
 
@@ -426,7 +419,6 @@ struct async *create_async( struct fd *fd, struct thread *thread, const struct a
     async->fd            = (struct fd *)grab_object( fd );
     async->initial_status = STATUS_PENDING;
     async->state         = ASYNC_INITIAL;
-    async->signaled      = 0;
     async->pending       = 1;
     async->wait_handle   = 0;
     async->alerted       = 0;
@@ -480,7 +472,6 @@ void async_wake_obj( struct async *async )
     async->state = ASYNC_IN_PROGRESS;
     if (!async->blocking)
     {
-        async->signaled = 1;
         wake_up( &async->obj, 0 );
     }
 }
@@ -559,7 +550,6 @@ obj_handle_t async_handoff( struct async *async, data_size_t *result, int force_
     if (async->iosb->status != STATUS_PENDING)
     {
         if (result) *result = async->iosb->result;
-        async->signaled = 1;
     }
     else
     {
@@ -701,7 +691,6 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
         }
 
         async->state = ASYNC_COMPLETED;
-        async->signaled = 1;
         wake_up( &async->obj, 0 );
 
         async_call_completion_callback( async );
