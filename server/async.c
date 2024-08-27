@@ -241,29 +241,6 @@ static int async_terminated( const struct async *async )
     }
 }
 
-static int async_alerted( const struct async *async )
-{
-    switch (async->state)
-    {
-    case ASYNC_INITIAL_DIRECT_RESULT:
-    case ASYNC_IN_PROGRESS:
-    case ASYNC_FINALIZING_SYNC_APC_RESULT:
-    case ASYNC_FINALIZING_SYNC_DIRECT_RESULT:
-    case ASYNC_FINALIZING_ASYNC:
-    case ASYNC_COMPLETED:
-        return 0;
-    case ASYNC_INITIAL:
-        /* initial status set from set_async_direct_result */
-        return 1;
-    case ASYNC_UNKNOWN_STATUS:
-    case ASYNC_ALERTED:
-        return 1;
-    default:
-        assert( 0 );
-        return 0;
-    }
-}
-
 /* notifies client thread of new status of its async request */
 void async_terminate( struct async *async, unsigned int status )
 {
@@ -618,10 +595,11 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
     assert( async_terminated( async ) );  /* it must have been woken up if we get a result */
 
     if (async->state == ASYNC_UNKNOWN_STATUS) async_set_initial_status( async, status );
+    assert( async->state != ASYNC_UNKNOWN_STATUS );
 
-    if (async_alerted( async ) && status == STATUS_PENDING)  /* restart it */
+    if ((async->state == ASYNC_INITIAL || async->state == ASYNC_ALERTED) &&
+        status == STATUS_PENDING)  /* restart it */
     {
-        assert( async->state == ASYNC_INITIAL || async->state == ASYNC_ALERTED );
         async->state = ASYNC_IN_PROGRESS;
         async_reselect( async );
     }
