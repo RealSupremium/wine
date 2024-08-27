@@ -93,7 +93,6 @@ struct async
     unsigned int         initial_status;  /* status returned from initial request */
     enum async_state     state;
     unsigned int         pending :1;      /* request successfully queued, but pending */
-    unsigned int         alerted :1;      /* fd is signaled, but we are waiting for client-side I/O */
     unsigned int         canceled :1;     /* have we already queued cancellation for this async? */
     unsigned int         unknown_status :1; /* initial status is not known yet */
     unsigned int         blocking :1;     /* async is blocking */
@@ -253,21 +252,17 @@ static int async_alerted( const struct async *async )
     case ASYNC_FINALIZING_SYNC_DIRECT_RESULT:
     case ASYNC_FINALIZING_ASYNC:
     case ASYNC_COMPLETED:
-        assert( async->alerted == 0 );
-        break;
+        return 0;
     case ASYNC_INITIAL:
         /* initial status set from set_async_direct_result */
-        assert( async->alerted == 1 );
-        break;
+        return 1;
     case ASYNC_UNKNOWN_STATUS:
     case ASYNC_ALERTED:
-        assert( async->alerted == 1 );
-        break;
+        return 1;
     default:
         assert( 0 );
-        break;
+        return 0;
     }
-    return async->alerted;
 }
 
 static int async_unknown_status( const struct async *async )
@@ -308,8 +303,6 @@ void async_terminate( struct async *async, unsigned int status )
     }
 
     if (async->iosb && async->iosb->status == STATUS_PENDING) async->iosb->status = status;
-    if (status == STATUS_ALERTED)
-        async->alerted = 1;
 
     if (async->state == ASYNC_FINALIZING_SYNC_DIRECT_RESULT ||
         ((async->state == ASYNC_ALERTED || async->state == ASYNC_FINALIZING_ASYNC) && !async->blocking))
@@ -416,7 +409,6 @@ struct async *create_async( struct fd *fd, struct thread *thread, const struct a
     async->state         = ASYNC_INITIAL;
     async->pending       = 1;
     async->wait_handle   = 0;
-    async->alerted       = 0;
     async->canceled      = 0;
     async->unknown_status = 0;
     async->blocking      = !is_fd_overlapped( fd );
@@ -645,7 +637,6 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
     {
         assert( async->state == ASYNC_INITIAL || async->state == ASYNC_ALERTED );
         async->state = ASYNC_IN_PROGRESS;
-        async->alerted = 0;
         async_reselect( async );
     }
     else
