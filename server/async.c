@@ -264,11 +264,6 @@ static int async_alerted( const struct async *async )
     }
 }
 
-static int async_unknown_status( const struct async *async )
-{
-    return async->state == ASYNC_UNKNOWN_STATUS;
-}
-
 /* notifies client thread of new status of its async request */
 void async_terminate( struct async *async, unsigned int status )
 {
@@ -446,7 +441,6 @@ void set_async_pending( struct async *async )
 
 void async_wake_obj( struct async *async )
 {
-    assert( !async_unknown_status( async ) );
     assert( async->state == ASYNC_INITIAL );
     async->state = ASYNC_IN_PROGRESS;
     if (!async->blocking)
@@ -467,7 +461,7 @@ obj_handle_t async_handoff( struct async *async, data_size_t *result, int force_
 {
     async->blocking = force_blocking || async->blocking;
 
-    if (async_unknown_status( async ))
+    if (async->state == ASYNC_UNKNOWN_STATUS)
     {
         /* even the initial status is not known yet */
         set_error( STATUS_PENDING );
@@ -623,7 +617,7 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
 
     assert( async_terminated( async ) );  /* it must have been woken up if we get a result */
 
-    if (async_unknown_status( async )) async_set_initial_status( async, status );
+    if (async->state == ASYNC_UNKNOWN_STATUS) async_set_initial_status( async, status );
 
     if (async_alerted( async ) && status == STATUS_PENDING)  /* restart it */
     {
@@ -685,7 +679,7 @@ int async_queue_has_waiting_asyncs( struct async_queue *queue )
     struct async *async;
 
     LIST_FOR_EACH_ENTRY( async, &queue->queue, struct async, queue_entry )
-        if (!async_unknown_status( async )) return 1;
+        if (async->state != ASYNC_UNKNOWN_STATUS) return 1;
 
     return 0;
 }
@@ -991,7 +985,7 @@ DECL_HANDLER(set_async_direct_result)
 
     if (!async) return;
 
-    if (!async_unknown_status( async ) || !async_terminated( async ) || !async_alerted( async ))
+    if (async->state != ASYNC_UNKNOWN_STATUS)
     {
         set_error( STATUS_INVALID_PARAMETER );
         release_object( &async->obj );
