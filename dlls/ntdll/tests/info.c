@@ -4139,19 +4139,18 @@ static void test_set_process_tls_info(void)
                                       offsetof(PROCESS_TLS_INFORMATION, ThreadData[tlsinfo->ThreadDataCount]));
     if (wow)
     {
-        todo_wine ok( !status, "got %#lx.\n", status );
+        ok( !status, "got %#lx.\n", status );
         ok( tlsinfo->Flags == 1, "got %#lx.\n", tlsinfo->Flags );
-        todo_wine ok( tlsinfo->ThreadData[0].Flags == THREAD_TLS_INFORMATION_ASSIGNED, "got %#lx.\n", tlsinfo->ThreadData[0].Flags );
-        todo_wine ok( tlsinfo->ThreadData[0].ThreadId == curr_thread_id, "got %#Ix.\n", tlsinfo->ThreadData[0].ThreadId );
+        ok( tlsinfo->ThreadData[0].Flags == THREAD_TLS_INFORMATION_ASSIGNED, "got %#lx.\n", tlsinfo->ThreadData[0].Flags );
+        ok( tlsinfo->ThreadData[0].ThreadId == curr_thread_id, "got %#Ix.\n", tlsinfo->ThreadData[0].ThreadId );
     }
     else
     {
-        todo_wine ok( status == STATUS_INVALID_PARAMETER, "got %#lx.\n", status );
+        ok( status == STATUS_INVALID_PARAMETER, "got %#lx.\n", status );
         ok( tlsinfo->Flags == 1, "got %#lx.\n", tlsinfo->Flags );
         ok( !tlsinfo->ThreadData[0].Flags, "got %#lx.\n", tlsinfo->ThreadData[0].Flags );
         ok( tlsinfo->ThreadData[0].ThreadId == thread_id, "got %#Ix.\n", tlsinfo->ThreadData[0].ThreadId );
     }
-    if (status == STATUS_NOT_IMPLEMENTED) return;
 
     /* Other PROCESS_TLS_INFORMATION flags are invalid. STATUS_INFO_LENGTH_MISMATCH is weird but that's for any flag
      * besides 1. */
