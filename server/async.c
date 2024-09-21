@@ -94,7 +94,6 @@ struct async
     enum async_state     state;
     unsigned int         signaled :1;
     unsigned int         pending :1;      /* request successfully queued, but pending */
-    unsigned int         direct_result :1;/* a flag if we're passing result directly from request instead of APC  */
     unsigned int         alerted :1;      /* fd is signaled, but we are waiting for client-side I/O */
     unsigned int         terminated :1;   /* async has been terminated */
     unsigned int         canceled :1;     /* have we already queued cancellation for this async? */
@@ -191,11 +190,9 @@ static void async_satisfied( struct object *obj, struct wait_queue_entry *entry 
     /* we only return an async handle for asyncs created via create_request_async() */
     assert( async->iosb );
 
-    assert( async->direct_result == (async->state == ASYNC_FINALIZING_SYNC_DIRECT_RESULT) );
-    if (async->direct_result)
+    if (async->state == ASYNC_FINALIZING_SYNC_DIRECT_RESULT)
     {
         async_set_result( &async->obj, async->iosb->status, async->iosb->result );
-        async->direct_result = 0;
     }
 
     if (async->initial_status == STATUS_PENDING && async->blocking)
@@ -299,8 +296,7 @@ void async_terminate( struct async *async, unsigned int status )
 
     if (status == STATUS_ALERTED)
     {
-        assert( async->direct_result == (async->state == ASYNC_INITIAL_DIRECT_RESULT) );
-        if (async->direct_result)
+        if (async->state == ASYNC_INITIAL_DIRECT_RESULT)
         {
             assert( async->unknown_status );
             async->state = ASYNC_UNKNOWN_STATUS;
@@ -338,8 +334,7 @@ void async_terminate( struct async *async, unsigned int status )
      * last reference to the async, so grab a temporary reference here */
     grab_object( async );
 
-    assert( (!async->direct_result) == (async->state != ASYNC_FINALIZING_SYNC_DIRECT_RESULT && async->state != ASYNC_UNKNOWN_STATUS) );
-    if (!async->direct_result)
+    if (async->state != ASYNC_FINALIZING_SYNC_DIRECT_RESULT && async->state != ASYNC_UNKNOWN_STATUS)
     {
         union apc_call data;
 
@@ -434,7 +429,6 @@ struct async *create_async( struct fd *fd, struct thread *thread, const struct a
     async->signaled      = 0;
     async->pending       = 1;
     async->wait_handle   = 0;
-    async->direct_result = 0;
     async->alerted       = 0;
     async->terminated    = 0;
     async->canceled      = 0;
@@ -525,10 +519,10 @@ obj_handle_t async_handoff( struct async *async, data_size_t *result, int force_
          * the one responsible for performing the I/O is not the device driver,
          * but instead the client that requested the I/O in the first place.
          *
-         * also, async_set_unknown_status() would set direct_result to zero
-         * forcing APC_ASYNC_IO to fire in async_terminate(), which is not
-         * useful due to subtle semantic differences between synchronous and
-         * asynchronous completion.
+         * also, async_set_unknown_status() would eventually force APC_ASYNC_IO
+         * to fire in async_terminate(), which is not useful due to subtle
+         * semantic differences between synchronous and asynchronous
+         * completion.
          */
         async->unknown_status = 1;
         async_terminate( async, STATUS_ALERTED );
@@ -571,7 +565,6 @@ obj_handle_t async_handoff( struct async *async, data_size_t *result, int force_
     {
         assert( async->state == ASYNC_INITIAL_DIRECT_RESULT );
         async->state = ASYNC_IN_PROGRESS;
-        async->direct_result = 0;
         async->pending = 1;
         if (!async->blocking)
         {
@@ -629,7 +622,6 @@ void async_set_unknown_status( struct async *async )
     assert( async->state == ASYNC_INITIAL_DIRECT_RESULT );
     async->state = ASYNC_UNKNOWN_STATUS;
     async->unknown_status = 1;
-    async->direct_result = 0;
 }
 
 /* set the timeout of an async operation */
@@ -945,7 +937,6 @@ struct async *create_request_async( struct fd *fd, unsigned int comp_flags, cons
         }
         async->pending       = 0;
         async->state         = ASYNC_INITIAL_DIRECT_RESULT;
-        async->direct_result = 1;
         async->is_system     = !!is_system;
         async->comp_flags    = comp_flags;
     }
@@ -1046,7 +1037,6 @@ DECL_HANDLER(set_async_direct_result)
 
     if (status == STATUS_PENDING)
     {
-        async->direct_result = 0;
         async->pending = 1;
     }
     else if (req->mark_pending)
