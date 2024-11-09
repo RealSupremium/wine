@@ -1379,7 +1379,6 @@ static void test_source_resolver(void)
     /* Release without calling Shutdown(). In this case, Shutdown() should be called internally when
      * releasing the last ref, which will release any references held by contained media streams. */
     refcount = IMFMediaSource_Release(mediasource);
-    todo_wine
     ok(!refcount, "Unexpected refcount %ld\n", refcount);
     IMFByteStream_Release(stream);
 
