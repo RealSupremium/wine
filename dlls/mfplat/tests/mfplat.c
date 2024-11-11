@@ -1694,7 +1694,6 @@ static void test_source_resolver(void)
 
     /* Holding a reference to the video stream does not prevent release of the media source. */
     refcount = IMFMediaSource_Release(mediasource);
-    todo_wine
     ok(!refcount, "Unexpected refcount %ld\n", refcount);
 
     IMFByteStream_Release(stream);
