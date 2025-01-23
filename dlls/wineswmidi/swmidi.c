@@ -28,6 +28,25 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(midi);
 
+static DWORD swmidi_get_dev_caps(MIDIOUTCAPSW *out_caps, DWORD_PTR size)
+{
+    MIDIOUTCAPSW caps = {
+        MM_MICROSOFT, MM_MSFT_WDMAUDIO_MIDIOUT, 0x050a,
+        L"Wine GS Wavetable SW Synth",
+        MOD_SWSYNTH, 48, 48, 0xffff,
+        MIDICAPS_VOLUME | MIDICAPS_LRVOLUME,
+    };
+
+    TRACE("out_caps %p, size %Iu.\n", out_caps, size);
+
+    if (!out_caps)
+        return MMSYSERR_INVALPARAM;
+
+    memcpy(out_caps, &caps, min(size, sizeof(caps)));
+
+    return MMSYSERR_NOERROR;
+}
+
 DWORD WINAPI swmidi_modMessage(UINT dev_id, UINT msg, DWORD_PTR user, DWORD_PTR param1,
         DWORD_PTR param2)
 {
@@ -41,6 +60,8 @@ DWORD WINAPI swmidi_modMessage(UINT dev_id, UINT msg, DWORD_PTR user, DWORD_PTR 
         return MMSYSERR_NOERROR;
     case MODM_GETNUMDEVS:
         return 1;
+    case MODM_GETDEVCAPS:
+        return swmidi_get_dev_caps((MIDIOUTCAPSW *)param1, param2);
     }
 
     return MMSYSERR_NOTSUPPORTED;
