@@ -279,9 +279,12 @@ static void test_midiOut_device(UINT udev, HWND hwnd)
     DWORD ovolume;
     UINT  udevid;
     MIDIHDR mhdr;
+    BOOL swmidi;
+
+    swmidi = udev == midiOutGetNumDevs() - 1;
 
     rc = midiOutGetDevCapsA(udev, &capsA, sizeof(capsA));
-    ok(!rc, "midiOutGetDevCaps(dev=%d) rc=%s\n", udev, mmsys_error(rc));
+    todo_wine_if(swmidi) ok(!rc, "midiOutGetDevCaps(dev=%d) rc=%s\n", udev, mmsys_error(rc));
     if (!rc) {
         trace("* %s: manufacturer=%d, product=%d, tech=%d, support=%lX: %d voices, %d notes\n",
               capsA.szPname, capsA.wMid, capsA.wPid, capsA.wTechnology, capsA.dwSupport, capsA.wVoices, capsA.wNotes);

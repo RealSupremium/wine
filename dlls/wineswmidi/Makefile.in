@@ -1,0 +1,4 @@
+MODULE = wineswmidi.dll
+
+SOURCES = \
+	swmidi.c
