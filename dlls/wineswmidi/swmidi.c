@@ -28,6 +28,35 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(midi);
 
+struct swmidi
+{
+    CRITICAL_SECTION cs;
+
+    BOOL open;
+    MIDIOPENDESC open_desc;
+    WORD flags;
+};
+
+static struct swmidi swmidi;
+
+static DWORD swmidi_init(void)
+{
+    TRACE("\n");
+
+    InitializeCriticalSection(&swmidi.cs);
+
+    return MMSYSERR_NOERROR;
+}
+
+static DWORD swmidi_exit(void)
+{
+    TRACE("\n");
+
+    DeleteCriticalSection(&swmidi.cs);
+
+    return MMSYSERR_NOERROR;
+}
+
 static DWORD swmidi_get_dev_caps(MIDIOUTCAPSW *out_caps, DWORD_PTR size)
 {
     MIDIOUTCAPSW caps = {
@@ -47,6 +76,46 @@ static DWORD swmidi_get_dev_caps(MIDIOUTCAPSW *out_caps, DWORD_PTR size)
     return MMSYSERR_NOERROR;
 }
 
+static DWORD swmidi_open(MIDIOPENDESC *desc, UINT flags)
+{
+    TRACE("desc %p, flags %x.\n", desc, flags);
+
+    EnterCriticalSection(&swmidi.cs);
+
+    if (swmidi.open)
+    {
+        LeaveCriticalSection(&swmidi.cs);
+        return MMSYSERR_ALLOCATED;
+    }
+
+    swmidi.open = TRUE;
+    swmidi.open_desc = *desc;
+    swmidi.flags = HIWORD(flags & CALLBACK_TYPEMASK);
+
+    LeaveCriticalSection(&swmidi.cs);
+
+    DriverCallback(swmidi.open_desc.dwCallback, swmidi.flags, (HDRVR)swmidi.open_desc.hMidi,
+            MOM_OPEN, swmidi.open_desc.dwInstance, 0, 0);
+
+    return MMSYSERR_NOERROR;
+}
+
+static DWORD swmidi_close(void)
+{
+    TRACE("\n");
+
+    EnterCriticalSection(&swmidi.cs);
+
+    swmidi.open = FALSE;
+
+    LeaveCriticalSection(&swmidi.cs);
+
+    DriverCallback(swmidi.open_desc.dwCallback, swmidi.flags, (HDRVR)swmidi.open_desc.hMidi,
+            MOM_CLOSE, swmidi.open_desc.dwInstance, 0, 0);
+
+    return MMSYSERR_NOERROR;
+}
+
 DWORD WINAPI swmidi_modMessage(UINT dev_id, UINT msg, DWORD_PTR user, DWORD_PTR param1,
         DWORD_PTR param2)
 {
@@ -56,12 +125,17 @@ DWORD WINAPI swmidi_modMessage(UINT dev_id, UINT msg, DWORD_PTR user, DWORD_PTR 
     switch (msg)
     {
     case DRVM_INIT:
+        return swmidi_init();
     case DRVM_EXIT:
-        return MMSYSERR_NOERROR;
+        return swmidi_exit();
     case MODM_GETNUMDEVS:
         return 1;
     case MODM_GETDEVCAPS:
         return swmidi_get_dev_caps((MIDIOUTCAPSW *)param1, param2);
+    case MODM_OPEN:
+        return swmidi_open((MIDIOPENDESC *)param1, param2);
+    case MODM_CLOSE:
+        return swmidi_close();
     }
 
     return MMSYSERR_NOTSUPPORTED;
