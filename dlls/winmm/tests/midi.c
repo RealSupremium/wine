@@ -903,7 +903,7 @@ static void test_midiStream(UINT udev, HWND hwnd)
     rc = midiStreamProperty(hm, (void*)&midiprop, MIDIPROP_SET | MIDIPROP_TIMEDIV);
     ok(rc == MMSYSERR_INVALPARAM, "midiStreamProperty(SET|TIMEDIV, dev=%d) rc=%s\n", udev, mmsys_error(rc));
 
-    ret = WaitForSingleObject(records.done, INFINITE);
+    ret = WaitForSingleObject(records.done, 3000);
     ok(ret == WAIT_OBJECT_0, "WaitForSingleObject failed, got %ld\n", ret);
 
     rc = midiStreamPause(hm);
