@@ -1006,7 +1006,7 @@ static void test_VariantCompare(void)
     VariantInit(&var2);
 #define VARINIT(var,vt,val) V_VT(var) = VT_ ## vt; V_ ## vt(var) = (val)
 #define VARCMP_(pvar1,pvar2,exp) res = VariantCompare(pvar1, pvar2);    \
-    todo_wine_if(exp) ok(res == (exp), "res=%d while expecting %d\n", res, (exp))
+    ok(res == (exp), "res=%d while expecting %d\n", res, (exp))
 #define VARCMP(vt1,val1,vt2,val2,exp)                   \
     { VARINIT(&var1,vt1,(val1));                        \
       VARINIT(&var2,vt2,(val2));                        \
