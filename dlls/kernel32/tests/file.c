@@ -1063,13 +1063,13 @@ static void test_CopyFileW(void)
         wcscat(long_path_1, a);
         SetLastError(0xdeadbeef);
         ret = CopyFileExW(source, long_path_1, NULL, NULL, NULL, 0);
-        todo_wine ok(!ret && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExW failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), wine_dbgstr_w(source), wine_dbgstr_w(long_path_1));
+        ok(!ret && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExW failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), wine_dbgstr_w(source), wine_dbgstr_w(long_path_1));
 
         wcscpy(long_path_2, temp_path);
         wcscat(long_path_2, b);
         SetLastError(0xdeadbeef);
         ret = CopyFileExW(long_path_1, long_path_2, NULL, NULL, NULL, 0);
-        todo_wine ok(!ret && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExW failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), wine_dbgstr_w(long_path_1), wine_dbgstr_w(long_path_2));
+        ok(!ret && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExW failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), wine_dbgstr_w(long_path_1), wine_dbgstr_w(long_path_2));
 
         ret = DeleteFileW(long_path_1);
         todo_wine ok(!ret, "Unexpected DeleteFileW successed\n");
@@ -1427,12 +1427,12 @@ static void test_CopyFileEx(void)
         strcat(long_path_1, a);
         SetLastError(0xdeadbeef);
         retok = CopyFileExA(source, long_path_1, NULL, NULL, NULL, 0);
-        todo_wine ok(!retok && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExA failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), source, long_path_1);
+        ok(!retok && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExA failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), source, long_path_1);
         strcpy(long_path_2, temp_path);
         strcat(long_path_2, b);
         SetLastError(0xdeadbeef);
         retok = CopyFileExA(long_path_1, long_path_2, NULL, NULL, NULL, 0);
-        todo_wine ok(!retok && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExA failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), long_path_1, long_path_2);
+        ok(!retok && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExA failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), long_path_1, long_path_2);
         retok = DeleteFileA(long_path_1);
         todo_wine ok(!retok, "Unexpected DeleteFileA successed\n");
         retok = DeleteFileA(long_path_2);

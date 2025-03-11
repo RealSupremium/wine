@@ -527,6 +527,18 @@ static BOOL copy_file( const WCHAR *source, const WCHAR *dest, COPYFILE2_EXTENDE
         SetLastError( ERROR_INVALID_PARAMETER );
         return FALSE;
     }
+
+    if (wcslen(source) >= MAX_PATH && wcsncmp(source, L"\\\\?\\", 4) && !RtlGetCurrentPeb()->IsLongPathAwareProcess)
+    {
+        SetLastError( ERROR_PATH_NOT_FOUND );
+        return FALSE;
+    }
+    if (wcslen(dest) >= MAX_PATH && wcsncmp(dest, L"\\\\?\\", 4) && !RtlGetCurrentPeb()->IsLongPathAwareProcess)
+    {
+        SetLastError( ERROR_PATH_NOT_FOUND );
+        return FALSE;
+    }
+
     if (!(buffer = HeapAlloc( GetProcessHeap(), 0, buffer_size )))
     {
         SetLastError( ERROR_NOT_ENOUGH_MEMORY );
