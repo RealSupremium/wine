@@ -1011,9 +1011,12 @@ BOOLEAN WINAPI /* DECLSPEC_HOTPATCH */ CreateSymbolicLinkW( LPCWSTR link, LPCWST
 BOOL WINAPI DECLSPEC_HOTPATCH DeleteFileA( LPCSTR path )
 {
     WCHAR *pathW;
+    BOOL res;
 
-    if (!(pathW = file_name_AtoW( path, FALSE ))) return FALSE;
-    return DeleteFileW( pathW );
+    if (!(pathW = file_name_AtoW( path, TRUE ))) return FALSE;
+    res = DeleteFileW( pathW );
+    HeapFree( GetProcessHeap(), 0, pathW );
+    return res;
 }
 
 

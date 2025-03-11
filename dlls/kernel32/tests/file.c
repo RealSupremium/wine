@@ -1417,9 +1417,9 @@ static void test_CopyFileEx(void)
         retok = CopyFileExA(long_path_1, long_path_2, NULL, NULL, NULL, 0);
         ok(retok, "Expected CopyFileExA succeeded, but got %ld, copy %s -> %s\n", GetLastError(), long_path_1, long_path_2);
         retok = DeleteFileA(long_path_1);
-        todo_wine ok(retok, "DeleteFileA failed: %ld, %s\n", GetLastError(), long_path_1);
+        ok(retok, "DeleteFileA failed: %ld, %s\n", GetLastError(), long_path_1);
         retok = DeleteFileA(long_path_2);
-        todo_wine ok(retok, "DeleteFileA failed: %ld, %s\n", GetLastError(), long_path_2);
+        ok(retok, "DeleteFileA failed: %ld, %s\n", GetLastError(), long_path_2);
     }
     else
     {
@@ -1434,9 +1434,9 @@ static void test_CopyFileEx(void)
         retok = CopyFileExA(long_path_1, long_path_2, NULL, NULL, NULL, 0);
         ok(!retok && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExA failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), long_path_1, long_path_2);
         retok = DeleteFileA(long_path_1);
-        todo_wine ok(!retok, "Unexpected DeleteFileA successed\n");
+        ok(!retok, "Unexpected DeleteFileA successed\n");
         retok = DeleteFileA(long_path_2);
-        todo_wine ok(!retok, "Unexpected DeleteFileA successed\n");
+        ok(!retok, "Unexpected DeleteFileA successed\n");
     }
 
     /* test long file name prepend "\\?\" */
@@ -1454,9 +1454,9 @@ static void test_CopyFileEx(void)
     ok(retok, "CopyFileExA failed, got %ld, copy %s -> %s failed\n", GetLastError(), long_path_1, long_path_2);
 
     retok = DeleteFileA(long_path_1);
-    todo_wine ok(retok, "DeleteFileA failed: %lu, %s\n", GetLastError(), long_path_1);
+    ok(retok, "DeleteFileA failed: %lu, %s\n", GetLastError(), long_path_1);
     retok = DeleteFileA(long_path_2);
-    todo_wine ok(retok, "DeleteFileA failed: %lu, %s\n", GetLastError(), long_path_2);
+    ok(retok, "DeleteFileA failed: %lu, %s\n", GetLastError(), long_path_2);
 
     ret = DeleteFileA(source);
     ok(ret, "DeleteFileA failed with error %ld\n", GetLastError());
@@ -2174,7 +2174,7 @@ static void test_DeleteFileA( void )
         strcpy(long_path, temp_path);
         strcat(long_path, a);
         ret = DeleteFileA(long_path);
-        todo_wine ok(ret, "DeleteFileA failed with error %ld\n", GetLastError());
+        ok(ret, "DeleteFileA failed with error %ld\n", GetLastError());
     }
     else
     {
@@ -2183,7 +2183,7 @@ static void test_DeleteFileA( void )
         strcat(long_path, a);
         SetLastError(0xdeadbeef);
         ret = DeleteFileA(long_path);
-        todo_wine ok(ret, "DeleteFileA failed with error %ld\n", GetLastError());
+        ok(ret, "DeleteFileA failed with error %ld\n", GetLastError());
 
         ret = CopyFileExA(argv[0], long_path, NULL, NULL, NULL, 0);
         ok(ret, "got error %lu\n", GetLastError());
