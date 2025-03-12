@@ -1039,6 +1039,12 @@ BOOL WINAPI DECLSPEC_HOTPATCH DeleteFileW( LPCWSTR path )
         return FALSE;
     }
 
+    if (wcslen(path) >= MAX_PATH && wcsncmp(path, L"\\\\?\\", 4) && !RtlGetCurrentPeb()->IsLongPathAwareProcess)
+    {
+        SetLastError( ERROR_PATH_NOT_FOUND );
+        return FALSE;
+    }
+
     InitializeObjectAttributes( &attr, &nameW, OBJ_CASE_INSENSITIVE, 0, NULL );
     status = NtCreateFile(&hFile, SYNCHRONIZE | DELETE, &attr, &io, NULL, 0,
 			  FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,

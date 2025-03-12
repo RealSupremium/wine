@@ -1072,9 +1072,9 @@ static void test_CopyFileW(void)
         ok(!ret && GetLastError() == ERROR_PATH_NOT_FOUND, "Expected CopyFileExW failed with ERROR_PATH_NOT_FOUND, but got %ld, copy %s -> %s\n", GetLastError(), wine_dbgstr_w(long_path_1), wine_dbgstr_w(long_path_2));
 
         ret = DeleteFileW(long_path_1);
-        todo_wine ok(!ret, "Unexpected DeleteFileW successed\n");
+        ok(!ret, "Unexpected DeleteFileW successed\n");
         ret = DeleteFileW(long_path_2);
-        todo_wine ok(!ret, "Unexpected DeleteFileW successed\n");
+        ok(!ret, "Unexpected DeleteFileW successed\n");
     }
 
     /* test long file name prepend "\\?\" */
@@ -2191,7 +2191,7 @@ static void test_DeleteFileA( void )
         strcpy(long_path, temp_path);
         strcat(long_path, a);
         ret = DeleteFileA(long_path);
-        todo_wine ok(!ret, "Unexpected DeleteFileA successed, %s\n", long_path);
+        ok(!ret, "Unexpected DeleteFileA successed, %s\n", long_path);
     }
 }
 
@@ -2271,7 +2271,7 @@ static void test_DeleteFileW( void )
         wcscpy(long_path, pathW);
         wcscat(long_path, a);
         ret = DeleteFileW(long_path);
-        todo_wine ok(ret, "DeleteFileW: error %ld\n", GetLastError());
+        ok(ret, "DeleteFileW: error %ld\n", GetLastError());
     }
     else
     {
@@ -2280,7 +2280,7 @@ static void test_DeleteFileW( void )
         wcscat(long_path, a);
         SetLastError(0xdeadbeef);
         ret = DeleteFileW(long_path);
-        todo_wine ok(ret, "DeleteFileW: error %ld\n", GetLastError());
+        ok(ret, "DeleteFileW: error %ld\n", GetLastError());
 
         ret = CopyFileExW(pathsubW, long_path, NULL, NULL, NULL, 0);
         ok(ret, "got error %lu\n", GetLastError());
@@ -2288,7 +2288,7 @@ static void test_DeleteFileW( void )
         wcscpy(long_path, pathW);
         wcscat(long_path, a);
         ret = DeleteFileW(long_path);
-        todo_wine ok(!ret, "Unexpected DeleteFileW successed, %s\n", wine_dbgstr_w(long_path));
+        ok(!ret, "Unexpected DeleteFileW successed, %s\n", wine_dbgstr_w(long_path));
     }
 
     DeleteFileW(pathsubW);
