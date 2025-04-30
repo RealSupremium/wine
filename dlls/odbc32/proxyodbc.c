@@ -6596,10 +6596,17 @@ static SQLRETURN prepare_unix_w( struct statement *stmt, SQLWCHAR *statement, SQ
 
 static SQLRETURN prepare_win32_w( struct statement *stmt, SQLWCHAR *statement, SQLINTEGER len )
 {
+    SQLRETURN ret = SQL_ERROR;
+
     if (stmt->hdr.win32_funcs->SQLPrepareW)
         return stmt->hdr.win32_funcs->SQLPrepareW( stmt->hdr.win32_handle, statement, len );
-    if (stmt->hdr.win32_funcs->SQLPrepare) FIXME( "Unicode to ANSI conversion not handled\n" );
-    return SQL_ERROR;
+    if (stmt->hdr.win32_funcs->SQLPrepare)
+    {
+        SQLCHAR *statementA = strnWtoA( statement, len );
+        ret = stmt->hdr.win32_funcs->SQLPrepare( stmt->hdr.win32_handle, statementA, SQL_NTS );
+        free(statementA);
+    }
+    return ret;
 }
 
 /*************************************************************************
