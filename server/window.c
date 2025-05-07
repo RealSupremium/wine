@@ -1257,6 +1257,7 @@ static struct region *get_visible_region( struct window *win, unsigned int flags
     /* first check if all ancestors are visible */
 
     if (!is_visible( win )) return region;  /* empty region */
+    if (win->style & WS_MINIMIZE) return region;
 
     if (is_desktop_window( win ))
     {
@@ -1422,6 +1423,7 @@ static int get_window_visible_rect( struct window *win, struct rectangle *rect, 
     *rect = frame ? win->window_rect : win->client_rect;
 
     if (!(win->style & WS_VISIBLE)) return 0;
+    if (win->style & WS_MINIMIZE) return 0;
     if (is_desktop_window( win )) return 1;
 
     while (!is_desktop_window( win->parent ))
