@@ -136,6 +136,7 @@ static const struct object_ops window_ops =
 #define PAINT_NONCLIENT          0x0040  /* needs WM_NCPAINT */
 #define PAINT_DELAYED_ERASE      0x0080  /* still needs erase after WM_ERASEBKGND */
 #define PAINT_PIXEL_FORMAT_CHILD 0x0100  /* at least one child has a custom pixel format */
+#define PAINT_INVALIDATED        0x0200  /* window has been fully invalidated */
 
 /* growable array of user handles */
 struct user_handle_array
@@ -1489,7 +1490,7 @@ static void set_update_region( struct window *win, struct region *region )
             inc_window_paint_count( win, -1 );
             free_region( win->update_region );
         }
-        win->paint_flags &= ~(PAINT_ERASE | PAINT_DELAYED_ERASE | PAINT_NONCLIENT);
+        win->paint_flags &= ~(PAINT_ERASE | PAINT_DELAYED_ERASE | PAINT_NONCLIENT | PAINT_INVALIDATED);
         win->update_region = NULL;
         if (region) free_region( region );
     }
@@ -1652,6 +1653,7 @@ static void redraw_window( struct window *win, struct region *region, unsigned i
 
         if (!add_update_region( win, tmp )) return;
 
+        if (!region)           win->paint_flags |= PAINT_INVALIDATED;
         if (flags & RDW_FRAME) win->paint_flags |= PAINT_NONCLIENT;
         if (flags & RDW_ERASE) win->paint_flags |= PAINT_ERASE;
     }
@@ -1676,6 +1678,7 @@ static void redraw_window( struct window *win, struct region *region, unsigned i
             if (flags & RDW_NOFRAME) validate_non_client( win );
             if (flags & RDW_NOERASE) win->paint_flags &= ~(PAINT_ERASE | PAINT_DELAYED_ERASE);
         }
+        win->paint_flags &= ~PAINT_INVALIDATED;
     }
 
     if ((flags & RDW_INTERNALPAINT) && !(win->paint_flags & PAINT_INTERNAL))
@@ -1987,6 +1990,10 @@ static void set_window_pos( struct window *win, struct window *previous,
 
     if (win->update_region)
     {
+        int frame = win->paint_flags & PAINT_NONCLIENT;
+        if ((win->paint_flags & PAINT_INVALIDATED) && get_window_visible_rect( win, &rect, frame ))
+            set_region_rect( win->update_region, &rect );
+
         if (get_window_visible_rect( win, &rect, 1 ))
         {
             struct region *tmp = create_empty_region();
