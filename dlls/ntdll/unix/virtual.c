@@ -2364,7 +2364,16 @@ static NTSTATUS map_file_into_view( struct file_view *view, int fd, size_t start
         /* changes to the file are not guaranteed to be visible in read-only MAP_PRIVATE mappings,
          * but they are on Linux so we take advantage of it */
 #ifdef __linux__
-        flags |= MAP_PRIVATE;
+        static int use_map_private = -1;
+        if (use_map_private == -1)
+            use_map_private = getenv("RUNNING_UNDER_RR") ? FALSE : TRUE;
+        if (vprot & SEC_FILE || use_map_private)
+            flags |= MAP_PRIVATE;
+        else
+        {
+            flags |= MAP_SHARED;
+            prot &= ~PROT_WRITE;
+        }
 #else
         flags |= MAP_SHARED;
         prot &= ~PROT_WRITE;
