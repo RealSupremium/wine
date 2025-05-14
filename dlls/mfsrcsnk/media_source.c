@@ -240,6 +240,8 @@ struct media_source
     IMFByteStream *stream;
     WCHAR *url;
     float rate;
+    BOOL thin;
+    BOOL prev_thin;
 
     struct winedmo_demuxer winedmo_demuxer;
     struct winedmo_stream winedmo_stream;
@@ -631,14 +633,24 @@ static HRESULT media_source_read(struct media_source *source)
     IMFSample *sample;
     UINT i, index;
     HRESULT hr;
+    BOOL thin = source->thin;
 
     if (source->state != SOURCE_RUNNING)
         return S_OK;
 
-    if (FAILED(hr = demuxer_read_sample(source->winedmo_demuxer, &index, &sample)) && hr != MF_E_END_OF_STREAM)
+    /* emulate latency */
+    if (thin != source->prev_thin)
     {
-        WARN("Failed to read stream %u data, hr %#lx\n", index, hr);
-        return hr;
+        source->prev_thin = thin;
+        thin = TRUE;
+    }
+
+    while (SUCCEEDED(hr = demuxer_read_sample(source->winedmo_demuxer, &index, &sample)) && thin)
+    {
+        UINT32 keyframe;
+        if (SUCCEEDED(IMFSample_GetUINT32( sample, &MFSampleExtension_CleanPoint, &keyframe )) && keyframe)
+            break;
+        IMFSample_Release(sample);
     }
 
     if (hr == MF_E_END_OF_STREAM)
@@ -646,6 +658,11 @@ static HRESULT media_source_read(struct media_source *source)
         for (i = 0; i < source->stream_count; i++)
             media_source_send_eos(source, source->streams[i]);
         return S_OK;
+    }
+    else if (FAILED(hr))
+    {
+        WARN("Failed to read stream %u data, hr %#lx\n", index, hr);
+        return hr;
     }
 
     if ((hr = media_source_send_sample(source, index, sample)) == S_FALSE)
@@ -1047,14 +1064,13 @@ static HRESULT WINAPI media_source_IMFRateControl_SetRate(IMFRateControl *iface,
 
     if (rate < 0.0f)
         return MF_E_REVERSE_UNSUPPORTED;
-    if (thin)
-        return MF_E_THINNING_UNSUPPORTED;
 
     if (FAILED(hr = IMFRateSupport_IsRateSupported(&source->IMFRateSupport_iface, thin, rate, NULL)))
         return hr;
 
     EnterCriticalSection(&source->cs);
     source->rate = rate;
+    source->thin = thin;
     LeaveCriticalSection(&source->cs);
 
     return IMFMediaEventQueue_QueueEventParamVar(source->queue, MESourceRateChanged, &GUID_NULL, S_OK, NULL);
@@ -1066,11 +1082,10 @@ static HRESULT WINAPI media_source_IMFRateControl_GetRate(IMFRateControl *iface,
 
     TRACE("source %p, thin %p, rate %p\n", source, thin, rate);
 
-    if (thin)
-        *thin = FALSE;
-
     EnterCriticalSection(&source->cs);
     *rate = source->rate;
+    if (thin)
+        *thin = source->thin;
     LeaveCriticalSection(&source->cs);
 
     return S_OK;
