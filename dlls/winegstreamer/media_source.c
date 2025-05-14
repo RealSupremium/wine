@@ -137,6 +137,7 @@ struct media_stream
     DWORD stream_id;
     BOOL active;
     BOOL eos;
+    BOOL thin;
 };
 
 enum source_async_op
@@ -199,6 +200,8 @@ struct media_source
         SOURCE_SHUTDOWN,
     } state;
     float rate;
+    BOOL thin;
+    BOOL prev_thin;
 
     HANDLE read_thread;
     bool read_thread_shutdown;
@@ -712,12 +715,13 @@ static HRESULT media_source_stop(struct media_source *source)
     return IMFMediaEventQueue_QueueEventParamVar(source->event_queue, MESourceStopped, &GUID_NULL, S_OK, NULL);
 }
 
-static HRESULT media_stream_send_sample(struct media_stream *stream, const struct wg_parser_buffer *wg_buffer, IUnknown *token)
+static HRESULT media_stream_send_sample(struct media_stream *stream, const struct wg_parser_buffer *wg_buffer, IUnknown *token, BOOL thin)
 {
     IMFSample *sample = NULL;
     IMFMediaBuffer *buffer;
     HRESULT hr;
     BYTE *data;
+    PROPVARIANT param;
 
     if (FAILED(hr = MFCreateMemoryBuffer(wg_buffer->size, &buffer)))
         return hr;
@@ -748,6 +752,15 @@ static HRESULT media_stream_send_sample(struct media_stream *stream, const struc
         goto out;
     if (token && FAILED(hr = IMFSample_SetUnknown(sample, &MFSampleExtension_Token, token)))
         goto out;
+
+    if (stream->thin != thin)
+    {
+        param.vt = VT_INT;
+        param.iVal = thin;
+        if (FAILED(hr = IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamThinMode, &GUID_NULL, S_OK, &param)))
+            WARN("Failed to queue MEStreamThinMode event, hr %#lx\n", hr);
+        stream->thin = thin;
+    }
 
     hr = IMFMediaEventQueue_QueueEventParamUnk(stream->event_queue, MEMediaSample,
             &GUID_NULL, S_OK, (IUnknown *)sample);
@@ -801,12 +814,20 @@ static HRESULT wait_on_sample(struct media_stream *stream, IUnknown *token)
 {
     struct media_source *source = impl_from_IMFMediaSource(stream->media_source);
     struct wg_parser_buffer buffer;
+    HRESULT hr;
 
     TRACE("%p, %p\n", stream, token);
 
     while (stream_get_buffer(stream, &buffer))
     {
-        HRESULT hr = media_stream_send_sample(stream, &buffer, token);
+        if ((source->thin || source->prev_thin) && buffer.delta)
+        {
+            wg_parser_stream_release_buffer(stream->wg_stream);
+            continue;
+        }
+        if (source->prev_thin != source->thin) source->prev_thin = source->thin;
+
+        hr = media_stream_send_sample(stream, &buffer, token, source->thin);
         if (hr != S_FALSE)
             return hr;
     }
@@ -1294,14 +1315,12 @@ static HRESULT WINAPI media_source_rate_control_SetRate(IMFRateControl *iface, B
     if (rate < 0.0f)
         return MF_E_REVERSE_UNSUPPORTED;
 
-    if (thin)
-        return MF_E_THINNING_UNSUPPORTED;
-
     if (FAILED(hr = IMFRateSupport_IsRateSupported(&source->IMFRateSupport_iface, thin, rate, NULL)))
         return hr;
 
     EnterCriticalSection(&source->cs);
     source->rate = rate;
+    source->thin = thin;
     LeaveCriticalSection(&source->cs);
 
     return IMFMediaEventQueue_QueueEventParamVar(source->event_queue, MESourceRateChanged, &GUID_NULL, S_OK, NULL);
@@ -1313,11 +1332,10 @@ static HRESULT WINAPI media_source_rate_control_GetRate(IMFRateControl *iface, B
 
     TRACE("%p, %p, %p.\n", iface, thin, rate);
 
-    if (thin)
-        *thin = FALSE;
-
     EnterCriticalSection(&source->cs);
     *rate = source->rate;
+    if (thin)
+        *thin = source->thin;
     LeaveCriticalSection(&source->cs);
 
     return S_OK;
@@ -1661,6 +1679,7 @@ static HRESULT media_source_create(struct object_context *context, IMFMediaSourc
     IMFByteStream_AddRef(context->stream);
     object->file_size = context->file_size;
     object->rate = 1.0f;
+    object->thin = FALSE;
     InitializeCriticalSectionEx(&object->cs, 0, RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO);
     object->cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": cs");
 

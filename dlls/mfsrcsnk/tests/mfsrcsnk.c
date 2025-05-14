@@ -627,12 +627,10 @@ static void test_sample_times_at_rate(IMFMediaSource *source, FLOAT rate, BOOL t
     hr = MFGetService((IUnknown *)source, &MF_RATE_CONTROL_SERVICE, &IID_IMFRateControl, (void **)&rate_control);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = IMFRateControl_SetRate(rate_control, thin, rate);
-    todo_wine_if(thin && hr == MF_E_THINNING_UNSUPPORTED)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     IMFRateControl_Release(rate_control);
 
     hr = wait_media_event(source, callback, MESourceRateChanged, 100, &value);
-    todo_wine_if(thin)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     todo_wine
     ok(value.vt == VT_R4, "got vt %u\n", value.vt);
@@ -641,13 +639,11 @@ static void test_sample_times_at_rate(IMFMediaSource *source, FLOAT rate, BOOL t
 
     hr = IMFMediaStream_RequestSample(stream, NULL);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    if (!winetest_platform_is_wine)
-    {
+
     hr = wait_media_event(stream, callback, MEStreamThinMode, 100, &value);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(value.vt == VT_INT, "got vt %u\n", value.vt);
     ok(value.iVal == thin, "Unexpected thin %d\n", value.iVal);
-    }
 
     winetest_push_context("sample 1");
 
@@ -656,7 +652,6 @@ static void test_sample_times_at_rate(IMFMediaSource *source, FLOAT rate, BOOL t
     ok(value.vt == VT_UNKNOWN, "got vt %u\n", value.vt);
     hr = IMFSample_GetSampleTime((IMFSample *)value.punkVal, &time);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    todo_wine
     ok(time == expect_times[2], "Unexpected time %s.\n", debugstr_time(time));
     hr = IMFSample_GetSampleDuration((IMFSample *)value.punkVal, &time);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -679,7 +674,7 @@ static void test_sample_times_at_rate(IMFMediaSource *source, FLOAT rate, BOOL t
         ok(value.vt == VT_UNKNOWN, "got vt %u\n", value.vt);
         hr = IMFSample_GetSampleTime((IMFSample *)value.punkVal, &time);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-        todo_wine
+        todo_wine_if(!thin)
         ok(time == (thin ? expect_times_thin[2 * i] : expect_times[2 * i]), "Unexpected time %s.\n", debugstr_time(time));
         hr = IMFSample_GetSampleDuration((IMFSample *)value.punkVal, &time);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
