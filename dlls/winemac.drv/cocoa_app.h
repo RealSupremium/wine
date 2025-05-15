@@ -22,8 +22,6 @@
 
 #include "macdrv_cocoa.h"
 
-#define ERR(...) do { if (macdrv_err_on) LogError(__func__, __VA_ARGS__); } while (false)
-
 
 enum {
     WineApplicationEventWakeQuery,
