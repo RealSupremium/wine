@@ -1713,7 +1713,7 @@ static void redraw_window( struct window *win, struct region *region, unsigned i
             if (rect_in_region( child_rgn, &child->window_rect ))
             {
                 offset_region( child_rgn, -child->client_rect.left, -child->client_rect.top );
-                redraw_window( child, child_rgn, flags, 1 );
+                redraw_window( child, region ? child_rgn : NULL, flags, 1 );
             }
         }
         free_region( child_rgn );
