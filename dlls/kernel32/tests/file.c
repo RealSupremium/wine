@@ -2088,6 +2088,10 @@ static void test_DeleteFileA( void )
     char temp_path[MAX_PATH], temp_file[MAX_PATH];
     HANDLE hfile, mapping;
     char **argv;
+    /* long file name, 247 charactors */
+    const char *a = "a2345678lsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfie.txt";
+    /* long file path is %TEMP%/%long_name% */
+    char long_path[MAX_PATH * 2] = { 0 };
 
     ret = DeleteFileA(NULL);
     ok(!ret && (GetLastError() == ERROR_INVALID_PARAMETER ||
@@ -2156,6 +2160,39 @@ static void test_DeleteFileA( void )
     ok(ret, "got error %lu\n", GetLastError());
 
     CloseHandle(hfile);
+
+    SetLastError(0xdeadbeef);
+    GetTempPathA(MAX_PATH, temp_path);
+    strcpy(long_path, "\\\\?\\");
+    strcat(long_path, temp_path);
+    strcat(long_path, a);
+    ret = CopyFileExA(argv[0], long_path, NULL, NULL, NULL, 0);
+    ok(ret, "got error %lu\n", GetLastError());
+
+    if (is_enabled_long_path())
+    {
+        strcpy(long_path, temp_path);
+        strcat(long_path, a);
+        ret = DeleteFileA(long_path);
+        todo_wine ok(ret, "DeleteFileA failed with error %ld\n", GetLastError());
+    }
+    else
+    {
+        strcpy(long_path, "\\\\?\\");
+        strcat(long_path, temp_path);
+        strcat(long_path, a);
+        SetLastError(0xdeadbeef);
+        ret = DeleteFileA(long_path);
+        todo_wine ok(ret, "DeleteFileA failed with error %ld\n", GetLastError());
+
+        ret = CopyFileExA(argv[0], long_path, NULL, NULL, NULL, 0);
+        ok(ret, "got error %lu\n", GetLastError());
+
+        strcpy(long_path, temp_path);
+        strcat(long_path, a);
+        ret = DeleteFileA(long_path);
+        todo_wine ok(!ret, "Unexpected DeleteFileA successed, %s\n", long_path);
+    }
 }
 
 static void test_DeleteFileW( void )
@@ -2166,6 +2203,12 @@ static void test_DeleteFileW( void )
     static const WCHAR dirW[] = {'d','e','l','e','t','e','f','i','l','e',0};
     static const WCHAR subdirW[] = {'\\','s','u','b',0};
     static const WCHAR emptyW[]={'\0'};
+
+    /* long file name, 247 charactors */
+    const WCHAR *a = L"a2345678lsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfielfelfjellsfalfielsfleflsfie.txt";
+    /* long file path is %TEMP%/%long_name% */
+    WCHAR long_path[MAX_PATH * 2] = { 0 };
+    HANDLE hfile;
 
     ret = DeleteFileW(NULL);
     if (ret == 0 && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
@@ -2208,6 +2251,47 @@ static void test_DeleteFileW( void )
     ok(ret == TRUE, "expected to remove directory deletefile\\sub\n");
     ret = RemoveDirectoryW(pathW);
     ok(ret == TRUE, "expected to remove directory deletefile\n");
+
+    SetLastError(0xdeadbeef);
+    GetTempPathW(MAX_PATH, pathW);
+    wcscpy(pathsubW, pathW);
+    wcscat(pathsubW, L"\\test.txt");
+    hfile = CreateFileW(pathsubW, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, 0, 0);
+    ok(hfile != INVALID_HANDLE_VALUE , "got error %lu\n", GetLastError());
+    CloseHandle(hfile);
+
+    wcscpy(long_path, L"\\\\?\\");
+    wcscat(long_path, pathW);
+    wcscat(long_path, a);
+    ret = CopyFileExW(pathsubW, long_path, NULL, NULL, NULL, 0);
+    ok(ret, "got error %lu\n", GetLastError());
+
+    if (is_enabled_long_path())
+    {
+        wcscpy(long_path, pathW);
+        wcscat(long_path, a);
+        ret = DeleteFileW(long_path);
+        todo_wine ok(ret, "DeleteFileW: error %ld\n", GetLastError());
+    }
+    else
+    {
+        wcscpy(long_path, L"\\\\?\\");
+        wcscat(long_path, pathW);
+        wcscat(long_path, a);
+        SetLastError(0xdeadbeef);
+        ret = DeleteFileW(long_path);
+        todo_wine ok(ret, "DeleteFileW: error %ld\n", GetLastError());
+
+        ret = CopyFileExW(pathsubW, long_path, NULL, NULL, NULL, 0);
+        ok(ret, "got error %lu\n", GetLastError());
+
+        wcscpy(long_path, pathW);
+        wcscat(long_path, a);
+        ret = DeleteFileW(long_path);
+        todo_wine ok(!ret, "Unexpected DeleteFileW successed, %s\n", wine_dbgstr_w(long_path));
+    }
+
+    DeleteFileW(pathsubW);
 }
 
 #define IsDotDir(x)     ((x[0] == '.') && ((x[1] == 0) || ((x[1] == '.') && (x[2] == 0))))
