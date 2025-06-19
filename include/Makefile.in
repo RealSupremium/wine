@@ -814,6 +814,7 @@ SOURCES = \
 	pstore.idl \
 	qedit.idl \
 	qos2.h \
+	radialcontrollerinterop.idl \
 	ras.h \
 	rasdlg.h \
 	raserror.h \
