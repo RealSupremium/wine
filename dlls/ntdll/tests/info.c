@@ -1646,7 +1646,7 @@ static void test_query_battery(void)
 
     if (!bs.BatteryPresent)
         time_left = 0;
-    else if (!bs.Charging && (LONG)bs.Rate < 0)
+    else if ((LONG)bs.Rate < 0)
         time_left = 3600 * bs.RemainingCapacity / -(LONG)bs.Rate;
     else
         time_left = ~0u;
