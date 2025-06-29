@@ -4030,16 +4030,68 @@ static int get_sys_int(const char *dirname, const char *basename)
     return get_sys_str(dirname, basename, s) ? atoi(s) : 0;
 }
 
+static enum battery_status parse_battery_status(const char *s)
+{
+    if (strcmp(s, "Charging\n") == 0) return BATTERY_CHARGING;
+    if (strcmp(s, "Discharging\n") == 0) return BATTERY_DISCHARGING;
+    if (strcmp(s, "Not charging\n") == 0) return BATTERY_NOT_CHARGING;
+    if (strcmp(s, "Full\n") == 0) return BATTERY_FULL;
+    return BATTERY_UNKNOWN;
+}
+
+static void get_sys_bat(const char *path, struct linux_battery *bat)
+{
+    char s[16];
+
+    bat->present = get_sys_int(path, "present");
+    if (!bat->present) return;
+
+    get_sys_str(path, "status", s);
+    bat->status = parse_battery_status(s);
+
+    bat->full_charge_capacity = get_sys_int(path, "energy_full");
+    bat->capacity_now = get_sys_int(path, "energy_now");
+    bat->rate_now = get_sys_int(path, "power_now");
+    bat->power_unit = BATTERY_UNIT_ENERGY;
+
+    if (!bat->full_charge_capacity || !bat->capacity_now)
+    {
+        bat->full_charge_capacity = get_sys_int(path, "charge_full");
+        bat->capacity_now = get_sys_int(path, "charge_now");
+        bat->voltage_now = get_sys_int(path, "voltage_now");
+        bat->rate_now = get_sys_int(path, "current_now");
+        bat->power_unit = BATTERY_UNIT_CHARGE;
+        if (!bat->full_charge_capacity || !bat->capacity_now || !bat->voltage_now)
+            bat->power_unit = BATTERY_UNIT_UNKNOWN;
+    }
+
+    bat->alarm = get_sys_int(path, "alarm");
+    if(bat->alarm) return;
+
+    bat->capacity_alert_min = get_sys_int(path, "capacity_alert_min");
+    bat->capacity_alert_max = get_sys_int(path, "capacity_alert_max");
+}
+
 static NTSTATUS fill_battery_state( SYSTEM_BATTERY_STATE *bs )
 {
     DIR *d = opendir("/sys/class/power_supply");
     struct dirent *de;
     char s[16], path[64];
-    BOOL found_ac = FALSE;
-    LONG64 voltage; /* microvolts */
+    struct linux_battery bat = {0};
 
-    bs->AcOnLine = TRUE;
     if (!d) return STATUS_SUCCESS;
+
+    // Windows's SYSTEM_BATTERY_STATE always returns AcOnLine=TRUE
+    bs->AcOnLine = TRUE;
+    bs->BatteryPresent = FALSE;
+    bs->Charging = FALSE;
+    bs->Discharging = FALSE;
+    bs->MaxCapacity = 0u;
+    bs->RemainingCapacity = 0u;
+    bs->Rate = 0u;
+    bs->EstimatedTime = ~0u;
+    bs->DefaultAlert1 = 0u;
+    bs->DefaultAlert2 = 0u;
 
     while ((de = readdir(d)))
     {
@@ -4048,44 +4100,80 @@ static NTSTATUS fill_battery_state( SYSTEM_BATTERY_STATE *bs )
         if (get_sys_str(path, "scope", s) && strcmp(s, "Device\n") == 0) continue;
         if (!get_sys_str(path, "type", s)) continue;
 
-        if (strcmp(s, "Mains\n") == 0)
+        if (!strcmp(s, "Mains\n") &&
+            !bs->AcOnLine &&
+            get_sys_int(path, "online"))
         {
-            if (!get_sys_str(path, "online", s)) continue;
-            if (found_ac)
-            {
-                FIXME("Multiple mains found, only reporting on the first\n");
-            }
-            else
-            {
-                bs->AcOnLine = atoi(s);
-                found_ac = TRUE;
-            }
+            bs->AcOnLine = TRUE;
         }
-        else if (strcmp(s, "Battery\n") == 0)
+        else if (!strcmp(s, "Battery\n"))
         {
-            if (!get_sys_str(path, "status", s)) continue;
-            if (bs->BatteryPresent)
+            get_sys_bat(path, &bat);
+
+            if (!bat.present) continue;
+
+            if (!bs->BatteryPresent) bs->BatteryPresent = TRUE;
+
+            if (bat.status == BATTERY_CHARGING && !bs->Charging) bs->Charging = TRUE;
+            if (bat.status == BATTERY_DISCHARGING && !bs->Discharging) bs->Discharging = TRUE;
+            
+            /* Windows's SYSTEM_BATTERY_STATE expects MaxCapacity, RemainingCapacity
+            and DefaultAlert* in mWh; and Rate in mW
+            Linux provides either energy_* (µWh) and power_* (µW) -> Simple convertion
+            Or charge_* (µAh) and current_* (µA) -> Needs voltage (µV) to calculate values
+
+            Formulas used:
+            µWh / 1e3 = mWh
+            µW / 1e3 = mW
+            µAh * µV / 1e9 = pWh / 1e9 = mWh
+            µA * µV / 1e9 = pW / 1e9 = mW */
+            switch (bat.power_unit)
             {
-                FIXME("Multiple batteries found, only reporting on the first\n");
+                case BATTERY_UNIT_UNKNOWN:
+                    continue;
+                case BATTERY_UNIT_ENERGY:
+                    bs->MaxCapacity += (ULONG)(bat.full_charge_capacity / 1e3);
+                    bs->RemainingCapacity += (ULONG)(bat.capacity_now / 1e3);
+                    if (bat.status == BATTERY_CHARGING) bs->Rate += (ULONG)(bat.rate_now / 1e3);
+                    if (bat.status == BATTERY_DISCHARGING) bs->Rate -= (ULONG)(bat.rate_now / 1e3);
+                    break;
+                case BATTERY_UNIT_CHARGE:
+                    bs->MaxCapacity += (ULONG)(bat.full_charge_capacity * bat.voltage_now / 1e9);
+                    bs->RemainingCapacity += (ULONG)(bat.capacity_now * bat.voltage_now / 1e9);
+                    if (bat.status == BATTERY_UNKNOWN || !bat.rate_now) continue;
+                    if (bat.status == BATTERY_DISCHARGING && bat.rate_now > 0) 
+                        bs->Rate -= (ULONG)(bat.rate_now * bat.voltage_now / 1e9);     
+                    else
+                        bs->Rate += (ULONG)(bat.rate_now * bat.voltage_now / 1e9); 
+                    break;          
+            }
+            
+            /* Linux batteries expose either:
+            alarm (µWh) for low battery warning and no values for critical warning;
+            capacity_alert_min and capacity_alert_max (integer percenteges) for low and critical warnings, respectively;
+            If none provided, use windows defaults -> critical 5%, low 33% */
+            if(bat.alarm)
+            {
+                bs->DefaultAlert1 = bs->MaxCapacity / 20;
+                bs->DefaultAlert2 = (ULONG)(bat.alarm);
+            }
+            else if(bat.capacity_alert_min && bat.capacity_alert_max)
+            {
+                bs->DefaultAlert1 = bs->MaxCapacity * bat.capacity_alert_min / 100;
+                bs->DefaultAlert2 = bs->MaxCapacity * bat.capacity_alert_max / 100;
             }
             else
             {
-                bs->Charging = (strcmp(s, "Charging\n") == 0);
-                bs->Discharging = (strcmp(s, "Discharging\n") == 0);
-                bs->BatteryPresent = TRUE;
-                voltage = get_sys_int(path, "voltage_now");
-                bs->MaxCapacity = get_sys_int(path, "charge_full") * voltage / 1e9;
-                bs->RemainingCapacity = get_sys_int(path, "charge_now") * voltage / 1e9;
-                bs->Rate = -get_sys_int(path, "current_now") * voltage / 1e9;
-                if (!bs->Charging && (LONG)bs->Rate < 0)
-                    bs->EstimatedTime = 3600 * bs->RemainingCapacity / -(LONG)bs->Rate;
-                else
-                    bs->EstimatedTime = ~0u;
+                bs->DefaultAlert1 = bs->MaxCapacity / 20;
+                bs->DefaultAlert2 = bs->MaxCapacity / 3;
             }
         }
     }
-
     closedir(d);
+
+    if (bs->BatteryPresent && (LONG)bs->Rate < 0)
+        bs->EstimatedTime = 3600 * bs->RemainingCapacity / -bs->Rate;
+
     return STATUS_SUCCESS;
 }
 
