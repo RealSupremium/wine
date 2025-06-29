@@ -223,6 +223,34 @@ struct smbios_wine_core_id_regs_arm64
     } regs[];
 };
 
+enum battery_status {
+    BATTERY_UNKNOWN,
+    BATTERY_CHARGING,
+    BATTERY_DISCHARGING,
+    BATTERY_NOT_CHARGING,
+    BATTERY_FULL
+};
+
+enum battery_power_unit {
+    BATTERY_UNIT_UNKNOWN,
+    BATTERY_UNIT_ENERGY,
+    BATTERY_UNIT_CHARGE
+};
+
+struct linux_battery
+{
+    enum battery_status status;
+    unsigned int present;
+    enum battery_power_unit power_unit;
+    int full_charge_capacity;
+    int capacity_now;
+    int rate_now;
+    int voltage_now;
+    int alarm;
+    int capacity_alert_min;
+    int capacity_alert_max;
+};
+
 #pragma pack(pop)
 
 enum smbios_type
