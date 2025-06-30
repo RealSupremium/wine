@@ -242,9 +242,19 @@ struct linux_battery
     enum battery_status status;
     unsigned int present;
     enum battery_power_unit power_unit;
-    int full_charge_capacity;
-    int capacity_now;
-    int rate_now;
+    union {
+        struct {
+            int energy_full_uwh;
+            int energy_now_uwh;
+            int power_now_uw;
+        } energy;
+        struct {
+            int charge_full_uah;
+            int charge_now_uah;
+            int current_now_ua;
+        } charge;
+    } capacity;
+
     int voltage_now;
     int alarm;
     int capacity_alert_min;
@@ -4049,19 +4059,20 @@ static void get_sys_bat(const char *path, struct linux_battery *bat)
     get_sys_str(path, "status", s);
     bat->status = parse_battery_status(s);
 
-    bat->full_charge_capacity = get_sys_int(path, "energy_full");
-    bat->capacity_now = get_sys_int(path, "energy_now");
-    bat->rate_now = get_sys_int(path, "power_now");
+    bat->capacity.energy.energy_full_uwh = get_sys_int(path, "energy_full");
+    bat->capacity.energy.energy_now_uwh = get_sys_int(path, "energy_now");
+    bat->capacity.energy.power_now_uw = get_sys_int(path, "power_now");
     bat->power_unit = BATTERY_UNIT_ENERGY;
 
-    if (!bat->full_charge_capacity || !bat->capacity_now)
+    bat->voltage_now = get_sys_int(path, "voltage_now");
+
+    if (!bat->capacity.energy.energy_full_uwh || !bat->capacity.energy.energy_now_uwh)
     {
-        bat->full_charge_capacity = get_sys_int(path, "charge_full");
-        bat->capacity_now = get_sys_int(path, "charge_now");
-        bat->voltage_now = get_sys_int(path, "voltage_now");
-        bat->rate_now = get_sys_int(path, "current_now");
+        bat->capacity.charge.charge_full_uah = get_sys_int(path, "charge_full");    
+        bat->capacity.charge.charge_now_uah = get_sys_int(path, "charge_now");
+        bat->capacity.charge.current_now_ua = get_sys_int(path, "current_now");
         bat->power_unit = BATTERY_UNIT_CHARGE;
-        if (!bat->full_charge_capacity || !bat->capacity_now || !bat->voltage_now)
+        if (!bat->capacity.charge.charge_full_uah || !bat->capacity.charge.charge_now_uah || !bat->voltage_now)
             bat->power_unit = BATTERY_UNIT_UNKNOWN;
     }
 
@@ -4132,19 +4143,19 @@ static NTSTATUS fill_battery_state( SYSTEM_BATTERY_STATE *bs )
                 case BATTERY_UNIT_UNKNOWN:
                     continue;
                 case BATTERY_UNIT_ENERGY:
-                    bs->MaxCapacity += (ULONG)(bat.full_charge_capacity / 1e3);
-                    bs->RemainingCapacity += (ULONG)(bat.capacity_now / 1e3);
-                    if (bat.status == BATTERY_CHARGING) bs->Rate += (ULONG)(bat.rate_now / 1e3);
-                    if (bat.status == BATTERY_DISCHARGING) bs->Rate -= (ULONG)(bat.rate_now / 1e3);
+                    bs->MaxCapacity += (ULONG)(bat.capacity.energy.energy_full_uwh / 1e3);
+                    bs->RemainingCapacity += (ULONG)(bat.capacity.energy.energy_now_uwh / 1e3);
+                    if (bat.status == BATTERY_CHARGING) bs->Rate += (ULONG)(bat.capacity.energy.power_now_uw/ 1e3);
+                    if (bat.status == BATTERY_DISCHARGING) bs->Rate -= (ULONG)(bat.capacity.energy.power_now_uw / 1e3);
                     break;
                 case BATTERY_UNIT_CHARGE:
-                    bs->MaxCapacity += (ULONG)(bat.full_charge_capacity * bat.voltage_now / 1e9);
-                    bs->RemainingCapacity += (ULONG)(bat.capacity_now * bat.voltage_now / 1e9);
-                    if (bat.status == BATTERY_UNKNOWN || !bat.rate_now) continue;
-                    if (bat.status == BATTERY_DISCHARGING && bat.rate_now > 0) 
-                        bs->Rate -= (ULONG)(bat.rate_now * bat.voltage_now / 1e9);     
+                    bs->MaxCapacity += (ULONG)(bat.capacity.charge.charge_full_uah * bat.voltage_now / 1e9);
+                    bs->RemainingCapacity += (ULONG)(bat.capacity.charge.charge_now_uah * bat.voltage_now / 1e9);
+                    if (bat.status == BATTERY_UNKNOWN || !bat.capacity.charge.current_now_ua) continue;
+                    if (bat.status == BATTERY_DISCHARGING && bat.capacity.charge.current_now_ua > 0) 
+                        bs->Rate -= (ULONG)(bat.capacity.charge.current_now_ua * bat.voltage_now / 1e9);     
                     else
-                        bs->Rate += (ULONG)(bat.rate_now * bat.voltage_now / 1e9); 
+                        bs->Rate += (ULONG)(bat.capacity.charge.current_now_ua * bat.voltage_now / 1e9); 
                     break;          
             }
             
