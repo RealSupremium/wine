@@ -220,6 +220,7 @@ struct media_stream
 
     BOOL active;
     BOOL eos;
+    BOOL thin;
 };
 
 struct media_source
@@ -314,17 +315,26 @@ static void queue_media_source_read(struct media_source *source)
     source->pending_reads++;
 }
 
-static HRESULT media_source_send_sample(struct media_source *source, UINT index, IMFSample *sample)
+static HRESULT media_source_send_sample(struct media_source *source, UINT index, IMFSample *sample, BOOL update_thin_mode)
 {
     struct media_stream *stream;
     IUnknown *token;
     HRESULT hr;
+    PROPVARIANT param;
 
     if (!(stream = media_stream_from_index(source, index)) || !stream->active)
         return S_FALSE;
 
     if (SUCCEEDED(hr = object_queue_pop(&stream->tokens, &token)))
     {
+        if (update_thin_mode && stream->thin != source->thin)
+        {
+            param.vt = VT_INT;
+            param.iVal = source->thin;
+            queue_media_event_value(stream->queue, MEStreamThinMode, &param);
+            stream->thin = source->thin;
+        }
+
         media_stream_send_sample(stream, sample, token);
         if (token) IUnknown_Release(token);
         return S_OK;
@@ -366,7 +376,7 @@ static void media_stream_start(struct media_stream *stream, UINT index, const PR
         list_move_head(&samples, &stream->samples);
         while (object_queue_pop(&samples, (IUnknown **)&sample) != E_PENDING)
         {
-            media_source_send_sample(source, index, sample);
+            media_source_send_sample(source, index, sample, FALSE);
             IMFSample_Release(sample);
         }
 
@@ -665,7 +675,7 @@ static HRESULT media_source_read(struct media_source *source)
         return hr;
     }
 
-    if ((hr = media_source_send_sample(source, index, sample)) == S_FALSE)
+    if ((hr = media_source_send_sample(source, index, sample, TRUE)) == S_FALSE)
         queue_media_source_read(source);
     IMFSample_Release(sample);
 
