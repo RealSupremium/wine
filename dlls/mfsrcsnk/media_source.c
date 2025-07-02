@@ -291,28 +291,6 @@ static struct media_stream *media_stream_from_index(struct media_source *source,
     return NULL;
 }
 
-static HRESULT media_source_send_sample(struct media_source *source, UINT index, IMFSample *sample)
-{
-    struct media_stream *stream;
-    IUnknown *token;
-    HRESULT hr;
-
-    if (!(stream = media_stream_from_index(source, index)) || !stream->active)
-        return S_FALSE;
-
-    if (SUCCEEDED(hr = object_queue_pop(&stream->tokens, &token)))
-    {
-        media_stream_send_sample(stream, sample, token);
-        if (token) IUnknown_Release(token);
-        return S_OK;
-    }
-
-    if (FAILED(hr = object_queue_push(&stream->samples, (IUnknown *)sample)))
-        return hr;
-
-    return S_FALSE;
-}
-
 static void queue_media_event_object(IMFMediaEventQueue *queue, MediaEventType type, IUnknown *object)
 {
     HRESULT hr;
@@ -334,6 +312,28 @@ static void queue_media_source_read(struct media_source *source)
     if (FAILED(hr = MFPutWorkItem(MFASYNC_CALLBACK_QUEUE_STANDARD, &source->async_read_iface, NULL)))
         ERR("Failed to queue async read for source %p, hr %#lx\n", source, hr);
     source->pending_reads++;
+}
+
+static HRESULT media_source_send_sample(struct media_source *source, UINT index, IMFSample *sample)
+{
+    struct media_stream *stream;
+    IUnknown *token;
+    HRESULT hr;
+
+    if (!(stream = media_stream_from_index(source, index)) || !stream->active)
+        return S_FALSE;
+
+    if (SUCCEEDED(hr = object_queue_pop(&stream->tokens, &token)))
+    {
+        media_stream_send_sample(stream, sample, token);
+        if (token) IUnknown_Release(token);
+        return S_OK;
+    }
+
+    if (FAILED(hr = object_queue_push(&stream->samples, (IUnknown *)sample)))
+        return hr;
+
+    return S_FALSE;
 }
 
 static void media_stream_start(struct media_stream *stream, UINT index, const PROPVARIANT *position)
