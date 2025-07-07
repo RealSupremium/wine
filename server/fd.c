@@ -1919,6 +1919,36 @@ void get_nt_name( struct fd *fd, struct unicode_str *name )
     name->len = fd->nt_namelen;
 }
 
+static int open_unix_fd( struct fd *fd, const char *name, int flags, const mode_t *mode,
+                         unsigned int access, unsigned int options )
+{
+    int rw_mode;
+
+    if ((access & FILE_UNIX_WRITE_ACCESS) && !(options & FILE_DIRECTORY_FILE))
+    {
+        if (access & FILE_UNIX_READ_ACCESS) rw_mode = O_RDWR;
+        else rw_mode = O_WRONLY;
+    }
+    else rw_mode = O_RDONLY;
+
+    if ((fd->unix_fd = open( name, rw_mode | (flags & ~O_TRUNC), *mode )) != -1)
+        return 1;
+
+    /* if we tried to open a directory for write access, retry read-only */
+    if (errno == EISDIR && ((access & FILE_UNIX_WRITE_ACCESS) || (flags & O_CREAT)))
+    {
+        if ((fd->unix_fd = open( name, O_RDONLY | (flags & ~(O_TRUNC | O_CREAT | O_EXCL)), *mode )))
+            return 1;
+    }
+
+    /* check for trailing slash on file path */
+    if ((errno == ENOENT || (errno == ENOTDIR && !(options & FILE_DIRECTORY_FILE))) && name[strlen(name) - 1] == '/')
+        set_error( STATUS_OBJECT_NAME_INVALID );
+    else
+        file_set_error();
+    return 0;
+}
+
 /* open() wrapper that returns a struct fd with no fd user set */
 struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_name,
                     int flags, mode_t *mode, unsigned int access,
@@ -1928,7 +1958,6 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
     struct closed_fd *closed_fd;
     struct fd *fd;
     int root_fd = -1;
-    int rw_mode;
     char *path;
 
     if (((options & FILE_DELETE_ON_CLOSE) && !(access & DELETE)) ||
@@ -1972,32 +2001,8 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
         flags &= ~(O_CREAT | O_EXCL | O_TRUNC);
     }
 
-    if ((access & FILE_UNIX_WRITE_ACCESS) && !(options & FILE_DIRECTORY_FILE))
-    {
-        if (access & FILE_UNIX_READ_ACCESS) rw_mode = O_RDWR;
-        else rw_mode = O_WRONLY;
-    }
-    else rw_mode = O_RDONLY;
-
-    if ((fd->unix_fd = open( name, rw_mode | (flags & ~O_TRUNC), *mode )) == -1)
-    {
-        /* if we tried to open a directory for write access, retry read-only */
-        if (errno == EISDIR)
-        {
-            if ((access & FILE_UNIX_WRITE_ACCESS) || (flags & O_CREAT))
-                fd->unix_fd = open( name, O_RDONLY | (flags & ~(O_TRUNC | O_CREAT | O_EXCL)), *mode );
-        }
-
-        if (fd->unix_fd == -1)
-        {
-            /* check for trailing slash on file path */
-            if ((errno == ENOENT || (errno == ENOTDIR && !(options & FILE_DIRECTORY_FILE))) && name[strlen(name) - 1] == '/')
-                set_error( STATUS_OBJECT_NAME_INVALID );
-            else
-                file_set_error();
-            goto error;
-        }
-    }
+    if (!open_unix_fd( fd, name, flags, mode, access, options ))
+        goto error;
 
     fd->nt_name = dup_nt_name( root, nt_name, &fd->nt_namelen );
     fd->unix_name = NULL;
