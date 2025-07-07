@@ -1941,12 +1941,43 @@ static int open_unix_fd( struct fd *fd, const char *name, int flags, const mode_
             return 1;
     }
 
+    if (errno == ELOOP && (options & FILE_OPEN_REPARSE_POINT))
+    {
+        fd->no_fd_status = STATUS_REPARSE_POINT_NOT_RESOLVED;
+        return 1;
+    }
+
     /* check for trailing slash on file path */
     if ((errno == ENOENT || (errno == ENOTDIR && !(options & FILE_DIRECTORY_FILE))) && name[strlen(name) - 1] == '/')
         set_error( STATUS_OBJECT_NAME_INVALID );
     else
         file_set_error();
     return 0;
+}
+
+/* resolve the path except for its last element */
+static char *symlink_realpath( const char *path )
+{
+    size_t len = strlen( path );
+    char *dir, *ret;
+
+    /* remove trailing slashes if any */
+    while (len > 0 && path[len - 1] == '/')
+        --len;
+
+    while (len > 0 && path[len - 1] != '/')
+        --len;
+
+    dir = malloc( len + 1 );
+    memcpy( dir, path, len );
+    dir[len] = 0;
+    ret = realpath( dir, NULL );
+    free( dir );
+
+    ret = realloc( ret, strlen( ret ) + 1 + strlen( path + len ) + 1 );
+    strcat( ret, "/" );
+    strcat( ret, path + len );
+    return ret;
 }
 
 /* open() wrapper that returns a struct fd with no fd user set */
@@ -2001,16 +2032,28 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
         flags &= ~(O_CREAT | O_EXCL | O_TRUNC);
     }
 
+    if (options & FILE_OPEN_REPARSE_POINT)
+        flags |= O_NOFOLLOW;
+
     if (!open_unix_fd( fd, name, flags, mode, access, options ))
         goto error;
 
     fd->nt_name = dup_nt_name( root, nt_name, &fd->nt_namelen );
     fd->unix_name = NULL;
-    fstat( fd->unix_fd, &st );
+    if (fd->unix_fd != -1)
+        fstat( fd->unix_fd, &st );
+    else
+    {
+        if (lstat( name, &st ) == -1)
+        {
+            file_set_error();
+            goto error;
+        }
+    }
     *mode = st.st_mode;
 
     /* only bother with an inode for normal files and directories */
-    if (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode))
+    if (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode))
     {
         unsigned int err;
         struct inode *inode = get_inode( st.st_dev, st.st_ino, fd->unix_fd );
@@ -2025,7 +2068,10 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
 
         if ((path = dup_fd_name( root, name )))
         {
-            fd->unix_name = realpath( path, NULL );
+            if (S_ISLNK(st.st_mode))
+                fd->unix_name = symlink_realpath( path );
+            else
+                fd->unix_name = realpath( path, NULL );
             free( path );
         }
 
@@ -2039,7 +2085,7 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
         closed_fd = NULL;
 
         /* check directory options */
-        if ((options & FILE_DIRECTORY_FILE) && !S_ISDIR(st.st_mode))
+        if ((options & FILE_DIRECTORY_FILE) && S_ISREG(st.st_mode))
         {
             set_error( STATUS_NOT_A_DIRECTORY );
             goto error;
