@@ -1103,7 +1103,7 @@ static void unlink_closed_fd( struct inode *inode, struct closed_fd *fd )
 {
     /* make sure it is still the same file */
     struct stat st;
-    if (!stat( fd->unix_name, &st ) && st.st_dev == inode->device->dev && st.st_ino == inode->ino)
+    if (!lstat( fd->unix_name, &st ) && st.st_dev == inode->device->dev && st.st_ino == inode->ino)
     {
         if (S_ISDIR(st.st_mode)) rmdir( fd->unix_name );
         else unlink( fd->unix_name );
@@ -2830,15 +2830,10 @@ static void set_fd_disposition( struct fd *fd, unsigned int flags )
         return;
     }
 
-    if (fd->unix_fd == -1)
-    {
-        set_error( fd->no_fd_status );
-        return;
-    }
-
     if (flags & FILE_DISPOSITION_DELETE)
     {
         struct fd *fd_ptr;
+        int ret;
 
         LIST_FOR_EACH_ENTRY( fd_ptr, &fd->inode->open, struct fd, inode_entry )
         {
@@ -2849,12 +2844,16 @@ static void set_fd_disposition( struct fd *fd, unsigned int flags )
             }
         }
 
-        if (fstat( fd->unix_fd, &st ) == -1)
+        if (fd->unix_fd != -1)
+            ret = fstat( fd->unix_fd, &st );
+        else
+            ret = lstat( fd->unix_name, &st );
+        if (ret == -1)
         {
             file_set_error();
             return;
         }
-        if (S_ISREG( st.st_mode ))  /* can't unlink files we don't have permission to write */
+        if (S_ISREG( st.st_mode ) || S_ISLNK( st.st_mode ))  /* can't unlink files we don't have permission to write */
         {
             if (!(flags & FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE) &&
                 !(st.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)))
@@ -2865,6 +2864,11 @@ static void set_fd_disposition( struct fd *fd, unsigned int flags )
         }
         else if (S_ISDIR( st.st_mode ))  /* can't remove non-empty directories */
         {
+            if (fd->unix_fd == -1)
+            {
+                set_error( fd->no_fd_status );
+                return;
+            }
             switch (is_dir_empty( fd->unix_fd ))
             {
             case -1:
