@@ -2557,7 +2557,7 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
     return hr;
 }
 
-static HRESULT media_engine_transfer_to_d3d11_texture(struct media_engine *engine, ID3D11Texture2D *texture,
+static HRESULT media_engine_render_d3d11(struct media_engine *engine, ID3D11Texture2D *texture,
         const MFVideoNormalizedRect *src_rect, const RECT *dst_rect, const MFARGB *color)
 {
     static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -2723,7 +2723,7 @@ static HRESULT WINAPI media_engine_TransferVideoFrame(IMFMediaEngineEx *iface, I
     if (SUCCEEDED(IUnknown_QueryInterface(surface, &IID_ID3D11Texture2D, (void **)&texture)))
     {
         if (!engine->device_manager || FAILED(hr = media_engine_transfer_d3d11(engine, texture, src_rect, dst_rect, color)))
-            hr = media_engine_transfer_to_d3d11_texture(engine, texture, src_rect, dst_rect, color);
+            hr = media_engine_render_d3d11(engine, texture, src_rect, dst_rect, color);
         ID3D11Texture2D_Release(texture);
     }
     else
