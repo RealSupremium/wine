@@ -192,8 +192,8 @@ void async_terminate( struct async *async, unsigned int status )
         /* this can happen if the initial status was unknown (i.e. for device
          * files). the client should not fill the IOSB in this case; pass it as
          * NULL to communicate that.
-         * note that we check the IOSB status and not the initial status */
-        if (NT_ERROR( status ) && (!is_fd_overlapped( async->fd ) || !async->pending))
+         * Windows 11 will fill the IOSB for canceled IO. */
+        if (NT_ERROR( status ) && !async->canceled && (!is_fd_overlapped( async->fd ) || !async->pending))
             data.async_io.sb = 0;
         else
             data.async_io.sb = async->data.iosb;

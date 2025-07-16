@@ -1950,9 +1950,9 @@ static void test_blocking(ULONG options)
         status = NtReadFile(ctx.client, ctx.event, ioapc, &io, &io, read_buf,
                             sizeof(read_buf), NULL, NULL);
         ok(status == STATUS_CANCELLED, "status = %lx\n", status);
-        todo_wine ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
+        ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
                 "Status = %lx\n", io.Status);
-        todo_wine ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
+        ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
                 "Information = %Iu\n", io.Information);
         ok(is_signaled(ctx.event) || broken(!completing_canceled) /* Before Win11 24H2 */,
                 "event is not signaled\n");
@@ -1971,10 +1971,10 @@ static void test_blocking(ULONG options)
     status = NtReadFile(ctx.client, ctx.event, ioapc, &io, &io, read_buf,
                         sizeof(read_buf), NULL, NULL);
     ok(status == STATUS_CANCELLED, "status = %lx\n", status);
-    todo_wine ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef) /* Before Win11 24H2 */,
+    ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef) /* Before Win11 24H2 */,
             "Status = %lx\n", io.Status);
     completing_canceled = io.Status != 0xdeadbeef;
-    todo_wine ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
+    ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
             "Information = %Iu\n", io.Information);
     ok(is_signaled(ctx.event) || broken(!completing_canceled) /* Before Win11 24H2 */,
             "event is not signaled\n");
