@@ -109,10 +109,12 @@ static BOOL run_cmd(const char *res_name, const char *cmd_data, DWORD cmd_size)
 {
     SECURITY_ATTRIBUTES sa = {sizeof(sa), 0, TRUE};
     char command_cmd[] = "test.cmd", command_bat[] = "test.bat";
+    char pipebuf[16] = { 26 /* ctrl-Z */, 26, 26, 26, 26, 26, 26, 26 };
     char *command;
     STARTUPINFOA si = {sizeof(si)};
     PROCESS_INFORMATION pi;
     HANDLE file,fileerr;
+    HANDLE piperd,pipewr;
     DWORD size;
     BOOL bres;
 
@@ -143,9 +145,15 @@ static BOOL run_cmd(const char *res_name, const char *cmd_data, DWORD cmd_size)
     if(fileerr == INVALID_HANDLE_VALUE)
         return FALSE;
 
+    ok(CreatePipe(&piperd, &pipewr, &sa, 8), "CreatePipe failed\n");
+    ok(WriteFile(pipewr, pipebuf, 8, &size, NULL), "WriteFile failed\n");
+    ok(size == 8, "WriteFile wrote wrong amount\n");
+    CloseHandle(pipewr);
+
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = file;
     si.hStdError = fileerr;
+    si.hStdInput = piperd;
     bres = CreateProcessA(NULL, command, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
     ok(bres, "CreateProcess failed: %lu\n", GetLastError());
     if(!bres) {
@@ -154,10 +162,14 @@ static BOOL run_cmd(const char *res_name, const char *cmd_data, DWORD cmd_size)
     }
 
     WaitForSingleObject(pi.hProcess, INFINITE);
+    ok(ReadFile(piperd, pipebuf, 16, &size, NULL), "ReadFile failed, did someone read from stdin?\n");
+    ok(size == 8, "someone read from stdin?\n");
+
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     CloseHandle(file);
     CloseHandle(fileerr);
+    CloseHandle(piperd);
     DeleteFileA(command);
     return TRUE;
 }

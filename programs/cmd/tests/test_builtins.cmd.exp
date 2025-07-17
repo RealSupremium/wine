@@ -535,7 +535,7 @@ FAILURE 1
 --- success/failure for COPY command
 FAILURE 1
 SUCCESS 0
-FAILURE 1
+@todo_wine@SUCCESS 0
 FAILURE 1
 FAILURE 1
 --- success/failure for MOVE command
@@ -635,7 +635,7 @@ SUCCESS 0
 FAILURE 1
 FAILURE 1
 --- success/failure for LABEL command
-FAILURE 1
+@todo_wine@SUCCESS 0
 --- success/failure for PATH command
 SUCCESS 0
 SUCCESS 0
@@ -679,18 +679,18 @@ FAILURE 1
 SUCCESS 666
 SUCCESS 666
 --- success/failure for CHOICE command
-FAILURE 1
-FAILURE 1
+@todo_wine@FAILURE 255
+@todo_wine@FAILURE 255
 FAILURE 2
-FAILURE 1
+@todo_wine@FAILURE 255
 --- success/failure for MORE command
-SUCCESS 0
-SUCCESS 0
+@todo_wine@FAILURE 1
+@todo_wine@FAILURE 1
 foo@space@
 
 SUCCESS 0
 --- success/failure for PAUSE command
-FAILURE 1
+@todo_wine@SUCCESS 666
 ---
 ------------ Testing 'set' ------------
 1
