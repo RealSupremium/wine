@@ -1664,10 +1664,64 @@ a
 a b c
 ------------ Testing del ------------
 deleting 'file'
-errorlevel is 0, good
+0
+empty 1
 successfully deleted 'file'
 attempting to delete 'file', even though it is not present
-errorlevel is 0, good
+0
+empty 0
+deleting nul will fail
+@todo_wine@123
+empty 0
+failing to delete nul cancels subsequent processing
+@todo_wine@123
+empty 0
+didn't delete 'exists'
+but if the existing file is first, it is of course deleted
+@todo_wine@123
+empty 0
+successfully deleted 'exists'
+deleting the same file twice does not complain
+0
+empty 1
+successfully deleted 'exists'
+deleting two files that don't exist complains about the first one
+0
+search exists1 0
+search exists2 1
+deleting a file that doesn't exist, then one that does, deletes it without complaining
+0
+empty 1
+successfully deleted 'exists'
+deleting a file that doesn't exist, then one that can't be deleted, complains about both
+@todo_wine@123
+search doesntexist 0
+empty 0
+deleting a file that doesn't exist, then one that does, then one that can't be deleted, complains about latter only
+@todo_wine@123
+search doesntexist 1
+empty 0
+successfully deleted 'exists'
+however, if the filename's directory doesn't exist, it's a hard error, just like undeletable files
+1
+empty 0
+search file.txt 1
+like nul, it stops argument processing
+1
+empty 0
+didn't delete 'exists'
+unlike deleting nonexistent+nul, it only complains about one
+1
+empty 0
+search doesntexist 1
+search file.txt 1
+and unlike nul, it stops processing before anything is deleted
+1
+empty 0
+didn't delete 'exists'
+and with no arguments, it prints an error
+1
+empty 0
 ------------ Testing del /a ------------
 not-r.test not found after delete, good
 r.test found before delete, good

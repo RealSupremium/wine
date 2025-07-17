@@ -1338,10 +1338,10 @@ static BOOL WCMD_delete_confirm_wildcard(const WCHAR *filename, BOOL *pPrompted)
  * If /S was given, does it recursively.
  * Returns TRUE if a file was deleted.
  */
-static BOOL WCMD_delete_one (const WCHAR *thisArg) {
+static BOOL WCMD_delete_one (const WCHAR *thisArg, WCHAR *notFoundFile) {
     DWORD wanted_attrs;
     DWORD unwanted_attrs;
-    BOOL found = FALSE;
+    BOOL deletedAny = FALSE;
     WCHAR argCopy[MAX_PATH];
     WIN32_FIND_DATAW fd;
     HANDLE hff;
@@ -1355,7 +1355,7 @@ static BOOL WCMD_delete_one (const WCHAR *thisArg) {
     WINE_TRACE("del: Processing arg %s (quals:%s)\n",
                wine_dbgstr_w(argCopy), wine_dbgstr_w(quals));
 
-    if (!WCMD_delete_confirm_wildcard(argCopy, &found)) {
+    if (!WCMD_delete_confirm_wildcard(argCopy, &deletedAny)) {
         /* Skip this arg if user declines to delete *.* */
         return FALSE;
     }
@@ -1364,8 +1364,9 @@ static BOOL WCMD_delete_one (const WCHAR *thisArg) {
     hff = FindFirstFileW(argCopy, &fd);
     if (hff == INVALID_HANDLE_VALUE) {
       handleParm = FALSE;
-    } else {
-      found = TRUE;
+      if (!*notFoundFile) {
+        lstrcpyW(notFoundFile, thisArg);
+      }
     }
 
     /* Support del <dirname> by just deleting all files dirname\* */
@@ -1379,8 +1380,7 @@ static BOOL WCMD_delete_one (const WCHAR *thisArg) {
       lstrcpyW(modifiedParm, argCopy);
       lstrcatW(modifiedParm, L"\\*");
       FindClose(hff);
-      found = TRUE;
-      WCMD_delete_one(modifiedParm);
+      WCMD_delete_one(modifiedParm, notFoundFile);
 
     } else if (handleParm) {
 
@@ -1421,7 +1421,11 @@ static BOOL WCMD_delete_one (const WCHAR *thisArg) {
             }
 
             /* Now do the delete */
-            if (!DeleteFileW(fpath)) WCMD_print_error ();
+            if (DeleteFileW(fpath)) {
+              deletedAny = TRUE;
+            } else {
+              errorlevel = GetLastError();
+            }
           }
 
         }
@@ -1497,13 +1501,12 @@ static BOOL WCMD_delete_one (const WCHAR *thisArg) {
 
         /* Go through each subdir doing the delete */
         while (allDirs != NULL) {
-          found |= WCMD_delete_one (allDirs->dirName);
+          deletedAny |= WCMD_delete_one (allDirs->dirName, notFoundFile);
           allDirs = WCMD_dir_stack_free(allDirs);
         }
       }
     }
-
-    return found;
+    return deletedAny;
 }
 
 /****************************************************************************
@@ -1524,8 +1527,34 @@ RETURN_CODE WCMD_delete(WCHAR *args)
     int   argno;
     WCHAR *argN;
     BOOL  argsProcessed = FALSE;
+    BOOL  deletedAny = FALSE;
+    WCHAR notFoundFile[MAX_PATH];
 
     errorlevel = NO_ERROR;
+    *notFoundFile = L'\0';
+
+    for (argno = 0; ; argno++)
+    {
+        WCHAR *thisArg, *slash;
+
+        argN = NULL;
+        thisArg = WCMD_parameter(args, argno, &argN, FALSE, FALSE);
+        if (!argN)
+            break;       /* no more parameters */
+        if (argN[0] == '/')
+            continue;    /* skip options */
+        if (!(slash = wcschr(argN, '\\')))
+            continue;
+
+        *slash = L'\0';
+        if (GetFileAttributesW(thisArg) == INVALID_FILE_ATTRIBUTES) {
+            SetLastError(ERROR_FILE_NOT_FOUND);
+            WCMD_print_error ();
+            errorlevel = 1;
+            return errorlevel;
+        }
+        *slash = L'\\';
+    }
 
     for (argno = 0; ; argno++)
     {
@@ -1539,17 +1568,25 @@ RETURN_CODE WCMD_delete(WCHAR *args)
             continue;    /* skip options */
 
         argsProcessed = TRUE;
-        if (!WCMD_delete_one(thisArg))
-        {
-            errorlevel = ERROR_INVALID_FUNCTION;
-        }
+        deletedAny |= WCMD_delete_one(thisArg, notFoundFile);
+        if (errorlevel != NO_ERROR)
+            break;
     }
 
     /* Handle no valid args */
     if (!argsProcessed)
     {
         WCMD_output_stderr(WCMD_LoadMessage(WCMD_NOARG));
-        errorlevel = ERROR_INVALID_FUNCTION;
+        errorlevel = 1;
+    }
+    if (*notFoundFile && !deletedAny)
+    {
+        WCMD_output_stderr(WCMD_LoadMessage(WCMD_FILENOTFOUND), notFoundFile);
+    }
+    if (errorlevel)
+    {
+        SetLastError(errorlevel);
+        WCMD_print_error ();
     }
 
     return errorlevel;
