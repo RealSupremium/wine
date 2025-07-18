@@ -477,7 +477,7 @@ static void test_alertable(void)
     ok(ret, "can't queue user apc, GetLastError: %lx\n", GetLastError());
 
     res = listen_pipe(hPipe, hEvent, &iosb, TRUE);
-    todo_wine ok(res == STATUS_CANCELLED, "NtFsControlFile returned %lx\n", res);
+    ok(res == STATUS_CANCELLED, "NtFsControlFile returned %lx\n", res);
 
     ok(userapc_called, "user apc didn't run\n");
     ok(iosb.Status == 0x55555555 || iosb.Status == STATUS_CANCELLED, "iosb.Status got changed to %lx\n", iosb.Status);
@@ -491,7 +491,7 @@ static void test_alertable(void)
     /* wine_todo: the earlier NtFsControlFile call gets cancelled after the pipe gets set into listen state
                   instead of before, so this NtFsControlFile will fail STATUS_INVALID_HANDLE */
     res = listen_pipe(hPipe, hEvent, &iosb, TRUE);
-    todo_wine ok(res == STATUS_CANCELLED, "NtFsControlFile returned %lx\n", res);
+    ok(res == STATUS_CANCELLED, "NtFsControlFile returned %lx\n", res);
 
     ok(userapc_called, "user apc didn't run\n");
     ok(iosb.Status == 0x55555555 || iosb.Status == STATUS_CANCELLED, "iosb.Status got changed to %lx\n", iosb.Status);
@@ -1805,7 +1805,7 @@ static void test_blocking(ULONG options)
     if (!(options & FILE_SYNCHRONOUS_IO_ALERT))
         ok(!ioapc_called, "ioapc called\n");
     else
-        todo_wine ok(ioapc_called, "ioapc called\n");
+        ok(ioapc_called, "ioapc called\n");
     SleepEx(0, TRUE); /* alertable wait state */
     ok(ioapc_called, "ioapc not called\n");
 
@@ -1880,13 +1880,13 @@ static void test_blocking(ULONG options)
         ioapc_called = FALSE;
         status = NtReadFile(ctx.client, ctx.event, ioapc, &io, &io, read_buf,
                             sizeof(read_buf), NULL, NULL);
-        todo_wine ok(status == STATUS_CANCELLED, "status = %lx\n", status);
-        todo_wine ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef) /* Before Win11 24H2 */,
+        ok(status == STATUS_CANCELLED, "status = %lx\n", status);
+        ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef) /* Before Win11 24H2 */,
                 "Status = %lx\n", io.Status);
         completing_canceled = io.Status != 0xdeadbeef;
-        todo_wine ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
+        ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
                 "Information = %Iu\n", io.Information);
-        todo_wine ok(is_signaled(ctx.event) || broken(!completing_canceled) /* Before Win11 24H2 */,
+        ok(is_signaled(ctx.event) || broken(!completing_canceled) /* Before Win11 24H2 */,
                 "event is not signaled\n");
         ok(!ioapc_called, "ioapc called\n");
         ok(userapc_called, "user apc is not called.\n");
@@ -1910,12 +1910,12 @@ static void test_blocking(ULONG options)
         ioapc_called = FALSE;
         status = NtReadFile(ctx.client, ctx.event, ioapc, &io, &io, read_buf,
                             sizeof(read_buf), NULL, NULL);
-        todo_wine ok(status == STATUS_CANCELLED, "status = %lx\n", status);
-        todo_wine ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
+        ok(status == STATUS_CANCELLED, "status = %lx\n", status);
+        ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
                 "Status = %lx\n", io.Status);
-        todo_wine ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
+        ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
                 "Information = %Iu\n", io.Information);
-        todo_wine ok(is_signaled(ctx.event) || broken(!completing_canceled) /* Before Win11 24H2 */,
+        ok(is_signaled(ctx.event) || broken(!completing_canceled) /* Before Win11 24H2 */,
                 "event is not signaled\n");
         ok(ioapc_called, "ioapc called\n");
         ok(!userapc_called, "user apc is not called.\n");
@@ -1934,7 +1934,7 @@ static void test_blocking(ULONG options)
         ok(status == STATUS_SUCCESS, "status = %lx\n", status);
         ok(io.Status == STATUS_SUCCESS, "Status = %lx\n", io.Status);
         ok(io.Information == 0, "Information = %Iu\n", io.Information);
-        todo_wine ok(is_signaled(ctx.event) || broken(!completing_canceled), "event is not signaled\n");
+        ok(is_signaled(ctx.event) || broken(!completing_canceled), "event is not signaled\n");
         ok(!ioapc_called, "ioapc called\n");
         ok(!userapc_called, "user apc is not called.\n");
         SleepEx(0, TRUE);
@@ -1949,12 +1949,12 @@ static void test_blocking(ULONG options)
         blocking_thread_command(BLOCKING_THREAD_USER_APC);
         status = NtReadFile(ctx.client, ctx.event, ioapc, &io, &io, read_buf,
                             sizeof(read_buf), NULL, NULL);
-        todo_wine ok(status == STATUS_CANCELLED, "status = %lx\n", status);
+        ok(status == STATUS_CANCELLED, "status = %lx\n", status);
         todo_wine ok(io.Status == STATUS_CANCELLED || broken(io.Status == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
                 "Status = %lx\n", io.Status);
         todo_wine ok(io.Information == 0 || broken(io.Information == 0xdeadbeef && !completing_canceled) /* Before Win11 24H2 */,
                 "Information = %Iu\n", io.Information);
-        todo_wine ok(is_signaled(ctx.event) || broken(!completing_canceled) /* Before Win11 24H2 */,
+        ok(is_signaled(ctx.event) || broken(!completing_canceled) /* Before Win11 24H2 */,
                 "event is not signaled\n");
         ok(!ioapc_called, "ioapc called\n");
         ok(userapc_called, "user apc is not called.\n");
@@ -1981,7 +1981,7 @@ static void test_blocking(ULONG options)
     ok(!ioapc_called, "ioapc called\n");
     ok(!userapc_called, "user apc is not called.\n");
     SleepEx(0, TRUE);
-    todo_wine ok(!ioapc_called, "ioapc called\n");
+    ok(!ioapc_called, "ioapc called\n");
 
     ioapc_called = FALSE;
     CloseHandle(ctx.event);

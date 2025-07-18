@@ -2139,6 +2139,12 @@ int is_fd_overlapped( struct fd *fd )
     return !(fd->options & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT));
 }
 
+/* check if fd is in synchronous alert mode  */
+int is_fd_wait_alertable( struct fd *fd )
+{
+    return fd->options & FILE_SYNCHRONOUS_IO_ALERT;
+}
+
 /* retrieve the unix fd for an object */
 int get_unix_fd( struct fd *fd )
 {

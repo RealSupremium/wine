@@ -2073,6 +2073,7 @@ DECL_HANDLER(queue_apc)
     if (thread)
     {
         if (!queue_apc( NULL, thread, apc )) set_error( STATUS_UNSUCCESSFUL );
+        else if (apc->call.type == APC_USER) cancel_alerted_thread_async( thread );
         release_object( thread );
     }
     else if (process)

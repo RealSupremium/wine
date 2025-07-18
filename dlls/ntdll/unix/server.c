@@ -853,7 +853,7 @@ NTSTATUS WINAPI NtContinueEx( CONTEXT *context, KCONTINUE_ARGUMENT *args )
 /***********************************************************************
  *              test_alert_with_status
  */
-static void test_alert_with_status( NTSTATUS ret_status )
+void test_alert_with_status( NTSTATUS ret_status )
 {
     struct user_apc apc;
     NTSTATUS status;

@@ -393,6 +393,8 @@ extern NTSTATUS call_user_apc_dispatcher( CONTEXT *context_ptr, ULONG_PTR arg1, 
 extern NTSTATUS call_user_exception_dispatcher( EXCEPTION_RECORD *rec, CONTEXT *context );
 extern void call_raise_user_exception_dispatcher(void);
 
+extern void test_alert_with_status( NTSTATUS status );
+
 #define IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE 0x0010 /* Wine extension */
 
 #define TICKSPERSEC 10000000
@@ -467,7 +469,11 @@ static inline struct async_data server_async( HANDLE handle, struct async_fileio
 
 static inline NTSTATUS wait_async( HANDLE handle, BOOL alertable )
 {
-    return NtWaitForSingleObject( handle, alertable, NULL );
+    NTSTATUS ret;
+
+    ret = NtWaitForSingleObject( handle, FALSE, NULL );
+    if (alertable) test_alert_with_status( ret );
+    return ret;
 }
 
 static inline BOOL in_wow64_call(void)

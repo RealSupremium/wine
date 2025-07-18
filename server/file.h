@@ -94,6 +94,7 @@ extern void set_fd_user( struct fd *fd, const struct fd_ops *ops, struct object 
 extern unsigned int get_fd_options( struct fd *fd );
 extern unsigned int get_fd_comp_flags( struct fd *fd );
 extern int is_fd_overlapped( struct fd *fd );
+extern int is_fd_wait_alertable( struct fd *fd );
 extern int get_unix_fd( struct fd *fd );
 extern client_ptr_t get_fd_map_address( struct fd *fd );
 extern void set_fd_map_address( struct fd *fd, client_ptr_t addr, mem_size_t size );
@@ -278,6 +279,7 @@ extern void fd_copy_completion( struct fd *src, struct fd *dst );
 extern struct iosb *async_get_iosb( struct async *async );
 extern struct thread *async_get_thread( struct async *async );
 extern struct async *find_pending_async( struct async_queue *queue );
+extern void cancel_alerted_thread_async( struct thread *thread );
 extern void cancel_process_asyncs( struct process *process );
 extern void cancel_terminating_thread_asyncs( struct thread *thread );
 extern int async_close_obj_handle( struct object *obj, struct process *process, obj_handle_t handle );

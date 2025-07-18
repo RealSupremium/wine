@@ -57,6 +57,7 @@ struct async
     unsigned int         canceled :1;     /* have we already queued cancellation for this async? */
     unsigned int         unknown_status :1; /* initial status is not known yet */
     unsigned int         blocking :1;     /* async is blocking */
+    unsigned int         alertable_wait :1; /* blocking alertable IO */
     unsigned int         is_system :1;    /* background system operation not affecting userspace visible state. */
     struct completion   *completion;      /* completion associated with fd */
     apc_param_t          comp_key;        /* completion key associated with fd */
@@ -279,6 +280,7 @@ struct async *create_async( struct fd *fd, struct thread *thread, const struct a
     async->canceled      = 0;
     async->unknown_status = 0;
     async->blocking      = !is_fd_overlapped( fd );
+    async->alertable_wait = 0;
     async->is_system     = 0;
     async->completion    = fd_get_completion( fd, &async->comp_key );
     async->comp_flags    = 0;
@@ -336,6 +338,7 @@ static void async_call_completion_callback( struct async *async )
 obj_handle_t async_handoff( struct async *async, data_size_t *result, int force_blocking )
 {
     async->blocking = force_blocking || async->blocking;
+    async->alertable_wait = is_fd_wait_alertable( async->fd ) && !force_blocking;
 
     if (async->unknown_status)
     {
@@ -394,6 +397,12 @@ obj_handle_t async_handoff( struct async *async, data_size_t *result, int force_
         async->wait_handle = 0;
         set_error( async->iosb->status );
         return 0;
+    }
+
+    if (async->alertable_wait && !list_empty( &async->thread->user_apc ))
+    {
+        async->canceled = 1;
+        fd_cancel_async( async->fd, async );
     }
 
     if (async->iosb->status != STATUS_PENDING)
@@ -512,18 +521,21 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
         /* don't signal completion if the async failed synchronously
          * this can happen if the initial status was unknown (i.e. for device files)
          * note that we check the IOSB status here, not the initial status */
-        if (async->pending || !NT_ERROR( status ))
+        if (async->pending || async->canceled || !NT_ERROR( status ))
         {
             if (async->data.apc)
             {
-                union apc_call data;
-                memset( &data, 0, sizeof(data) );
-                data.type         = APC_USER;
-                data.user.func    = async->data.apc;
-                data.user.args[0] = async->data.apc_context;
-                data.user.args[1] = async->data.iosb;
-                data.user.args[2] = 0;
-                thread_queue_apc( NULL, async->thread, NULL, &data );
+                if (!(async->blocking && async->canceled))
+                {
+                    union apc_call data;
+                    memset( &data, 0, sizeof(data) );
+                    data.type         = APC_USER;
+                    data.user.func    = async->data.apc;
+                    data.user.args[0] = async->data.apc_context;
+                    data.user.args[1] = async->data.iosb;
+                    data.user.args[2] = 0;
+                    thread_queue_apc( NULL, async->thread, NULL, &data );
+                }
             }
             else if (async->data.apc_context && (async->pending ||
                      !(async->comp_flags & FILE_SKIP_COMPLETION_PORT_ON_SUCCESS)))
@@ -672,6 +684,22 @@ restart:
         async->canceled = 1;
         fd_cancel_async( async->fd, async );
         goto restart;
+    }
+}
+
+void cancel_alerted_thread_async( struct thread *thread )
+{
+    struct async *async;
+
+    LIST_FOR_EACH_ENTRY( async, &thread->process->asyncs, struct async, process_entry )
+    {
+        if (async->terminated || async->canceled) continue;
+        if (async->blocking && async->thread == thread && async->alertable_wait)
+        {
+            async->canceled = 1;
+            fd_cancel_async( async->fd, async );
+            return;
+        }
     }
 }
 
