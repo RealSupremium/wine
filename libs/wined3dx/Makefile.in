@@ -1,0 +1,4 @@
+STATICLIB = libwined3dx.a
+
+C_SRCS = \
+	texture.c

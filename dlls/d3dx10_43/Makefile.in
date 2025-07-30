@@ -1,7 +1,8 @@
 MODULE    = d3dx10_43.dll
 IMPORTLIB = d3dx10
-IMPORTS   = d3d10_1 d3dcompiler dxguid uuid gdi32
+IMPORTS   = d3d10_1 d3dcompiler dxguid uuid gdi32 $(WINED3DX_PE_LIBS)
 DELAYIMPORTS = windowscodecs
+EXTRAINCL = $(WINED3DX_PE_CFLAGS)
 
 EXTRADLLFLAGS = -Wb,--prefer-native
 

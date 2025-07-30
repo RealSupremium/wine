@@ -23,6 +23,8 @@
 #include "dxhelpers.h"
 #include "winternl.h"
 
+#include "wined3dx.h"
+
 #include "wine/debug.h"
 #include "wine/list.h"
 
@@ -292,7 +294,7 @@ static HRESULT WINAPI texture_info_processor_Process(ID3DX10DataProcessor *iface
     struct texture_info_processor *processor = impl_from_ID3DX10DataProcessor(iface);
 
     TRACE("iface %p, data %p, size %Iu.\n", iface, data, size);
-    return get_image_info(data, size, processor->info);
+    return wined3dx_get_image_info(data, size, processor->info);
 }
 
 static HRESULT WINAPI texture_info_processor_CreateDeviceObject(ID3DX10DataProcessor *iface, void **object)

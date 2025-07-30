@@ -29,6 +29,8 @@
 #include "d3dx11core.h"
 #include "d3dx11tex.h"
 
+#include "wined3dx.h"
+
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3dx);
@@ -70,8 +72,13 @@ HRESULT WINAPI D3DX11GetImageInfoFromFileW(const WCHAR *filename, ID3DX11ThreadP
 HRESULT WINAPI D3DX11GetImageInfoFromMemory(const void *src_data, SIZE_T src_data_size, ID3DX11ThreadPump *pump,
         D3DX11_IMAGE_INFO *img_info, HRESULT *hresult)
 {
+    HRESULT hr;
+
     FIXME("src_data %p, src_data_size %Iu, pump %p, img_info %p, hresult %p stub!\n",
             src_data, src_data_size, pump, img_info, hresult);
 
-    return E_NOTIMPL;
+    hr = wined3dx_get_image_info(src_data, src_data_size, img_info);
+    if (hresult)
+        *hresult = hr;
+    return hr;
 }
