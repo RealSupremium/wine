@@ -185,6 +185,12 @@ static int token_winrt( int token, const char *str, YYSTYPE *yylval )
     return token_ident( str, yylval );
 }
 
+static int token_comimpl( int token, const char *str, YYSTYPE *yylval )
+{
+    if (do_comimpl) return token;
+    return token_ident( str, yylval );
+}
+
 static void winrt_enable( int ns_prefix )
 {
     if (!list_empty( &import_stack ) && !winrt_mode) error_loc( "WinRT IDL file imported in non-winrt mode.\n" );
@@ -303,6 +309,7 @@ static void winrt_enable( int ns_prefix )
     ignore                                      { return tIGNORE; }
     iid_is                                      { return tIIDIS; }
     immediatebind                               { return tIMMEDIATEBIND; }
+    impl                                        { return token_comimpl( tIMPL, yytext, yylval ); }
     implicit_handle                             { return tIMPLICITHANDLE; }
     in                                          { return tIN; }
     in_line                                     { return tIN_LINE; }

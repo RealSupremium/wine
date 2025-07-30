@@ -96,26 +96,29 @@ struct incl_file
 #define FLAG_IDL_TYPELIB    0x002000  /* generates a typelib (_l.res) file */
 #define FLAG_IDL_REGTYPELIB 0x004000  /* generates a registered typelib (_t.res) file */
 #define FLAG_IDL_HEADER     0x008000  /* generates a header (.h) file */
-#define FLAG_RC_PO          0x010000  /* rc file contains translations */
-#define FLAG_RC_HEADER      0x020000  /* rc file is a header */
-#define FLAG_C_IMPLIB       0x040000  /* file is part of an import library */
-#define FLAG_C_UNIX         0x080000  /* file is part of a Unix library */
-#define FLAG_SFD_FONTS      0x100000  /* sfd file generated bitmap fonts */
-#define FLAG_ARM64EC_X64    0x200000  /* use x86_64 object on ARM64EC */
+#define FLAG_IDL_IMPL       0x010000  /* generates COM class impl (_impl.h) */
+#define FLAG_RC_PO          0x020000  /* rc file contains translations */
+#define FLAG_RC_HEADER      0x040000  /* rc file is a header */
+#define FLAG_C_IMPLIB       0x080000  /* file is part of an import library */
+#define FLAG_C_UNIX         0x100000  /* file is part of a Unix library */
+#define FLAG_SFD_FONTS      0x200000  /* sfd file generated bitmap fonts */
+#define FLAG_ARM64EC_X64    0x400000  /* use x86_64 object on ARM64EC */
 
 static const struct
 {
     unsigned int flag;
     const char *ext;
+    unsigned int multiarch : 1;
 } idl_outputs[] =
 {
-    { FLAG_IDL_TYPELIB,    "_l.res" },
-    { FLAG_IDL_REGTYPELIB, "_t.res" },
-    { FLAG_IDL_CLIENT,     "_c.c" },
-    { FLAG_IDL_IDENT,      "_i.c" },
-    { FLAG_IDL_PROXY,      "_p.c" },
-    { FLAG_IDL_SERVER,     "_s.c" },
-    { FLAG_IDL_REGISTER,   "_r.res" },
+    { FLAG_IDL_TYPELIB,    "_l.res", 1 },
+    { FLAG_IDL_REGTYPELIB, "_t.res", 1 },
+    { FLAG_IDL_CLIENT,     "_c.c", 1 },
+    { FLAG_IDL_IDENT,      "_i.c", 1 },
+    { FLAG_IDL_PROXY,      "_p.c", 1 },
+    { FLAG_IDL_SERVER,     "_s.c", 1 },
+    { FLAG_IDL_REGISTER,   "_r.res", 1 },
+    { FLAG_IDL_IMPL,       "_impl.h", 0 },
 };
 
 #define HASH_SIZE 197
@@ -993,6 +996,7 @@ static void parse_pragma_directive( struct file *source, char *str )
             else if (!strcmp( flag, "typelib" )) source->flags |= FLAG_IDL_TYPELIB;
             else if (!strcmp( flag, "register" )) source->flags |= FLAG_IDL_REGISTER;
             else if (!strcmp( flag, "regtypelib" )) source->flags |= FLAG_IDL_REGTYPELIB;
+            else if (!strcmp( flag, "impl" )) source->flags |= FLAG_IDL_IMPL;
         }
         else if (strendswith( source->name, ".rc" ))
         {
@@ -1482,6 +1486,7 @@ static struct file *open_include_file( const struct makefile *make, struct incl_
     /* check for generated files */
     if ((file = open_local_generated_file( make, pFile, ".tab.h", ".y" ))) return file;
     if ((file = open_local_generated_file( make, pFile, ".h", ".idl" ))) return file;
+    if ((file = open_local_generated_file( make, pFile, "_impl.h", ".idl" ))) return file;
     if (fontforge && (file = open_local_generated_file( make, pFile, ".ttf", ".sfd" ))) return file;
     if (convert && rsvg && icotool)
     {
@@ -1552,6 +1557,7 @@ static struct file *open_include_file( const struct makefile *make, struct incl_
     /* try in src file directory */
     if ((file = open_same_dir_generated_file( make, pFile->included_by, pFile, ".tab.h", ".y" )) ||
         (file = open_same_dir_generated_file( make, pFile->included_by, pFile, ".h", ".idl" )) ||
+        (file = open_same_dir_generated_file( make, pFile->included_by, pFile, "_impl.h", ".idl" )) ||
         (file = open_file_same_dir( pFile->included_by, pFile->name, &pFile->filename )))
     {
         pFile->is_external = pFile->included_by->is_external;
@@ -1935,6 +1941,10 @@ static void add_generated_sources( struct makefile *make )
         if (source->file->flags & FLAG_IDL_HEADER)
         {
             add_generated_source( make, replace_extension( source->name, ".idl", ".h" ), NULL, 0 );
+        }
+        if (source->file->flags & FLAG_IDL_IMPL)
+        {
+            add_generated_source( make, replace_extension( source->name, ".idl", "_impl.h" ), NULL, 0 );
         }
         if (!source->file->flags && strendswith( source->name, ".idl" ))
         {
@@ -2887,7 +2897,7 @@ static void output_source_idl( struct makefile *make, struct incl_file *source, 
     struct strarray headers = empty_strarray;
     struct strarray deps = empty_strarray;
     struct strarray multiarch_targets[MAX_ARCHS] = { empty_strarray };
-    const char *dest;
+    const char *dest, *impl;
     unsigned int i, arch;
 
     if (find_include_file( make, strmake( "%s.h", obj ))) source->file->flags |= FLAG_IDL_HEADER;
@@ -2908,17 +2918,23 @@ static void output_source_idl( struct makefile *make, struct incl_file *source, 
         strarray_add( &headers, dest );
         if (!find_src_file( make, dest )) strarray_add( &make->clean_files, dest );
     }
+    if (source->file->flags & FLAG_IDL_IMPL)
+    {
+        impl = strmake( "%s_impl.h", obj );
+        strarray_add( &headers, impl );
+        if (!find_src_file( make, impl )) strarray_add( &make->clean_files, impl );
+    }
 
     for (i = 0; i < ARRAY_SIZE(idl_outputs); i++)
     {
         if (!(source->file->flags & idl_outputs[i].flag)) continue;
         for (arch = 0; arch < archs.count; arch++)
         {
-            if (!is_multiarch( arch )) continue;
+            if (idl_outputs[i].multiarch != is_multiarch( arch )) continue;
             if (make->disabled[arch]) continue;
             dest = strmake( "%s%s%s", arch_dirs[arch], obj, idl_outputs[i].ext );
             if (!find_src_file( make, dest )) strarray_add( &make->clean_files, dest );
-            strarray_add( &multiarch_targets[arch], dest );
+            if (idl_outputs[i].multiarch) strarray_add( &multiarch_targets[arch], dest );
         }
     }
 

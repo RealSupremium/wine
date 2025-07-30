@@ -115,7 +115,7 @@ struct allowed_attr
     unsigned int on_type : 1;
     unsigned int on_enum : 1;
     unsigned int on_enum_member : 1;
-    unsigned int on_struct : 2;
+    unsigned int on_struct : 3;
     unsigned int on_union : 1;
     unsigned int on_field : 1;
     unsigned int on_library : 1;
@@ -187,6 +187,7 @@ struct allowed_attr allowed_attr[] =
     /* ATTR_IGNORE */              { 0, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, "ignore" },
     /* ATTR_IIDIS */               { 0, 0, 0,  0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, "iid_is" },
     /* ATTR_IMMEDIATEBIND */       { 0, 0, 0,  0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "immediatebind" },
+    /* ATTR_IMPL */                { 0, 0, 0,  0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, "impl" },
     /* ATTR_IMPLICIT_HANDLE */     { 1, 1, 0,  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "implicit_handle" },
     /* ATTR_IN */                  { 0, 0, 0,  0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "in" },
     /* ATTR_INPUTSYNC */           { 0, 0, 0,  0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "inputsync" },
@@ -489,7 +490,7 @@ attr_list_t *check_runtimeclass_attrs( const char *name, attr_list_t *attrs )
 
 attr_list_t *check_struct_attrs( attr_list_t *attrs )
 {
-    int mask = winrt_mode ? 3 : 1;
+    int mask = do_comimpl ? 5 : winrt_mode ? 3 : 1;
     const attr_t *attr;
     if (!attrs) return NULL;
     LIST_FOR_EACH_ENTRY( attr, attrs, const attr_t, entry )

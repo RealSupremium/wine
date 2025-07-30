@@ -1,0 +1,74 @@
+/*
+ * Copyright 2022 Rémi Bernon for CodeWeavers
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+#pragma makedep header impl
+#pragma winrt ns_prefix
+
+import "objidlbase.idl";
+import "inspectable.idl";
+import "windows.foundation.collections.idl";
+
+struct vector_iids
+{
+    const GUID *vector;
+    const GUID *view;
+    const GUID *iterable;
+    const GUID *iterator;
+};
+HRESULT vector_create( const struct vector_iids *iids, void **out );
+
+#ifdef __WIDL_IMPL__
+
+declare
+{
+    interface Windows.Foundation.Collections.IIterator<IInspectable *>;
+    interface Windows.Foundation.Collections.IIterable<IInspectable *>;
+    interface Windows.Foundation.Collections.IVectorView<IInspectable *>;
+    interface Windows.Foundation.Collections.IVector<IInspectable *>;
+}
+
+[impl(struct iterator)]
+struct iterator_klass
+{
+    [iid_is("iid")] Windows.Foundation.Collections.IIterator<IInspectable *> IIterator_IInspectable_iface;
+    IAgileObject IAgileObject_iface;
+    const GUID *iid;
+    LONG ref;
+};
+
+[impl(struct vector_view)]
+struct vector_view_klass
+{
+    [iid_is("iids.view")] Windows.Foundation.Collections.IVectorView<IInspectable *> IVectorView_IInspectable_iface;
+    [iid_is("iids.iterable")] Windows.Foundation.Collections.IIterable<IInspectable *> IIterable_IInspectable_iface;
+    IAgileObject IAgileObject_iface;
+    struct vector_iids iids;
+    LONG ref;
+};
+
+[impl(struct vector)]
+struct vector_klass
+{
+    [iid_is("iids.vector")] Windows.Foundation.Collections.IVector<IInspectable *> IVector_IInspectable_iface;
+    [iid_is("iids.iterable")] Windows.Foundation.Collections.IIterable<IInspectable *> IIterable_IInspectable_iface;
+    IAgileObject IAgileObject_iface;
+    struct vector_iids iids;
+    LONG ref;
+};
+
+#endif /* __WIDL_IMPL__ */

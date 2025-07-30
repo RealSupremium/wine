@@ -34,41 +34,16 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dmo);
 
-static HRESULT WINAPI wma_decoder_factory_CreateInstance(IClassFactory *iface, IUnknown *outer,
-        REFIID riid, void **out)
+#define WIDL_impl_wma_decoder_factory
+#include "wmadmod_impl.h"
+
+static HRESULT wma_decoder_factory_create_instance(IUnknown *outer, REFIID riid, void **out)
 {
     static const GUID CLSID_wg_wma_decoder = {0x5b4d4e54,0x0620,0x4cf9,{0x94,0xae,0x78,0x23,0x96,0x5c,0x28,0xb6}};
     return CoCreateInstance(&CLSID_wg_wma_decoder, outer, CLSCTX_INPROC_SERVER, riid, out);
 }
-
-static HRESULT WINAPI class_factory_QueryInterface(IClassFactory *iface, REFIID riid, void **out)
-{
-    *out = IsEqualGUID(riid, &IID_IClassFactory) || IsEqualGUID(riid, &IID_IUnknown) ? iface : NULL;
-    return *out ? S_OK : E_NOINTERFACE;
-}
-static ULONG WINAPI class_factory_AddRef(IClassFactory *iface)
-{
-    return 2;
-}
-static ULONG WINAPI class_factory_Release(IClassFactory *iface)
-{
-    return 1;
-}
-static HRESULT WINAPI class_factory_LockServer(IClassFactory *iface, BOOL dolock)
-{
-    return S_OK;
-}
-
-static const IClassFactoryVtbl wma_decoder_factory_vtbl =
-{
-    class_factory_QueryInterface,
-    class_factory_AddRef,
-    class_factory_Release,
-    wma_decoder_factory_CreateInstance,
-    class_factory_LockServer,
-};
-
-static IClassFactory wma_decoder_factory = {&wma_decoder_factory_vtbl};
+static const struct wma_decoder_factory_funcs wma_decoder_factory_funcs = WMA_DECODER_FACTORY_FUNCS_INIT;
+static struct wma_decoder_factory wma_decoder_factory = wma_decoder_factory_default;
 
 /***********************************************************************
  *              DllGetClassObject (wmadmod.@)
@@ -76,7 +51,7 @@ static IClassFactory wma_decoder_factory = {&wma_decoder_factory_vtbl};
 HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID riid, void **out)
 {
     if (IsEqualGUID(clsid, &CLSID_WMADecMediaObject))
-        return IClassFactory_QueryInterface(&wma_decoder_factory, riid, out);
+        return IClassFactory_QueryInterface(&wma_decoder_factory.IClassFactory_iface, riid, out);
 
     *out = NULL;
     FIXME("Unknown clsid %s.\n", debugstr_guid(clsid));

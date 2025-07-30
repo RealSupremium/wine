@@ -16,16 +16,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#pragma makedep header
-
-#ifdef __WIDL__
-#pragma winrt ns_prefix
-#endif
+#pragma makedep header impl
+#pragma winrt
 
 import "propidl.idl";
 import "inspectable.idl";
 import "asyncinfo.idl";
 import "windowscontracts.idl";
+import "windows.gaming.input.idl";
 
 namespace Wine.Internal {
     /* type-pruning version of AsyncOperationCompletedHandlerImpl<T> */
@@ -34,7 +32,7 @@ namespace Wine.Internal {
     [
         uuid(d81ab70d-82e0-481c-983d-401225d98a2c)
     ]
-    interface IAsyncInfoImpl : IUnknown
+    interface IAsyncInfoImpl : IInspectable
     {
         [propput] HRESULT Completed([in] AsyncOperationCompletedHandlerImpl *handler);
         [propget] HRESULT Completed([out, retval] AsyncOperationCompletedHandlerImpl **handler);
@@ -44,3 +42,35 @@ namespace Wine.Internal {
 
     typedef HRESULT (*async_operation_callback)( IUnknown *invoker, IUnknown *param, PROPVARIANT *result );
 }
+
+#ifdef __WIDL_IMPL__
+
+[impl(struct async_info)]
+struct async_info_klass
+{
+    Wine.Internal.IAsyncInfoImpl IAsyncInfoImpl_iface;
+    IAsyncInfo IAsyncInfo_iface;
+    IAgileObject IAgileObject_iface;
+    IInspectable *IInspectable_outer;
+    LONG ref;
+};
+
+declare { interface Windows.Foundation.IAsyncOperation<boolean>; }
+[impl(struct async_bool)]
+struct async_bool_klass
+{
+    Windows.Foundation.IAsyncOperation<boolean> IAsyncOperation_boolean_iface;
+    const WCHAR *class_name;
+    LONG ref;
+};
+
+declare { interface Windows.Foundation.IAsyncOperation<Windows.Gaming.Input.ForceFeedback.ForceFeedbackLoadEffectResult>; }
+[impl(struct async_result)]
+struct async_result_klass
+{
+    Windows.Foundation.IAsyncOperation<Windows.Gaming.Input.ForceFeedback.ForceFeedbackLoadEffectResult> IAsyncOperation_ForceFeedbackLoadEffectResult_iface;
+    const WCHAR *class_name;
+    LONG ref;
+};
+
+#endif /* __WIDL_IMPL__ */

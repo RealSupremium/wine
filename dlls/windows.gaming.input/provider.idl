@@ -16,12 +16,13 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#pragma makedep header
+#pragma makedep header impl
 
 #ifdef __WIDL__
 #pragma winrt ns_prefix
 #endif
 
+#ifndef DO_NO_IMPORTS
 import "propidl.idl";
 import "inspectable.idl";
 import "eventtoken.idl";
@@ -30,6 +31,7 @@ import "windows.foundation.idl";
 import "windows.gaming.input.idl";
 import "windows.gaming.input.custom.idl";
 import "windows.gaming.input.forcefeedback.idl";
+#endif /* DO_NO_IMPORTS */
 
 namespace Windows.Gaming.Input.Custom {
     typedef enum WineGameControllerType WineGameControllerType;
@@ -184,20 +186,23 @@ namespace Windows.Gaming.Input.Custom {
     [
         uuid(27833469-7760-417e-adbe-e011a66e16ee)
     ]
-    interface IWineForceFeedbackEffectImpl : IUnknown
+    interface IWineForceFeedbackEffectImpl : IInspectable
         requires Windows.Gaming.Input.ForceFeedback.IForceFeedbackEffect
     {
         HRESULT SetParameters([in] WineForceFeedbackEffectParameters parameters,
                               [in, optional] WineForceFeedbackEffectEnvelope *envelope);
     }
-
-    [
-        marshaling_behavior(agile),
-        threading(both)
-    ]
-    runtimeclass WineGameControllerProvider
-    {
-        [default] interface Windows.Gaming.Input.Custom.IWineGameControllerProvider;
-        interface Windows.Gaming.Input.Custom.IGameControllerProvider;
-    }
 }
+
+#ifdef __WIDL_IMPL__
+
+[impl(struct provider)]
+struct provider_klass
+{
+    Windows.Gaming.Input.Custom.IWineGameControllerProvider IWineGameControllerProvider_iface;
+    Windows.Gaming.Input.Custom.IGameControllerProvider IGameControllerProvider_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+#endif /* __WIDL_IMPL__ */

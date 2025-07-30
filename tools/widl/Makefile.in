@@ -4,6 +4,7 @@ PARENTSRC = ../wrc
 SOURCES = \
 	attribute.c \
 	client.c \
+	comimpl.c \
 	expr.c \
 	hash.c \
 	header.c \

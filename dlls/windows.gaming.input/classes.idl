@@ -18,12 +18,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#pragma makedep register
+#pragma makedep register impl
+#pragma winrt
 
-#ifdef __WIDL__
-#pragma winrt ns_prefix
-#endif
-
+import "objidlbase.idl";
+import "activation.idl";
 import "inspectable.idl";
 import "asyncinfo.idl";
 import "eventtoken.idl";
@@ -38,3 +37,176 @@ import "windows.devices.power.idl";
 #include "windows.gaming.input.forcefeedback.idl"
 #include "windows.gaming.input.idl"
 #include "windows.gaming.input.custom.idl"
+#include "provider.idl"
+
+#ifdef __WIDL_IMPL__
+
+[impl(struct raw_controller)]
+struct raw_controller_klass
+{
+    Windows.Gaming.Input.Custom.IGameControllerImpl IGameControllerImpl_iface;
+    Windows.Gaming.Input.Custom.IGameControllerInputSink IGameControllerInputSink_iface;
+    Windows.Gaming.Input.IRawGameController IRawGameController_iface;
+    Windows.Gaming.Input.IRawGameController2 IRawGameController2_iface;
+    Windows.Gaming.Input.IGameController *IGameController_outer;
+    const WCHAR *class_name;
+    LONG ref;
+};
+
+[impl(struct raw_controller_statics)]
+struct raw_controller_statics
+{
+    IActivationFactory IActivationFactory_iface;
+    Windows.Gaming.Input.IRawGameControllerStatics IRawGameControllerStatics_iface;
+    Windows.Gaming.Input.Custom.ICustomGameControllerFactory ICustomGameControllerFactory_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+[impl(struct gamepad)]
+struct gamepad_klass
+{
+    Windows.Gaming.Input.Custom.IGameControllerImpl IGameControllerImpl_iface;
+    Windows.Gaming.Input.Custom.IGameControllerInputSink IGameControllerInputSink_iface;
+    Windows.Gaming.Input.IGamepad IGamepad_iface;
+    Windows.Gaming.Input.IGamepad2 IGamepad2_iface;
+    Windows.Gaming.Input.IGameController *IGameController_outer;
+    const WCHAR *class_name;
+    LONG ref;
+};
+
+[impl(struct gamepad_statics)]
+struct gamepad_statics
+{
+    IActivationFactory IActivationFactory_iface;
+    Windows.Gaming.Input.IGamepadStatics IGamepadStatics_iface;
+    Windows.Gaming.Input.IGamepadStatics2 IGamepadStatics2_iface;
+    Windows.Gaming.Input.Custom.ICustomGameControllerFactory ICustomGameControllerFactory_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+[impl(struct racing_wheel)]
+struct racing_wheel_klass
+{
+    Windows.Gaming.Input.Custom.IGameControllerImpl IGameControllerImpl_iface;
+    Windows.Gaming.Input.Custom.IGameControllerInputSink IGameControllerInputSink_iface;
+    Windows.Gaming.Input.IRacingWheel IRacingWheel_iface;
+    Windows.Gaming.Input.IGameController *IGameController_outer;
+    const WCHAR *class_name;
+    LONG ref;
+};
+
+[impl(struct racing_wheel_statics)]
+struct racing_wheel_statics
+{
+    IActivationFactory IActivationFactory_iface;
+    Windows.Gaming.Input.IRacingWheelStatics IRacingWheelStatics_iface;
+    Windows.Gaming.Input.IRacingWheelStatics2 IRacingWheelStatics2_iface;
+    Windows.Gaming.Input.Custom.ICustomGameControllerFactory ICustomGameControllerFactory_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+[impl(struct condition_effect)]
+struct condition_effect_klass
+{
+    Windows.Gaming.Input.ForceFeedback.IConditionForceEffect IConditionForceEffect_iface;
+    LONG ref;
+};
+
+[impl(struct condition_factory)]
+struct condition_factory
+{
+    IActivationFactory IActivationFactory_iface;
+    Windows.Gaming.Input.ForceFeedback.IConditionForceEffectFactory IConditionForceEffectFactory_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+[impl(struct constant_effect)]
+struct constant_effect_klass
+{
+    Windows.Gaming.Input.ForceFeedback.IConstantForceEffect IConstantForceEffect_iface;
+    LONG ref;
+};
+
+[impl(struct constant_factory)]
+struct constant_factory
+{
+    IActivationFactory IActivationFactory_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+[impl(struct periodic_effect)]
+struct periodic_effect_klass
+{
+    Windows.Gaming.Input.ForceFeedback.IPeriodicForceEffect IPeriodicForceEffect_iface;
+    LONG ref;
+};
+
+[impl(struct periodic_factory)]
+struct periodic_factory
+{
+    IActivationFactory IActivationFactory_iface;
+    Windows.Gaming.Input.ForceFeedback.IPeriodicForceEffectFactory IPeriodicForceEffectFactory_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+[impl(struct ramp_effect)]
+struct ramp_effect_klass
+{
+    Windows.Gaming.Input.ForceFeedback.IRampForceEffect IRampForceEffect_iface;
+    const WCHAR *class_name;
+    LONG ref;
+};
+
+[impl(struct ramp_factory)]
+struct ramp_factory
+{
+    IActivationFactory IActivationFactory_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+[impl(struct effect)]
+struct effect_klass
+{
+    Windows.Gaming.Input.Custom.IWineForceFeedbackEffectImpl IWineForceFeedbackEffectImpl_iface;
+    Windows.Gaming.Input.ForceFeedback.IForceFeedbackEffect IForceFeedbackEffect_iface;
+    IAgileObject IAgileObject_iface;
+    IInspectable *IInspectable_outer;
+    LONG ref;
+};
+
+[impl(struct motor)]
+struct motor_klass
+{
+    Windows.Gaming.Input.ForceFeedback.IForceFeedbackMotor IForceFeedbackMotor_iface;
+    IAgileObject IAgileObject_iface;
+    const WCHAR *class_name;
+    LONG ref;
+};
+
+[impl(struct controller)]
+struct controller_klass
+{
+    Windows.Gaming.Input.IGameController IGameController_iface;
+    Windows.Gaming.Input.IGameControllerBatteryInfo IGameControllerBatteryInfo_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+[impl(struct manager_statics)]
+struct manager_statics
+{
+    IActivationFactory IActivationFactory_iface;
+    Windows.Gaming.Input.Custom.IGameControllerFactoryManagerStatics IGameControllerFactoryManagerStatics_iface;
+    Windows.Gaming.Input.Custom.IGameControllerFactoryManagerStatics2 IGameControllerFactoryManagerStatics2_iface;
+    IAgileObject IAgileObject_iface;
+    LONG ref;
+};
+
+#endif /* __WIDL_IMPL__ */

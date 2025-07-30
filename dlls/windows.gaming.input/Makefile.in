@@ -18,4 +18,5 @@ SOURCES = \
 	provider.idl \
 	racing_wheel.c \
 	ramp_effect.c \
-	vector.c
+	vector.c \
+	vector_private.idl

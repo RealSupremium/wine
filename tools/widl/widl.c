@@ -99,6 +99,7 @@ int pedantic = 0;
 int do_everything = 1;
 static int preprocess_only = 0;
 int do_header = 0;
+int do_comimpl = 0;
 int do_typelib = 0;
 int do_proxies = 0;
 int do_client = 0;
@@ -116,11 +117,13 @@ int use_abi_namespace = 0;
 static int stdinc = 1;
 
 char *input_name;
+char *output_name;
 char *idl_name;
 char *acf_name;
 char *header_name;
 char *local_stubs_name;
 char *header_token;
+char *comimpl_name;
 char *typelib_name;
 char *metadata_name;
 char *dlldata_name;
@@ -141,7 +144,6 @@ static const char *bindir;
 static const char *libdir;
 static const char *includedir;
 static struct strarray dlldirs;
-static char *output_name;
 static const char *sysroot = "";
 
 static FILE *idfile;
@@ -261,6 +263,7 @@ static void exit_on_signal( int sig )
 static void set_everything(int x)
 {
   do_header = x;
+  do_comimpl = x;
   do_typelib = x;
   do_proxies = x;
   do_client = x;
@@ -729,11 +732,12 @@ int main(int argc,char *argv[])
       pointer_size = get_target_ptr_size( target );
 
   /* if nothing specified, try to guess output type from the output file name */
-  if (output_name && do_everything && !do_header && !do_typelib && !do_proxies &&
+  if (output_name && do_everything && !do_header && !do_comimpl && !do_typelib && !do_proxies &&
       !do_client && !do_server && !do_regscript && !do_idfile && !do_dlldata && !do_metadata)
   {
       do_everything = 0;
-      if (strendswith( output_name, ".h" )) do_header = 1;
+      if (strendswith( output_name, "_impl.h" )) do_comimpl = 1;
+      else if (strendswith( output_name, ".h" )) do_header = 1;
       else if (strendswith( output_name, ".tlb" )) do_typelib = 1;
       else if (strendswith( output_name, ".winmd" ))
       {
@@ -755,10 +759,11 @@ int main(int argc,char *argv[])
     set_everything(TRUE);
   }
 
-  if (do_header + do_typelib + do_proxies + do_client +
+  if (do_header + do_comimpl + do_typelib + do_proxies + do_client +
       do_server + do_regscript + do_idfile + do_dlldata + do_metadata == 1 && output_name)
   {
       if (do_header && !header_name) header_name = output_name;
+      else if (do_comimpl && !comimpl_name) comimpl_name = output_name;
       else if (do_typelib && !typelib_name) typelib_name = output_name;
       else if (do_metadata && !metadata_name) metadata_name = output_name;
       else if (do_proxies && !proxy_name) proxy_name = output_name;
@@ -812,6 +817,9 @@ int main(int argc,char *argv[])
   if (!header_name)
       header_name = replace_extension( get_basename(input_name), ".idl", ".h" );
 
+  if (!comimpl_name)
+      comimpl_name = replace_extension( get_basename(input_name), ".idl", "_impl.h" );
+
   if (!typelib_name && do_typelib)
       typelib_name = replace_extension( get_basename(input_name), ".idl", ".tlb" );
 
@@ -840,6 +848,7 @@ int main(int argc,char *argv[])
 
   add_widl_version_define();
   wpp_add_cmdline_define("_WIN32=1");
+  if (do_comimpl) wpp_add_cmdline_define("__WIDL_IMPL__");
 
   atexit(rm_tempfile);
   if (preprocess_only) exit( wpp_parse( input_name, stdout ) );
@@ -863,6 +872,8 @@ static void rm_tempfile(void)
 {
   if (do_header)
     unlink(header_name);
+  if (do_comimpl)
+    unlink(comimpl_name);
   if (local_stubs_name)
     unlink(local_stubs_name);
   if (do_client)

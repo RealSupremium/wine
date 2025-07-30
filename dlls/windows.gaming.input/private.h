@@ -44,6 +44,7 @@
 
 #include "provider.h"
 #include "async_private.h"
+#include "vector_private.h"
 
 extern HINSTANCE windows_gaming_input;
 extern ICustomGameControllerFactory *controller_factory;
@@ -54,15 +55,6 @@ extern IInspectable *constant_effect_factory;
 extern IInspectable *ramp_effect_factory;
 extern IInspectable *periodic_effect_factory;
 extern IInspectable *condition_effect_factory;
-
-struct vector_iids
-{
-    const GUID *vector;
-    const GUID *view;
-    const GUID *iterable;
-    const GUID *iterator;
-};
-extern HRESULT vector_create( const struct vector_iids *iids, void **out );
 
 extern void provider_create( const WCHAR *device_path );
 extern void provider_remove( const WCHAR *device_path );
@@ -121,6 +113,29 @@ extern HRESULT async_operation_effect_result_create( IUnknown *invoker, IUnknown
     DEFINE_IINSPECTABLE_( pfx, iface_type, impl_type, impl_from_##iface_type, iface_type##_iface, &impl->base_iface )
 #define DEFINE_IINSPECTABLE_OUTER( pfx, iface_type, impl_type, outer_iface )                       \
     DEFINE_IINSPECTABLE_( pfx, iface_type, impl_type, impl_from_##iface_type, iface_type##_iface, impl->outer_iface )
+
+#define DEFINE_IAGILEOBJECT( type, base, expr )             \
+    static HRESULT WINAPI type##_agile_QueryInterface( IAgileObject *iface, REFIID iid, void **out ) \
+    {                                                                                              \
+        struct type *object = CONTAINING_RECORD( iface, struct type, IAgileObject_iface );         \
+        return base##_QueryInterface( (expr), iid, out );                                          \
+    }                                                                                              \
+    static ULONG WINAPI type##_agile_AddRef( IAgileObject *iface )                                 \
+    {                                                                                              \
+        struct type *object = CONTAINING_RECORD( iface, struct type, IAgileObject_iface );         \
+        return base##_AddRef( (expr) );                                                            \
+    }                                                                                              \
+    static ULONG WINAPI type##_agile_Release( IAgileObject *iface )                                \
+    {                                                                                              \
+        struct type *object = CONTAINING_RECORD( iface, struct type, IAgileObject_iface );         \
+        return base##_Release( (expr) );                                                           \
+    }                                                                                              \
+    static const IAgileObjectVtbl type##_agile_vtbl =                                              \
+    {                                                                                              \
+        type##_agile_QueryInterface,                                                               \
+        type##_agile_AddRef,                                                                       \
+        type##_agile_Release,                                                                      \
+    };
 
 static inline const char *debugstr_vector3( const Vector3 *vector )
 {
