@@ -25,7 +25,8 @@ import "wtypes.idl";
 typedef void *ROPARAMIIDHANDLE;
 
 [
-    object
+    object,
+    local
 ]
 interface IRoSimpleMetaDataBuilder
 {
@@ -84,7 +85,8 @@ interface IRoSimpleMetaDataBuilder
 }
 
 [
-    object
+    object,
+    local
 ]
 interface IRoMetaDataLocator
 {

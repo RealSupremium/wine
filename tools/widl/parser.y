@@ -2685,6 +2685,20 @@ static void check_functions(const type_t *iface, int is_inside_library)
                 check_remoting_args(func);
         }
     }
+    if (!is_attr(iface->attrs, ATTR_LOCAL) && !is_attr(iface->attrs, ATTR_UUID) && !is_attr(iface->attrs, ATTR_VERSION))
+    {
+        statement_list_t* methods = type_iface_get_stmts(iface);
+        if (methods)
+        {
+            int method_count = 0;
+            STATEMENTS_FOR_EACH_FUNC( stmt, methods )
+            {
+                method_count++;
+            }
+            if (method_count)
+                error_at( &iface->where, "Can't omit both local and uuid keyword" );
+        }
+    }
 }
 
 static int async_iface_attrs(attr_list_t *attrs, const attr_t *attr)

@@ -104,7 +104,8 @@ interface IQualProp : IUnknown
 [
     object,
     /* uuid(dd1d7110-7836-11cf-bf47-00aa0055595a)  conflicts with uuids.h */
-    pointer_default(unique)
+    pointer_default(unique),
+    local
 ]
 interface IFullScreenVideo : IUnknown
 {

@@ -524,6 +524,9 @@ static void write_client_ifaces(const statement_list_t *stmts, int expr_eval_rou
             fprintf(client, " */\n");
             fprintf(client, "\n");
 
+            if (!type_iface_get_stmts(iface))
+                return;
+
             LIST_FOR_EACH_ENTRY(stmt2, type_iface_get_stmts(iface), const statement_t, entry)
             {
                 if (stmt2->type == STMT_DECLARATION && stmt2->u.var->declspec.stgclass == STG_NONE &&

@@ -24,7 +24,8 @@ cpp_quote("#include <mmreg.h>")
 [
     object,
     /* uuid(b45dd570-3c77-11d1-abe1-00a0c905f375) conflicts with uuids.h */
-    pointer_default(unique)
+    pointer_default(unique),
+    local
 ]
 interface IMpegAudioDecoder : IUnknown
 {
