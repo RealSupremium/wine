@@ -2902,15 +2902,11 @@ static void set_fd_name( struct fd *fd, struct fd *root, const char *nameptr, da
     struct stat st, st2;
     char *name;
     const unsigned int replace = flags & FILE_RENAME_REPLACE_IF_EXISTS;
+    int ret;
 
     if (!fd->inode || !fd->unix_name)
     {
         set_error( STATUS_OBJECT_TYPE_MISMATCH );
-        return;
-    }
-    if (fd->unix_fd == -1)
-    {
-        set_error( fd->no_fd_status );
         return;
     }
 
@@ -2938,15 +2934,26 @@ static void set_fd_name( struct fd *fd, struct fd *root, const char *nameptr, da
     }
 
     /* when creating a hard link, source cannot be a dir */
-    if (create_link && !fstat( fd->unix_fd, &st ) && S_ISDIR( st.st_mode ))
+    if (create_link)
     {
-        set_error( STATUS_FILE_IS_A_DIRECTORY );
-        goto failed;
+        if (fd->unix_fd != -1)
+            ret = fstat( fd->unix_fd, &st );
+        else
+            ret = lstat( fd->unix_name, &st );
+        if (!ret && S_ISDIR( st.st_mode ))
+        {
+            set_error( STATUS_FILE_IS_A_DIRECTORY );
+            goto failed;
+        }
     }
 
     if (!stat( name, &st ))
     {
-        if (!fstat( fd->unix_fd, &st2 ) && st.st_ino == st2.st_ino && st.st_dev == st2.st_dev)
+        if (fd->unix_fd != -1)
+            ret = fstat( fd->unix_fd, &st2 );
+        else
+            ret = lstat( fd->unix_name, &st2 );
+        if (!ret && st.st_ino == st2.st_ino && st.st_dev == st2.st_dev)
         {
             if (create_link && !replace) set_error( STATUS_OBJECT_NAME_COLLISION );
             free( name );
@@ -3012,7 +3019,8 @@ static void set_fd_name( struct fd *fd, struct fd *root, const char *nameptr, da
         goto failed;
     }
 
-    if (is_file_executable( fd->unix_name ) != is_file_executable( name ) && !fstat( fd->unix_fd, &st ))
+    if (is_file_executable( fd->unix_name ) != is_file_executable( name ) &&
+        fd->unix_fd != -1 && !fstat( fd->unix_fd, &st ))
     {
         if (is_file_executable( name ))
             /* set executable bit where read bit is set */
