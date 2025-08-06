@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg id="bitmap:17-32" width="17" height="52" version="1.1" viewBox="0 0 4.4978 13.758" xmlns="http://www.w3.org/2000/svg" xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <style>
+  @import url(colors.css);
+ </style>
  <metadata>
   <rdf:RDF>
    <cc:Work rdf:about="">
@@ -16,8 +19,8 @@
  </g>
  <g transform="matrix(2.4286 0 0 1 .15208 1.5687)">
   <g transform="translate(.086725 .018767)" stroke-width=".12044">
-   <path d="m-0.14935 2.6972 0.92136 2.0652 0.13162-0.29501-0.92136-2.0652z" fill="#3096fa"/>
-   <path d="m1.5711 2.3812-0.92136 2.0652 0.13162 0.29501 0.92136-2.0652z" fill="#3096fa"/>
+   <path d="m-0.14935 2.6972 0.92136 2.0652 0.13162-0.29501-0.92136-2.0652z" class="Highlight" fill="currentColor"/>
+   <path d="m1.5711 2.3812-0.92136 2.0652 0.13162 0.29501 0.92136-2.0652z" class="Highlight" fill="currentColor"/>
    <path d="m-0.14935 6.1358 0.92136 2.0661 0.13162-0.29517-0.92136-2.0661z" fill="#fff"/>
    <path d="m1.5711 5.8207-0.92136 2.0661 0.13162 0.29517 0.92136-2.0661z" fill="#fff"/>
   </g>

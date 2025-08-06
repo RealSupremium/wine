@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg id="bitmap:7-32" width="7" height="48" version="1.1" viewBox="0 0 1.8521 12.7" xmlns="http://www.w3.org/2000/svg" xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <style>
+  @import url(colors.css);
+ </style>
  <metadata>
   <rdf:RDF>
    <cc:Work rdf:about="">
@@ -11,13 +14,13 @@
  <g stroke-width=".26458">
   <path d="m1.8521 0.40499-0.91903 0.91793-0.13129-0.13113 0.91903-0.91794z"/>
   <path d="m0.13124 0.26459 0.91903 0.91794-0.13129 0.13113-0.91903-0.91794z"/>
-  <g fill="#3096fa">
+  <g class="Highlight" fill="currentColor">
    <path d="m1.8521 1.9925-0.91903 0.91794-0.13129-0.13113 0.91903-0.91793z"/>
    <path d="m0.13124 1.8521 0.91903 0.91794-0.13129 0.13113-0.91903-0.91793z"/>
    <path d="m1.8521 11.518-0.91903 0.91794-0.13129-0.13113 0.91903-0.91793z"/>
    <path d="m0.13124 11.377 0.91903 0.91794-0.13129 0.13113-0.91903-0.91793z"/>
   </g>
-  <g fill="#2979ff">
+  <g class="HighlightOutline" fill="currentColor">
    <path d="m1.8521 3.5801-0.91903 0.91793-0.13129-0.13113 0.91903-0.91793z"/>
    <path d="m0.13124 3.4397 0.91903 0.91793-0.13129 0.13113-0.91903-0.91793z"/>
    <path d="m1.8521 6.7552-0.91903 0.91793-0.13129-0.13113 0.91903-0.91793z"/>

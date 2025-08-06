@@ -1,0 +1,50 @@
+/*
+ * Copyright 2025 Stefan Dösinger for CodeWeavers
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+/* The general approach is to use the same color names as in .rc files. If you change a color
+ * here, you probably want to make a similar change in light.rc.
+ *
+ * Imagemagick doesn't support CSS variables, so we have to put the color values into the classes
+ * directly.  The SVG files specify fill and stroke colors, and in some cases both. An SVG element
+ * can only have one class though. So as long as only one color is needed, we use
+ *
+ * <rect ... class="HighlightOutline" fill="currentColor" />
+ * <path ... class="HighlightOutline" stroke="currentColor" />
+ *
+ * If one SVG element needs two different colors we have to define a separate class:
+ *
+ * .WindowBackgroundHighlightOutline
+ * {
+ *     fill:#ffffff; /* match WindowBackground.color * /
+ *     stroke:#2979ff; /* match HighlightOutline.color * /
+ * }
+ *
+ * And then use it like
+ *
+ * <rect ... class="WindowBackgroundHighlightOutline" />
+ */
+
+.Highlight
+{
+    color:#3096fa; /* 48 150 250 */
+}
+
+.HighlightOutline
+{
+    color:#2979ff; /* 41 121 255 */
+}
