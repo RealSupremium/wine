@@ -548,6 +548,10 @@ static HRESULT WINAPI dinput_device_Acquire( IDirectInputDevice8W *iface )
         impl->status = STATUS_ACQUIRED;
         if (FAILED(hr = impl->vtbl->acquire( iface ))) impl->status = STATUS_UNACQUIRED;
     }
+    if (impl->autocenter_warning)
+        WARN( "Joystick %s was acquired without checking or setting autocenter, defaulting %s (override with 'Autocenter' registry key)\n",
+              debugstr_w(impl->instance.tszInstanceName),
+              impl->autocenter == DIPROPAUTOCENTER_ON ? "on" : "off" );
     LeaveCriticalSection( &impl->crit );
     if (hr != DI_OK) return hr;
 
@@ -1178,6 +1182,7 @@ static HRESULT dinput_device_get_property( IDirectInputDevice8W *iface, const GU
         DIPROPDWORD *value = (DIPROPDWORD *)header;
         if (!(impl->caps.dwFlags & DIDC_FORCEFEEDBACK)) return DIERR_UNSUPPORTED;
         value->dwData = impl->autocenter;
+        impl->autocenter_warning = FALSE;
         return DI_OK;
     }
     case (DWORD_PTR)DIPROP_BUFFERSIZE:
@@ -1362,6 +1367,7 @@ static HRESULT dinput_device_set_property( IDirectInputDevice8W *iface, const GU
         const DIPROPDWORD *value = (const DIPROPDWORD *)header;
         if (!(impl->caps.dwFlags & DIDC_FORCEFEEDBACK)) return DIERR_UNSUPPORTED;
         impl->autocenter = value->dwData;
+        impl->autocenter_warning = FALSE;
         return DI_OK;
     }
     case (DWORD_PTR)DIPROP_FFGAIN:
@@ -2206,6 +2212,7 @@ void dinput_device_init( struct dinput_device *device, const struct dinput_devic
     device->caps.dwSize = sizeof(DIDEVCAPS);
     device->caps.dwFlags = DIDC_ATTACHED | DIDC_EMULATED;
     device->device_gain = 10000;
+    device->autocenter_warning = TRUE;
     device->autocenter = device_instance_autocenter_initial( &device->instance );
     device->force_feedback_state = DIGFFS_STOPPED | DIGFFS_EMPTY;
     dinput_internal_addref( (device->dinput = dinput) );
