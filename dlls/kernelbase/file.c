@@ -502,6 +502,33 @@ BOOL WINAPI DECLSPEC_HOTPATCH AreFileApisANSI(void)
 }
 
 /******************************************************************************
+ *  cpfile2_cb_abrt_chk
+ *
+ *  Check for aborting, e.g routine return COPYFILE2_PROGRESS_PAUSED/CANCEL
+ */
+static BOOL cpfile2_cb_abrt_chk( PCOPYFILE2_PROGRESS_ROUTINE *routine, void *params, BOOL *delete_dest, const COPYFILE2_MESSAGE* msg )
+{
+    switch((*routine)(msg, params))
+    {
+    case COPYFILE2_PROGRESS_QUIET:
+        *routine = NULL;
+        break;
+    
+    case COPYFILE2_PROGRESS_CANCEL:
+    case COPYFILE2_PROGRESS_STOP:
+        *delete_dest = TRUE;
+        return HRESULT_FROM_WIN32(ERROR_REQUEST_ABORTED);
+
+    case COPYFILE2_PROGRESS_PAUSE:
+        return HRESULT_FROM_WIN32(ERROR_REQUEST_PAUSED);
+
+    case COPYFILE2_PROGRESS_CONTINUE:
+        return TRUE;
+    }
+    return TRUE;
+}
+
+/******************************************************************************
  *  copy_file
  */
 static BOOL copy_file( const WCHAR *source, const WCHAR *dest, COPYFILE2_EXTENDED_PARAMETERS *params )
@@ -565,6 +592,13 @@ static BOOL copy_file( const WCHAR *source, const WCHAR *dest, COPYFILE2_EXTENDE
         WARN("GetFileInformationByHandle returned error for %s\n", debugstr_w(source));
         HeapFree( GetProcessHeap(), 0, buffer );
         CloseHandle( h1 );
+        if(progress) {
+            COPYFILE2_MESSAGE msg = {0};
+            msg.Type = COPYFILE2_CALLBACK_ERROR;
+            msg.Info.Error.CopyPhase = COPYFILE2_PHASE_PREPARE_SOURCE;
+            msg.Info.Error.hrFailure = HRESULT_FROM_WIN32(GetLastError());
+            progress(&msg, params->pvCallbackContext);
+        }
         return FALSE;
     }
 
@@ -619,7 +653,8 @@ static BOOL copy_file( const WCHAR *source, const WCHAR *dest, COPYFILE2_EXTENDE
         msg.Info.StreamStarted.hDestinationFile = h2;
         msg.Info.StreamStarted.uliStreamSize = 
         msg.Info.StreamStarted.uliTotalFileSize = file_size;
-        progress(&msg, params->pvCallbackContext);
+        if((ret = cpfile2_cb_abrt_chk(&progress, params->pvCallbackContext, &delete_dest, &msg)) != TRUE)
+            goto done;
     }
 
     while (ReadFile( h1, buffer, buffer_size, &count, NULL ) && count)
@@ -638,22 +673,8 @@ static BOOL copy_file( const WCHAR *source, const WCHAR *dest, COPYFILE2_EXTENDE
             msg.Info.ChunkStarted.uliStreamSize = 
             msg.Info.ChunkStarted.uliTotalFileSize =
             file_size;
-            switch(progress(&msg, params->pvCallbackContext))
-            {
-            case COPYFILE2_PROGRESS_STOP:
-                /* Fall-through */   
-            case COPYFILE2_PROGRESS_CANCEL:
-                ret = HRESULT_FROM_WIN32(ERROR_REQUEST_ABORTED);
+            if((ret = cpfile2_cb_abrt_chk(&progress, params->pvCallbackContext, &delete_dest, &msg)) != TRUE)
                 goto done;
-            case COPYFILE2_PROGRESS_PAUSE:
-                ret = HRESULT_FROM_WIN32(ERROR_REQUEST_PAUSED);
-                goto done;
-            case COPYFILE2_PROGRESS_QUIET:
-                progress = 0;
-                break;
-            default:
-                break;
-            }
         }
         while (count != 0)
         {
@@ -679,24 +700,8 @@ static BOOL copy_file( const WCHAR *source, const WCHAR *dest, COPYFILE2_EXTENDE
             msg.Info.ChunkFinished.uliTotalBytesTransferred.QuadPart =
             bytes_transfered;
             chunk_id++;
-            switch(progress(&msg, params->pvCallbackContext))
-            {
-            case COPYFILE2_PROGRESS_STOP:
-                if(params->dwCopyFlags & COPY_FILE_RESTARTABLE)
-                    FIXME("COPY_FILE_RESTARTABLE flag is unsupported");
-                /* Fall-through */   
-            case COPYFILE2_PROGRESS_CANCEL:
-                ret = HRESULT_FROM_WIN32(ERROR_REQUEST_ABORTED);
+            if((ret = cpfile2_cb_abrt_chk(&progress, params->pvCallbackContext, &delete_dest, &msg)) != TRUE)
                 goto done;
-            case COPYFILE2_PROGRESS_PAUSE:
-                ret = HRESULT_FROM_WIN32(ERROR_REQUEST_PAUSED);
-                goto done;
-            case COPYFILE2_PROGRESS_QUIET:
-                progress = 0;
-                goto done;
-            default:
-                break;
-            }
         }
     }
     ret = TRUE;
@@ -718,11 +723,8 @@ done:
         msg.Info.StreamFinished.uliStreamBytesTransferred.QuadPart = 
         msg.Info.StreamFinished.uliTotalBytesTransferred.QuadPart =
         (ULONGLONG)liPos.QuadPart;
-        if(progress(&msg, params->pvCallbackContext) == COPYFILE2_PROGRESS_CANCEL)
-        {
-            delete_dest = TRUE;
-            ret = HRESULT_FROM_WIN32(ERROR_REQUEST_ABORTED);
-        }
+        if((ret = cpfile2_cb_abrt_chk(&progress, params->pvCallbackContext, &delete_dest, &msg)) != TRUE)
+            goto done;
     }
 
     /* Maintain the timestamp of source file to destination file and read-only attribute */
