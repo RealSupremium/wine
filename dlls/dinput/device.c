@@ -152,13 +152,21 @@ static BOOL device_instance_autocenter_initial( DIDEVICEINSTANCEW *instance )
     static const WCHAR joystick_key[] = {'A', 'u', 't', 'o', 'c', 'e', 'n', 't', 'e', 'r', 0};
     WCHAR buffer[MAX_PATH];
     HKEY hkey, appkey, temp;
-    BOOL autocenter = DIPROPAUTOCENTER_ON;  /* MS Sidewinder 2 initial value. No others known yet. There is
-                                               a project to collect other device defaults to improved this
-                                               https://github.com/twhitehead/issue-wine-ff-autocenter */
+    BOOL autocenter = DIPROPAUTOCENTER_OFF;
 
-    get_app_key( &hkey, &appkey );
+    /* Default devices with joysticks in their name to on */
+    wcscpy_s( buffer, sizeof(buffer)/sizeof(buffer[0]), instance->tszProductName );
+    _wcslwr_s( buffer, sizeof(buffer)/sizeof(buffer[0]) );
+    if ( wcsstr(buffer, L"joystick") != NULL )
+    {
+        autocenter = DIPROPAUTOCENTER_ON;
+    }
+    TRACE( "Joystick '%s' autocenter default is %s.\n", debugstr_w(instance->tszInstanceName),
+           autocenter == DIPROPAUTOCENTER_ON ? "on" : "off" );
 
     /* Autocenter settings are in the 'Autocenter' subkey */
+    get_app_key( &hkey, &appkey );
+
     if (appkey)
     {
         if (RegOpenKeyW( appkey, joystick_key, &temp )) temp = 0;
@@ -178,12 +186,12 @@ static BOOL device_instance_autocenter_initial( DIDEVICEINSTANCEW *instance )
     {
         if (!wcscmp( on_str, buffer ))
         {
-            TRACE( "Joystick '%s' autocenter on based on registry key.\n", debugstr_w(instance->tszInstanceName) );
+            TRACE( "Joystick '%s' autocenter default overridden to on based on registry key.\n", debugstr_w(instance->tszInstanceName) );
             autocenter = DIPROPAUTOCENTER_ON;
         }
         else if (!wcscmp( off_str, buffer ))
         {
-            TRACE( "Joystick '%s' autocenter off based on registry key.\n", debugstr_w(instance->tszInstanceName) );
+            TRACE( "Joystick '%s' autocenter default overridden to off based on registry key.\n", debugstr_w(instance->tszInstanceName) );
             autocenter = DIPROPAUTOCENTER_OFF;
         }
         else
