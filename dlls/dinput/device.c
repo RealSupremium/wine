@@ -154,15 +154,20 @@ static BOOL device_instance_autocenter_initial( DIDEVICEINSTANCEW *instance )
     HKEY hkey, appkey, temp;
     BOOL autocenter = DIPROPAUTOCENTER_OFF;
 
-    /* Default devices with joysticks in their name to on */
-    wcscpy_s( buffer, sizeof(buffer)/sizeof(buffer[0]), instance->tszProductName );
-    _wcslwr_s( buffer, sizeof(buffer)/sizeof(buffer[0]) );
-    if ( wcsstr(buffer, L"joystick") != NULL )
+    /* Autocenter default based on type (joystick is on, anything fancier is off) */
+    switch ( GET_DIDEVICE_TYPE(instance->dwDevType) )
     {
+    case DI8DEVTYPE_JOYSTICK:
         autocenter = DIPROPAUTOCENTER_ON;
+        break;
+    default:
+        autocenter = DIPROPAUTOCENTER_OFF;
+        break;
     }
-    TRACE( "Joystick '%s' autocenter default is %s.\n", debugstr_w(instance->tszInstanceName),
-           autocenter == DIPROPAUTOCENTER_ON ? "on" : "off" );
+    TRACE( "Joystick '%s' autocenter default is %s due to device type 0x%02x.\n",
+           debugstr_w(instance->tszInstanceName),
+           autocenter == DIPROPAUTOCENTER_ON ? "on" : "off" ,
+           GET_DIDEVICE_TYPE(instance->dwDevType) );
 
     /* Autocenter settings are in the 'Autocenter' subkey */
     get_app_key( &hkey, &appkey );
