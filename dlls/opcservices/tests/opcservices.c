@@ -1319,7 +1319,7 @@ static void test_read_package(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = IOpcFactory_ReadPackageFromStream(factory, stream, OPC_READ_DEFAULT, &package);
-    todo_wine ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     IStream_Release(stream);
     if (FAILED(hr)) goto done;
 
@@ -1338,7 +1338,13 @@ static void test_read_package(void)
         hr = IOpcFactory_CreatePartUri(factory, parts[i].uri, &uri);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
         hr = IOpcPartSet_GetPart(partset, uri, &part);
-        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        todo_wine ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        if (FAILED(hr))
+        {
+            IOpcPartUri_Release(uri);
+            winetest_pop_context();
+            continue;
+        }
 
         hr = IOpcPart_GetContentType(part, &type);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);

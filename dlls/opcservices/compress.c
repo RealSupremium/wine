@@ -560,3 +560,10 @@ HRESULT compress_add_file(struct zip_archive *archive, const WCHAR *path,
 
     return S_OK;
 }
+
+HRESULT compress_open_archive(IOpcFactory *factory, IStream *stream, struct opc_part_set *part_set)
+{
+    FIXME("(%p, %p, %p) stub\n", factory, stream, part_set);
+
+    return S_OK;
+}

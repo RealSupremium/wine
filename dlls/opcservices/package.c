@@ -1513,7 +1513,7 @@ static const IOpcPackageVtbl opc_package_vtbl =
     opc_package_GetRelationshipSet,
 };
 
-HRESULT opc_package_create(IOpcFactory *factory, IOpcPackage **out)
+HRESULT opc_package_create(IOpcFactory *factory, struct opc_part_set *part_set, IOpcPackage **out)
 {
     struct opc_package *package;
     HRESULT hr;
@@ -1529,6 +1529,8 @@ HRESULT opc_package_create(IOpcFactory *factory, IOpcPackage **out)
         free(package);
         return hr;
     }
+    if (part_set)
+        IOpcPartSet_AddRef((package->part_set = &part_set->IOpcPartSet_iface));
 
     *out = &package->IOpcPackage_iface;
     TRACE("Created package %p.\n", *out);
@@ -2053,4 +2055,22 @@ HRESULT opc_package_write(IOpcPackage *package, OPC_WRITE_FLAGS flags, IStream *
     IXmlWriter_Release(writer);
 
     return hr;
+}
+
+HRESULT opc_part_set_create(struct opc_part_set **out)
+{
+    struct opc_part_set *part_set;
+
+    if (!(part_set = calloc(1, sizeof(*part_set))))
+        return E_OUTOFMEMORY;
+
+    part_set->IOpcPartSet_iface.lpVtbl = &opc_part_set_vtbl;
+    part_set->refcount = 1;
+    *out = part_set;
+    return S_OK;
+}
+
+void opc_part_set_release(struct opc_part_set *part_set)
+{
+    IOpcPartSet_Release(&part_set->IOpcPartSet_iface);
 }
