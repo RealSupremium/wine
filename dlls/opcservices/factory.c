@@ -380,12 +380,9 @@ static HRESULT WINAPI opc_factory_ReadPackageFromStream(IOpcFactory *iface, IStr
 
     TRACE("iface %p, stream %p, flags %#x, package %p\n", iface, stream, flags, package);
 
-    if (flags)
-        FIXME("Unsupported flags: %#x\n", flags);
-
     if (FAILED(hr = opc_part_set_create(&part_set)))
         return hr;
-    if (FAILED(hr = compress_open_archive(iface, stream, part_set)))
+    if (FAILED(hr = compress_open_archive(iface, stream, flags, part_set)))
     {
         opc_part_set_release(part_set);
         return hr;

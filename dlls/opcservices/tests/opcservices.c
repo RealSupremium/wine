@@ -1338,13 +1338,7 @@ static void test_read_package(void)
         hr = IOpcFactory_CreatePartUri(factory, parts[i].uri, &uri);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
         hr = IOpcPartSet_GetPart(partset, uri, &part);
-        todo_wine ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-        if (FAILED(hr))
-        {
-            IOpcPartUri_Release(uri);
-            winetest_pop_context();
-            continue;
-        }
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
         hr = IOpcPart_GetContentType(part, &type);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -1362,7 +1356,7 @@ static void test_read_package(void)
         memset(exp_buf, i, sizeof(exp_buf));
         hr = IStream_Read(stream, buf, sizeof(buf), &read);
         ok(hr == S_OK, "Failed to read from stream, hr %#lx.\n", hr);
-        ok(read == sizeof(buf), "Got read %lu != %Iu.\n", read, sizeof(buf));
+        todo_wine ok(read == sizeof(buf), "Got read %lu != %Iu.\n", read, sizeof(buf));
         ok(!memcmp(buf, exp_buf, read), "Got mismatching data.\n");
         IStream_Release(stream);
 

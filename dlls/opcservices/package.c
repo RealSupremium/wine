@@ -76,6 +76,8 @@ struct opc_part
     WCHAR *content_type;
     DWORD compression_options;
     IOpcRelationshipSet *relationship_set;
+    IStream *archive;
+    struct zip_entry zip_entry;
     struct opc_content *content;
 };
 
@@ -780,9 +782,13 @@ static ULONG WINAPI opc_part_Release(IOpcPart *iface)
     {
         if (part->relationship_set)
             IOpcRelationshipSet_Release(part->relationship_set);
-        IOpcPartUri_Release(part->name);
+        if (part->name)
+            IOpcPartUri_Release(part->name);
         CoTaskMemFree(part->content_type);
-        opc_content_release(part->content);
+        if (part->content)
+            opc_content_release(part->content);
+        if (part->archive)
+            IStream_Release(part->archive);
         free(part);
     }
 
@@ -813,6 +819,9 @@ static HRESULT WINAPI opc_part_GetContentStream(IOpcPart *iface, IStream **strea
 
     if (!stream)
         return E_POINTER;
+
+    if (part->archive)
+        FIXME("stub!\n");
 
     return opc_content_stream_create(part->content, stream);
 }
@@ -897,6 +906,42 @@ static HRESULT opc_part_create(struct opc_part_set *set, IOpcPartUri *name, cons
 
     *out = &part->IOpcPart_iface;
     TRACE("Created part %p.\n", *out);
+    return S_OK;
+}
+
+HRESULT opc_part_set_add_zip_part(struct opc_part_set *set, IStream *archive, const struct zip_entry *entry,
+                                  OPC_COMPRESSION_OPTIONS opt, OPC_READ_FLAGS read_flags, IOpcPartUri *name,
+                                  const WCHAR *content_type)
+{
+    struct opc_part *part;
+
+    if (!opc_array_reserve((void **)&set->parts, &set->size, set->count + 1, sizeof(*set->parts)))
+        return E_OUTOFMEMORY;
+
+    if (!(part = calloc(1, sizeof(*part))))
+        return E_OUTOFMEMORY;
+
+    part->IOpcPart_iface.lpVtbl = &opc_part_vtbl;
+    part->refcount = 1;
+    part->content = calloc(1, sizeof(*part->content));
+    if (!part->content)
+    {
+        IOpcPart_Release(&part->IOpcPart_iface);
+        return E_OUTOFMEMORY;
+    }
+    part->content->refcount = 1;
+    IOpcPartUri_AddRef((part->name = name));
+    part->compression_options = opt;
+    IStream_AddRef((part->archive = archive));
+    part->zip_entry = *entry;
+    if (!(part->content_type = opc_strdupW(content_type)))
+    {
+        IOpcPart_Release(&part->IOpcPart_iface);
+        return E_OUTOFMEMORY;
+    }
+    set->parts[set->count++] = part;
+    CoCreateGuid(&set->id);
+
     return S_OK;
 }
 

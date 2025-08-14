@@ -18,6 +18,7 @@
 
 #define COBJMACROS
 
+#include <stdint.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <zlib.h>
@@ -144,12 +145,21 @@ enum zip_versions
     ZIP64_VERSION = 45,
 };
 
+static const OPC_COMPRESSION_OPTIONS deflate_opts[] =
+{
+    OPC_COMPRESSION_NORMAL,
+    OPC_COMPRESSION_MAXIMUM,
+    OPC_COMPRESSION_FAST,
+    OPC_COMPRESSION_SUPERFAST
+};
+
 enum entry_flags
 {
     DEFLATE_NORMAL = 0x0,
     DEFLATE_MAX = 0x2,
     DEFLATE_FAST = 0x4,
     DEFLATE_SUPERFAST = 0x6,
+    DEFLATE_LEVEL_MASK = 0x6,
     USE_DATA_DESCRIPTOR = 0x8,
 };
 
@@ -561,9 +571,237 @@ HRESULT compress_add_file(struct zip_archive *archive, const WCHAR *path,
     return S_OK;
 }
 
-HRESULT compress_open_archive(IOpcFactory *factory, IStream *stream, struct opc_part_set *part_set)
+static const char *debugstr_OPC_COMPRESSION_OPTIONS(OPC_COMPRESSION_OPTIONS opt)
 {
-    FIXME("(%p, %p, %p) stub\n", factory, stream, part_set);
+    static const char *str[] = {"OPC_COMPRESSION_NONE", "OPC_COMPRESSION_NORMAL", "OPC_COMPRESSION_MAXIMUM",
+                                "OPC_COMPRESSION_FAST", "OPC_COMPRESSION_SUPERFAST"};
 
-    return S_OK;
+    if (opt + 1 < ARRAY_SIZE(str))
+        return str[opt + 1];
+    return wine_dbg_sprintf("%#x", opt);
+}
+
+static const char *debugstr_zip_entry(const struct zip_entry *entry)
+{
+    return wine_dbg_sprintf("{%#I64x}", entry->local_file_offset.QuadPart);
+}
+struct zip_part
+{
+    struct zip_entry entry;
+    OPC_COMPRESSION_OPTIONS opt;
+    IOpcPartUri *name;
+};
+
+/* The stream should be at the start of the central directory. */
+static HRESULT compress_read_entries(IOpcFactory *factory, IStream *stream, OPC_READ_FLAGS flags, ULONG dir_records,
+                                     struct opc_part_set *partset)
+{
+    static const char *content_types_name = "[Content_Types].xml";
+    ULONG i, part_count = 0, nameW_len = 0, nameA_len = 0;
+    BOOL found_content_types = FALSE;
+    struct zip_part *parts = NULL;
+    WCHAR *nameW = NULL;
+    char *nameA = NULL;
+    HRESULT hr;
+
+    for (i = 0; i < dir_records; i++)
+    {
+        struct zip32_central_directory_header dir = {0};
+        struct zip64_extra_field ext = {0};
+        struct zip_entry entry = {0};
+        OPC_COMPRESSION_OPTIONS opt;
+        ULONG read, ext_size = 0;
+        LARGE_INTEGER off;
+
+        hr = IStream_Read(stream, &dir, sizeof(dir), &read);
+        if (hr != S_OK)
+            goto done;
+        if (dir.name_length + 1 > nameA_len)
+        {
+            char *tmp;
+
+            nameA_len = dir.name_length + 1;
+            if (!(tmp = realloc(nameA, nameA_len)))
+            {
+                hr = E_OUTOFMEMORY;
+                goto done;
+            }
+            nameA = tmp;
+        }
+        nameA[dir.name_length] = '\0';
+
+        hr = IStream_Read(stream, nameA, dir.name_length, &read);
+        if (hr != S_OK)
+            goto done;
+        /* If any of the fields are UINT32_MAX, there is an extra ZIP64 extended information field */
+        if (dir.uncompressed_size == UINT32_MAX)
+            ext_size = 8;
+        if (dir.compressed_size == UINT32_MAX)
+            ext_size = 16;
+        if (dir.local_file_offset == UINT32_MAX)
+            ext_size = 24;
+        if (ext_size)
+            ext_size += 4; /* For the signature and size fields. */
+        /* Make sure that the central directory record actually indicates there is a ZIP64 extended field. */
+        if (dir.extra_length < ext_size)
+        {
+            hr = OPC_E_ZIP_CORRUPTED_ARCHIVE;
+            goto done;
+        }
+        if (ext_size && ((hr = IStream_Read(stream, &ext, ext_size, &read) != S_OK)))
+            goto done;
+
+        off.QuadPart = dir.extra_length - ext_size;
+        /* Skip any extra data that we haven't read. */
+        if (off.QuadPart && FAILED(hr = IStream_Seek(stream, off, STREAM_SEEK_CUR, NULL)))
+            goto done;
+        opt = dir.method ? deflate_opts[(dir.flags & DEFLATE_LEVEL_MASK) >> 1] : OPC_COMPRESSION_NONE;
+        entry.local_file_offset.QuadPart = (dir.local_file_offset == UINT32_MAX) ? ext.offset : dir.local_file_offset;
+        off.QuadPart = dir.comment_length;
+        if (dir.comment_length && FAILED(hr = IStream_Seek(stream, off, STREAM_SEEK_CUR, NULL)))
+            goto done;
+        if (!strcmp(nameA, content_types_name))
+        {
+            if (found_content_types)
+            {
+                hr = OPC_E_ZIP_DUPLICATE_NAME;
+                goto done;
+            }
+            found_content_types = TRUE;
+        }
+        else
+        {
+            IOpcPartUri *name_uri;
+            struct zip_part *tmp;
+            INT len;
+
+            TRACE("Adding new OPC part %s: %s, %s\n", debugstr_a(nameA), debugstr_OPC_COMPRESSION_OPTIONS(opt),
+                  debugstr_zip_entry(&entry));
+
+            len = MultiByteToWideChar(CP_ACP, 0, nameA, -1, NULL, 0);
+            if (len > nameW_len)
+            {
+                WCHAR *tmp;
+
+                nameW_len = len;
+                if (!(tmp = realloc(nameW, len * sizeof(WCHAR))))
+                {
+                    hr = E_OUTOFMEMORY;
+                    goto done;
+                }
+                nameW = tmp;
+            }
+            MultiByteToWideChar(CP_ACP, 0, nameA, -1, nameW, len);
+            if (FAILED(hr = IOpcFactory_CreatePartUri(factory, nameW, &name_uri)))
+                goto done;
+            if (!(tmp = realloc(parts, (part_count + 1) * sizeof(*parts))))
+            {
+                IOpcPartUri_Release(name_uri);
+                hr = E_OUTOFMEMORY;
+                goto done;
+            }
+            parts = tmp;
+            tmp = &parts[part_count++];
+            tmp->entry = entry;
+            tmp->opt = opt;
+            tmp->name = name_uri;
+        }
+    }
+
+    if (!found_content_types)
+    {
+        hr = OPC_E_MISSING_CONTENT_TYPES;
+        goto done;
+    }
+
+    for (i = 0; i < part_count; i++)
+    {
+        hr = opc_part_set_add_zip_part(partset, stream, &parts[i].entry, parts[i].opt, 0, parts[i].name, L"");
+        if (FAILED(hr)) goto done;
+    }
+
+done:
+    for (i = 0; i < part_count; i++)
+        IOpcPartUri_Release(parts[i].name);
+    free(parts);
+    free(nameA);
+    free(nameW);
+    return hr == S_FALSE ? OPC_E_ZIP_CORRUPTED_ARCHIVE : hr;
+}
+
+HRESULT compress_open_archive(IOpcFactory *factory, IStream *stream, OPC_READ_FLAGS flags,
+                              struct opc_part_set *part_set)
+{
+    struct zip32_end_of_central_directory end = {0};
+    ULARGE_INTEGER end_dir_start;
+    LARGE_INTEGER off;
+    HRESULT hr;
+
+    off.QuadPart = -sizeof(end);
+    hr = IStream_Seek(stream, off, STREAM_SEEK_END, &end_dir_start);
+    /* Start from the end of the archive to find a end of central directory header. */
+    while (SUCCEEDED(hr))
+    {
+        struct zip64_end_of_central_directory_locator locator = {0};
+        struct zip64_end_of_central_directory end64 = {0};
+        LARGE_INTEGER central_dir_start;
+        ULONG read, dir_records;
+
+        if (FAILED(hr = IStream_Read(stream, &end, sizeof(end), &read)))
+            return hr;
+        if (hr == S_FALSE || end.signature != ZIP32_EOCD)
+            goto next;
+        /* Check any of the fields in the header are UINT16_MAX, and there are enough bytes for a EOCD locator and EOCD64 record.
+         * In that case, this might be a ZIP64 archive. */
+        if ((end.records_total == UINT16_MAX || end.directory_size == UINT16_MAX || end.directory_offset == UINT16_MAX) &&
+            end_dir_start.QuadPart >= (sizeof(locator) + sizeof(end64)))
+        {
+                ULARGE_INTEGER loc_start, end64_start;
+
+                /* ZIP64 uses an additional End of Central Directory Locator record. */
+                off.QuadPart = end_dir_start.QuadPart - sizeof(locator);
+                if (FAILED(hr = IStream_Seek(stream, off, STREAM_SEEK_SET, &loc_start)))
+                    goto next;
+                if (FAILED(hr = IStream_Read(stream, &locator, sizeof(locator), &read)))
+                    return hr;
+                if (hr == S_FALSE || locator.signature != ZIP64_EOCD64_LOCATOR ||
+                    locator.eocd64_offset >= loc_start.QuadPart ||
+                    loc_start.QuadPart - locator.eocd64_offset < sizeof(end64))
+                    goto next;
+                off.QuadPart = locator.eocd64_offset;
+                if (FAILED(hr = IStream_Seek(stream, off, STREAM_SEEK_SET, &end64_start)))
+                    goto next;
+                if (FAILED(hr = IStream_Read(stream, &end64, sizeof(end64), &read)))
+                    return hr;
+                if (hr == S_FALSE || end64.signature != ZIP64_EOCD64 || end64.size < (sizeof(end64) - 12))
+                    goto next;
+                central_dir_start.QuadPart = end64.directory_offset;
+                dir_records = end64.records_total;
+        }
+        else /* Otherwise, treat it as ZIP32. */
+        {
+            /* Check if end.directory_offset actually points to the start of central directory. */
+            if (end.directory_offset >= end_dir_start.QuadPart ||
+                end_dir_start.QuadPart - end.directory_offset < sizeof(end))
+                goto next;
+            central_dir_start.QuadPart = end.directory_offset;
+            dir_records = end.records_total;
+        }
+
+        /* The central directory can't be located after the EOCD header. */
+        if (central_dir_start.QuadPart >= end_dir_start.QuadPart)
+            goto next;
+        if (FAILED(hr = IStream_Seek(stream, central_dir_start, STREAM_SEEK_SET, NULL)))
+            goto next;
+        return compress_read_entries(factory, stream, flags, dir_records, part_set);
+
+    /* Seek back sizeof(end) bytes from where we initially were, and try again. */
+    next:
+        if (FAILED(hr = IStream_Seek(stream, *(LARGE_INTEGER *)&end_dir_start, STREAM_SEEK_SET, NULL)))
+            return hr;
+        off.QuadPart = -sizeof(end);
+        hr = IStream_Seek(stream, off, STREAM_SEEK_CUR, &end_dir_start);
+    }
+
+    return hr;
 }
