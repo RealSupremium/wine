@@ -1356,7 +1356,7 @@ static void test_read_package(void)
         memset(exp_buf, i, sizeof(exp_buf));
         hr = IStream_Read(stream, buf, sizeof(buf), &read);
         ok(hr == S_OK, "Failed to read from stream, hr %#lx.\n", hr);
-        todo_wine ok(read == sizeof(buf), "Got read %lu != %Iu.\n", read, sizeof(buf));
+        ok(read == sizeof(buf), "Got read %lu != %Iu.\n", read, sizeof(buf));
         ok(!memcmp(buf, exp_buf, read), "Got mismatching data.\n");
         IStream_Release(stream);
 

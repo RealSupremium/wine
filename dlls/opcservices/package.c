@@ -78,6 +78,7 @@ struct opc_part
     IOpcRelationshipSet *relationship_set;
     IStream *archive;
     struct zip_entry zip_entry;
+    BOOL cache_on_decompress;
     struct opc_content *content;
 };
 
@@ -821,7 +822,45 @@ static HRESULT WINAPI opc_part_GetContentStream(IOpcPart *iface, IStream **strea
         return E_POINTER;
 
     if (part->archive)
-        FIXME("stub!\n");
+    {
+        struct opc_content *content;
+        LARGE_INTEGER zero = {0};
+        IStream *decompressed;
+        HRESULT hr;
+
+        if (!(content = calloc(1, sizeof(*content))))
+            return E_OUTOFMEMORY;
+
+        content->refcount = 1;
+        if (FAILED(hr = opc_content_stream_create(content, &decompressed)))
+        {
+            opc_content_release(content);
+            return hr;
+        }
+        if (FAILED(hr = decompress_to_stream(part->archive, &part->zip_entry, decompressed)))
+        {
+            IStream_Release(decompressed);
+            opc_content_release(content);
+            return hr;
+        }
+
+        if (part->cache_on_decompress)
+        {
+            part->content = content;
+            IStream_Release(part->archive);
+            part->archive = NULL;
+        }
+        else
+            opc_content_release(content);
+
+        if (FAILED(hr = IStream_Seek(decompressed, zero, STREAM_SEEK_SET, NULL)))
+        {
+            IStream_Release(decompressed);
+            return hr;
+        }
+        *stream = decompressed;
+        return S_OK;
+}
 
     return opc_content_stream_create(part->content, stream);
 }
@@ -934,10 +973,23 @@ HRESULT opc_part_set_add_zip_part(struct opc_part_set *set, IStream *archive, co
     part->compression_options = opt;
     IStream_AddRef((part->archive = archive));
     part->zip_entry = *entry;
+    part->cache_on_decompress = !!(read_flags & OPC_CACHE_ON_ACCESS);
     if (!(part->content_type = opc_strdupW(content_type)))
     {
         IOpcPart_Release(&part->IOpcPart_iface);
         return E_OUTOFMEMORY;
+    }
+    if (read_flags & OPC_VALIDATE_ON_LOAD)
+    {
+        IStream *content;
+        HRESULT hr;
+
+        if (FAILED(hr = IOpcPart_GetContentStream(&part->IOpcPart_iface, &content)))
+        {
+            IOpcPart_Release(&part->IOpcPart_iface);
+            return hr;
+        }
+        IStream_Release(content);
     }
     set->parts[set->count++] = part;
     CoCreateGuid(&set->id);

@@ -60,6 +60,9 @@ struct opc_part_set;
 
 struct zip_entry
 {
+    ULONG64 compressed_size;
+    ULONG64 uncompressed_size;
+    DWORD crc32;
     ULARGE_INTEGER local_file_offset;
 };
 
@@ -83,3 +86,4 @@ extern HRESULT compress_finalize_archive(struct zip_archive *archive);
 extern void compress_release_archive(struct zip_archive *archive);
 extern HRESULT compress_open_archive(IOpcFactory *factory, IStream *stream, OPC_READ_FLAGS flags,
                                      struct opc_part_set *part_set);
+extern HRESULT decompress_to_stream(IStream *archive, const struct zip_entry *entry, IStream *out);
