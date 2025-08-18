@@ -837,7 +837,7 @@ static HRESULT WINAPI opc_part_GetContentStream(IOpcPart *iface, IStream **strea
             opc_content_release(content);
             return hr;
         }
-        if (FAILED(hr = decompress_to_stream(part->archive, &part->zip_entry, decompressed)))
+        if (FAILED(hr = decompress_to_stream(part->archive, &part->zip_entry, decompressed, FALSE)))
         {
             IStream_Release(decompressed);
             opc_content_release(content);
