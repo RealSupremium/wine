@@ -851,15 +851,24 @@ NTSTATUS WINAPI NtContinueEx( CONTEXT *context, KCONTINUE_ARGUMENT *args )
 
 
 /***********************************************************************
- *              NtTestAlert  (NTDLL.@)
+ *              test_alert_with_status
  */
-NTSTATUS WINAPI NtTestAlert(void)
+void test_alert_with_status( NTSTATUS ret_status )
 {
     struct user_apc apc;
     NTSTATUS status;
 
     status = server_select( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, 0, NULL, &apc );
-    if (status == STATUS_USER_APC) invoke_user_apc( NULL, &apc, STATUS_SUCCESS );
+    if (status == STATUS_USER_APC) invoke_user_apc( NULL, &apc, ret_status );
+}
+
+
+/***********************************************************************
+ *              NtTestAlert  (NTDLL.@)
+ */
+NTSTATUS WINAPI NtTestAlert(void)
+{
+    test_alert_with_status( STATUS_SUCCESS );
     return STATUS_SUCCESS;
 }
 
