@@ -608,7 +608,7 @@ call :setError 666 & (start "" /foobar >NUL &&echo SUCCESS !errorlevel!||echo FA
 rem call :setError 666 & (start /B I\dont\exist.exe &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem can't run this test, generates a nice popup under windows
 call :setError 666 & (start "" /B /WAIT cmd.exe /c "echo foo & exit /b 1024" &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
-call :setError 666 & (start "" /B cmd.exe /c "(choice /C:YN /T:3 /D:Y > NUL) & exit /b 1024" &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (start "" /B cmd.exe /c "(choice /C:YN /T:3 /D:Y > NUL < NUL) & exit /b 1024" &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 echo --- success/failure for TYPE command
 mkdir foo & cd foo
 echo a > fileA
@@ -760,11 +760,11 @@ call :setError 666 & (setlocal DisableExtensions &&echo SUCCESS !errorlevel!||ec
 call :setError 666 & (setlocal EnableExtensions &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 echo --- success/failure for DATE command
 call :setError 666 & (date /t >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
-call :setError 666 & (date AAAA >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (date AAAA <NUL >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem need evelated priviledges to set the date
 echo --- success/failure for TIME command
 call :setError 666 & (time /t >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
-call :setError 666 & (time AAAA >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (time AAAA <NUL >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem need evelated priviledges to set the time
 echo --- success/failure for BREAK command
 call :setError 666 & (break &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
@@ -848,8 +848,8 @@ call :setError 666 & ((echo A | choice /C:BA) >NUL &&echo SUCCESS !errorlevel!||
 call :setError 666 & (choice /C:BA <NUL >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem syntax errors in command return INVALID_FUNCTION, need to find a test for returning 255
 echo --- success/failure for MORE command
-call :setError 666 & (more NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
-call :setError 666 & (more I\dont\exist.txt > NUL 2>&1 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (more NUL < NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (more I\dont\exist.txt < NUL > NUL 2>&1 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 call :setError 666 & (echo foo | more &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 echo --- success/failure for PAUSE command
 call :setError 666 & (pause < NUL > NUL 2>&1 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
@@ -2634,24 +2634,157 @@ for /f "tokens=*" %%A in (nul_test_file) DO echo %%A
 echo ------------ Testing del ------------
 echo abc > file
 echo deleting 'file'
-del file
-if errorlevel 0 (
-    echo errorlevel is 0, good
-) else (
-    echo unexpected errorlevel, got %errorlevel%
-)
+del file 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
 if not exist file (
     echo successfully deleted 'file'
 ) else (
     echo error deleting 'file'
 )
 echo attempting to delete 'file', even though it is not present
-del file
-if errorlevel 0 (
-    echo errorlevel is 0, good
+del file 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+
+echo deleting nul will fail
+del nul 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+
+echo failing to delete nul cancels subsequent processing
+echo abc > exists
+del nul exists 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+if exist exists (
+    echo didn't delete 'exists'
+    del exists
 ) else (
-    echo unexpected errorlevel, got %errorlevel%
+    echo unexpectedly deleted 'exists'
 )
+
+echo but if the existing file is first, it is of course deleted
+echo abc > exists
+del exists nul 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+if not exist file (
+    echo successfully deleted 'exists'
+) else (
+    echo error deleting 'exists'
+)
+
+echo deleting the same file twice does not complain
+echo abc > exists
+del exists exists 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+if not exist exists (
+    echo successfully deleted 'exists'
+) else (
+    echo error deleting 'exists'
+)
+
+echo deleting two files that don't exist complains about the first one
+del exists1 exists2 2>del.log
+echo %errorlevel%
+find "exists1" del.log >nul
+echo search exists1 %errorlevel%
+find "exists2" del.log >nul
+echo search exists2 %errorlevel%
+
+echo deleting a file that doesn't exist, then one that does, deletes it without complaining
+echo abc > exists
+del doesntexist exists 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+if not exist exists (
+    echo successfully deleted 'exists'
+) else (
+    echo error deleting 'exists'
+)
+
+echo deleting a file that doesn't exist, then one that can't be deleted, complains about both
+del doesntexist nul 2>del.log
+echo %errorlevel%
+find "doesntexist" del.log >nul
+echo search doesntexist %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+
+echo deleting a file that doesn't exist, then one that does, then one that can't be deleted, complains about latter only
+echo abc > exists
+del doesntexist exists nul 2>del.log
+echo %errorlevel%
+find "doesntexist" del.log >nul
+echo search doesntexist %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+if not exist exists (
+    echo successfully deleted 'exists'
+) else (
+    echo error deleting 'exists'
+)
+
+echo however, if the filename's directory doesn't exist, it's a hard error, just like undeletable files
+del notadirectory\file.txt 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+find "file.txt" del.log >nul
+echo search file.txt %errorlevel%
+
+echo like nul, it stops argument processing
+echo abc > exists
+del notadirectory\file.txt exists 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+if exist exists (
+    echo didn't delete 'exists'
+    del exists
+) else (
+    echo unexpectedly deleted 'exists'
+)
+
+echo unlike deleting nonexistent+nul, it only complains about one
+del doesntexist notadirectory\file.txt 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+find "doesntexist" del.log >nul
+echo search doesntexist %errorlevel%
+find "file.txt" del.log >nul
+echo search file.txt %errorlevel%
+
+echo and unlike nul, it stops processing before anything is deleted
+echo abc > exists
+del exists nul notadirectory\file.txt nul 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+if exist exists (
+    echo didn't delete 'exists'
+    del exists
+) else (
+    echo unexpectedly deleted 'exists'
+)
+
+echo and with no arguments, it prints an error
+del 2>del.log
+echo %errorlevel%
+findstr . del.log >nul
+echo empty %errorlevel%
+
+del del.log
 
 echo ------------ Testing del /a ------------
 del /f/q *.test > nul
