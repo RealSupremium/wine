@@ -252,7 +252,7 @@ HRESULT compress_finalize_archive(struct zip_archive *archive)
             cdh.signature = ZIP32_CDFH;
             cdh.version = ZIP64_VERSION;
             cdh.min_version = ZIP64_VERSION;
-            cdh.flags = USE_DATA_DESCRIPTOR;
+            cdh.flags = file->flags;
             cdh.method = file->method;
             cdh.mtime = archive->mtime;
             cdh.crc32 = file->crc32;
@@ -317,7 +317,7 @@ HRESULT compress_finalize_archive(struct zip_archive *archive)
             cdh.signature = ZIP32_CDFH;
             cdh.version = ZIP32_VERSION;
             cdh.min_version = ZIP32_VERSION;
-            cdh.flags = USE_DATA_DESCRIPTOR;
+            cdh.flags = file->flags;
             cdh.method = file->method;
             cdh.mtime = archive->mtime;
             cdh.crc32 = file->crc32;
