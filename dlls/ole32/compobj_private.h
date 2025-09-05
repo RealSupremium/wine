@@ -38,6 +38,7 @@
 #include "dcom.h"
 #include "winreg.h"
 #include "winternl.h"
+#include "inspectable.h"
 
 DEFINE_OLEGUID( CLSID_DfMarshal, 0x0000030b, 0, 0 );
 
