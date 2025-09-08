@@ -268,13 +268,17 @@ static void detach_client_surfaces( HWND hwnd )
 static void update_client_surfaces( HWND hwnd )
 {
     struct client_surface *surface, *next;
+    surface_update update;
 
     pthread_mutex_lock( &surfaces_lock );
 
     LIST_FOR_EACH_ENTRY_SAFE( surface, next, &client_surfaces, struct client_surface, entry )
     {
         if (surface->hwnd != hwnd) continue;
-        surface->funcs->update( surface );
+        update = surface->funcs->update;
+        pthread_mutex_unlock( &surfaces_lock );
+        update( surface );
+        pthread_mutex_lock( &surfaces_lock );
         InterlockedExchange( &surface->updated, 1 );
     }
 
@@ -327,12 +331,17 @@ void client_surface_release( struct client_surface *surface )
 void client_surface_present( struct client_surface *surface )
 {
     HDC hdc = 0;
+    BOOL offscreen;
     HWND hwnd;
 
     pthread_mutex_lock( &surfaces_lock );
     if ((hwnd = surface->hwnd))
     {
-        if (surface->offscreen) hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | DCX_USESTYLE );
+        offscreen = surface->offscreen;
+        pthread_mutex_unlock( &surfaces_lock );
+        if (offscreen) hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | DCX_USESTYLE );
+
+        pthread_mutex_lock( &surfaces_lock );
         surface->funcs->present( surface, hdc );
         if (hdc) NtUserReleaseDC( hwnd, hdc );
     }
