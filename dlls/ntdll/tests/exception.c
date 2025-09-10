@@ -11958,6 +11958,93 @@ static void test_set_live_context(void)
 
     VirtualFree( target_ptr, 0, MEM_RELEASE );
 }
+
+static DWORD WINAPI signal_and_wait_proc( void *arg )
+{
+    HANDLE *events = arg;
+    /* Signal event and block thread without returning to userspace. */
+    return SignalObjectAndWait(events[0], events[1], INFINITE, FALSE);
+}
+
+static void test_eflags_sanitization(void)
+{
+    DWORD min_eflags, max_eflags, max_eflags_broken;
+    HANDLE event_in, event_out;
+    HANDLE thread;
+    HANDLE thread_args[2];
+    HANDLE waits[2];
+    NTSTATUS status;
+    CONTEXT context;
+    DWORD result, old_eflags;
+    int i;
+
+#if defined(__x86_64__)
+    min_eflags = 0x00000200;
+    max_eflags = 0x00210fd5;
+    max_eflags_broken = max_eflags;
+#elif defined(__i386__)
+    min_eflags = is_wow64 ? 0x00000202 : 0x00000200;
+    max_eflags = is_wow64 ? 0x003f0fd7 : 0x003f4fd7;
+    max_eflags_broken = max_eflags & ~((DWORD)!is_wow64 << 17);
+#endif
+
+    event_in = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ok(event_in != NULL, "CreateEventW failed with %#lx\n", GetLastError());
+    event_out = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ok(event_out != NULL, "CreateEventW failed with %#lx\n", GetLastError());
+
+    thread_args[0] = event_in;
+    thread_args[1] = event_out;
+    thread = CreateThread(NULL, 0, signal_and_wait_proc, thread_args, CREATE_SUSPENDED, NULL);
+    ok(thread != NULL, "CreateThread failed with %#lx.\n", GetLastError());
+
+    for (i = 0; ; i++)
+    {
+        context.ContextFlags = CONTEXT_CONTROL;
+        status = pNtGetContextThread(thread, &context);
+        ok(status == STATUS_SUCCESS, "NtGetContextThread failed with %lx\n", status);
+        old_eflags = context.EFlags;
+
+        context.EFlags = 0;
+        status = pNtSetContextThread(thread, &context);
+        ok(status == STATUS_SUCCESS, "NtSetContextThread failed with %lx\n", status);
+        status = pNtGetContextThread(thread, &context);
+        ok(status == STATUS_SUCCESS, "NtGetContextThread failed with %lx\n", status);
+        ok(context.EFlags == min_eflags, "Expected EFlags to be %#lx, got %#lx\n", min_eflags, context.EFlags);
+
+        context.EFlags = -1;
+        status = pNtSetContextThread(thread, &context);
+        ok(status == STATUS_SUCCESS, "NtSetContextThread failed with %lx\n", status);
+        status = pNtGetContextThread(thread, &context);
+        ok(status == STATUS_SUCCESS, "NtGetContextThread failed with %lx\n", status);
+        ok(context.EFlags == max_eflags || broken(context.EFlags == max_eflags_broken),
+           "Expected EFlags to be %#lx, got %#lx\n", max_eflags, context.EFlags);
+
+        context.EFlags = old_eflags;
+        status = pNtSetContextThread(thread, &context);
+        ok(status == STATUS_SUCCESS, "NtSetContextThread failed with %lx\n", status);
+
+        if (i == 1) break;
+
+        ResumeThread(thread);
+        waits[0] = event_in;
+        waits[1] = thread;
+        result = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+        ok(result == WAIT_OBJECT_0, "Expected WAIT_OBJECT_0, got %#lx\n", result);
+    }
+
+    ok(SetEvent(event_out), "SetEvent failed: %#lx\n", GetLastError());
+
+    result = WaitForSingleObject(thread, INFINITE);
+    ok(result == WAIT_OBJECT_0, "Expected WAIT_OBJECT_0, got %#lx\n", result);
+
+    ok(GetExitCodeThread(thread, &result), "Failed to get thread exit code: %#lx\n", GetLastError());
+    ok(result == WAIT_OBJECT_0, "Expected WAIT_OBJECT_0, got %#lx\n", result);
+
+    CloseHandle(thread);
+    CloseHandle(event_in);
+    CloseHandle(event_out);
+}
 #endif
 
 static void test_backtrace(void)
@@ -12509,6 +12596,7 @@ START_TEST(exception)
     test_hwbpt_in_syscall();
     test_instrumentation_callback();
     test_single_step_address();
+    test_eflags_sanitization();
 
 #elif defined(__x86_64__)
 
@@ -12543,6 +12631,7 @@ START_TEST(exception)
     test_instrumentation_callback();
     test_direct_syscalls();
     test_single_step_address();
+    test_eflags_sanitization();
 
 #elif defined(__aarch64__)
 

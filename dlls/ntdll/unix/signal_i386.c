@@ -954,7 +954,7 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
         frame->esp    = context->Esp;
         frame->ebp    = context->Ebp;
         frame->eip    = context->Eip;
-        frame->eflags = context->EFlags;
+        frame->eflags = arch_flags_reg_from_user( context->EFlags, IMAGE_FILE_MACHINE_I386 );
         frame->cs     = context->SegCs;
         frame->ss     = context->SegSs;
     }

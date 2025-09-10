@@ -1076,7 +1076,7 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
     {
         frame->rsp    = context->Rsp;
         frame->rip    = context->Rip;
-        frame->eflags = context->EFlags;
+        frame->eflags = arch_flags_reg_from_user( context->EFlags, IMAGE_FILE_MACHINE_AMD64 );
     }
     if (flags & CONTEXT_FLOATING_POINT)
     {
@@ -1294,7 +1294,7 @@ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
         wow_frame->Esp    = context->Esp;
         wow_frame->Ebp    = context->Ebp;
         wow_frame->Eip    = context->Eip;
-        wow_frame->EFlags = context->EFlags;
+        wow_frame->EFlags = arch_flags_reg_from_user( context->EFlags, IMAGE_FILE_MACHINE_I386 );
         wow_frame->SegCs  = cs32_sel;
         wow_frame->SegSs  = ds64_sel;
         cpu->Flags |= WOW64_CPURESERVED_FLAG_RESET_STATE;

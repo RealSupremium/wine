@@ -593,4 +593,21 @@ static inline NTSTATUS map_section( HANDLE mapping, void **ptr, SIZE_T *size, UL
                                0, NULL, size, ViewShare, 0, protect );
 }
 
+static inline DWORD arch_flags_reg_from_user( DWORD flags, USHORT machine )
+{
+    switch (machine)
+    {
+    case IMAGE_FILE_MACHINE_I386:
+        if (machine == native_machine)
+        {
+            return (flags & 0x003f4fd7) | 0x00000200;
+        }
+        return (flags & 0x003f0fd7) | 0x00000202;
+    case IMAGE_FILE_MACHINE_AMD64:
+        return (flags & 0x00210fd5) | 0x00000200;
+    default:
+        return flags;
+    }
+}
+
 #endif /* __NTDLL_UNIX_PRIVATE_H */

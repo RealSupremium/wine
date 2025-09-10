@@ -1789,12 +1789,37 @@ NTSTATUS WINAPI NtQueueApcThread( HANDLE handle, PNTAPCFUNC func, ULONG_PTR arg1
 NTSTATUS set_thread_context( HANDLE handle, const void *context, BOOL *self, USHORT machine )
 {
     struct context_data server_contexts[2];
-    unsigned int count = 0;
+    unsigned int count = 0, i;
     unsigned int ret;
 
     context_to_server( &server_contexts[count++], native_machine, context, machine );
     if (machine != native_machine)
         context_to_server( &server_contexts[count++], machine, context, machine );
+
+    for (i = 0; i < count; i++)
+    {
+        unsigned int *flags_ptr;
+
+        if (!(server_contexts[i].flags & SERVER_CTX_CONTROL)) continue;
+
+        switch (server_contexts[i].machine)
+        {
+        case IMAGE_FILE_MACHINE_I386:
+            flags_ptr = &server_contexts[i].ctl.i386_regs.eflags;
+            break;
+        case IMAGE_FILE_MACHINE_AMD64:
+            flags_ptr = &server_contexts[i].ctl.x86_64_regs.flags;
+            break;
+        default:
+            flags_ptr = NULL;
+            break;
+        }
+
+        if (flags_ptr)
+        {
+            *flags_ptr = arch_flags_reg_from_user( *flags_ptr, machine );
+        }
+    }
 
     SERVER_START_REQ( set_thread_context )
     {
