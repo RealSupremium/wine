@@ -618,6 +618,38 @@ static void test_D3DX11CompileFromFile(void)
     delete_directory(L"include");
 }
 
+static void test_D3DX11CreateThreadPump(void)
+{
+    UINT io_count, process_count, device_count, count;
+    HRESULT hr;
+    ID3DX11ThreadPump *pump;
+    SYSTEM_INFO info;
+    DWORD ret;
+
+    hr = D3DX11CreateThreadPump(1024, 0, &pump);
+    ok(hr == E_FAIL, "Got unexpected hr %#lx.\n", hr);
+    hr = D3DX11CreateThreadPump(0, 1024, &pump);
+    ok(hr == E_FAIL, "Got unexpected hr %#lx.\n", hr);
+
+    GetSystemInfo(&info);
+    if (info.dwNumberOfProcessors > 1)
+        hr = D3DX11CreateThreadPump(0, 0, &pump);
+    else
+        hr = D3DX11CreateThreadPump(0, 2, &pump);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+
+    count = ID3DX11ThreadPump_GetWorkItemCount(pump);
+    todo_wine ok(!count, "GetWorkItemCount returned %u.\n", count);
+    hr = ID3DX11ThreadPump_GetQueueStatus(pump, &io_count, &process_count, &device_count);
+    todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    todo_wine ok(!io_count, "Got unexpected io_count %u.\n", io_count);
+    todo_wine ok(!process_count, "Got unexpected process_count %u.\n", process_count);
+    todo_wine ok(!device_count, "Got unexpected device_count %u.\n", device_count);
+
+    ret = ID3DX11ThreadPump_Release(pump);
+    ok(!ret, "Got unexpected refcount %lu.\n", ret);
+}
+
 /* dds_header.flags */
 #define DDS_CAPS 0x00000001
 #define DDS_HEIGHT 0x00000002
@@ -991,5 +1023,6 @@ START_TEST(d3dx11)
     test_D3DX11CreateAsyncFileLoader();
     test_D3DX11CreateAsyncResourceLoader();
     test_D3DX11CompileFromFile();
+    test_D3DX11CreateThreadPump();
     test_D3DX11GetImageInfoFromMemory();
 }
