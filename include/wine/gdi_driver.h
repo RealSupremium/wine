@@ -258,6 +258,7 @@ struct client_surface_funcs
     void (*present)( struct client_surface *surface, HDC hdc );
 };
 
+typedef void (*surface_update)( struct client_surface *surface );
 struct client_surface
 {
     const struct client_surface_funcs *funcs;
