@@ -59,6 +59,12 @@ struct wgl_pixel_format
     int float_components;
 };
 
+
+/* A special pixel format number, which is given by wglChoosePixelFormat when
+ * you ask for a 16 bpp format with PFD_DRAW_TO_BITMAP. */
+#define FAKE_16BIT_MEMDC_PIXEL_FORMAT 65000
+
+
 #ifdef WINE_UNIX_LIB
 
 #include "wine/gdi_driver.h"

@@ -1911,7 +1911,7 @@ static void test_16bit_bitmap_rendering(void)
 
     /* Choose a pixel format. */
     pixel_format = ChoosePixelFormat(hdc, &pixel_format_args);
-    todo_wine ok(pixel_format != 0, "Failed to get a 16 bit pixel format with the DRAW_TO_BITMAP flag.\n");
+    ok(pixel_format != 0, "Failed to get a 16 bit pixel format with the DRAW_TO_BITMAP flag.\n");
 
     if (pixel_format == 0)
     {
@@ -1932,11 +1932,11 @@ static void test_16bit_bitmap_rendering(void)
     success = DescribePixelFormat(hdc, pixel_format, sizeof(pfd), &pfd);
     ok(success != 0, "Failed to DescribePixelFormat (error: %lu)\n", GetLastError());
     ok(pfd.cColorBits == 16, "Wrong amount of color bits (got %d, expected 16)\n", pfd.cColorBits);
-    todo_wine ok(pfd.cRedBits == 5, "Wrong amount of red bits (got %d, expected 5)\n", pfd.cRedBits);
-    todo_wine ok(pfd.cGreenBits == 5, "Wrong amount of green bits (got %d, expected 5)\n", pfd.cGreenBits);
-    todo_wine ok(pfd.cBlueBits == 5, "Wrong amount of blue bits (got %d, expected 5)\n", pfd.cBlueBits);
-    todo_wine ok(pfd.cRedShift == 10, "Wrong red shift (got %d, expected 10)\n", pfd.cRedShift);
-    todo_wine ok(pfd.cGreenShift == 5, "Wrong green shift (got %d, expected 5)\n", pfd.cGreenShift);
+    ok(pfd.cRedBits == 5, "Wrong amount of red bits (got %d, expected 5)\n", pfd.cRedBits);
+    ok(pfd.cGreenBits == 5, "Wrong amount of green bits (got %d, expected 5)\n", pfd.cGreenBits);
+    ok(pfd.cBlueBits == 5, "Wrong amount of blue bits (got %d, expected 5)\n", pfd.cBlueBits);
+    ok(pfd.cRedShift == 10, "Wrong red shift (got %d, expected 10)\n", pfd.cRedShift);
+    ok(pfd.cGreenShift == 5, "Wrong green shift (got %d, expected 5)\n", pfd.cGreenShift);
     ok(pfd.cBlueShift == 0, "Wrong blue shift (got %d, expected 0)\n", pfd.cBlueShift);
 
     success = SetPixelFormat(hdc, pixel_format, &pixel_format_args);
