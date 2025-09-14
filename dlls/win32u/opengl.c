@@ -1254,6 +1254,45 @@ static BOOL create_memory_pbuffer( HDC hdc )
     return ret;
 }
 
+/* Convert an r5_g5_b5 pixel to r8_g8_b8_a8, or a b5_g5_r5 pixel to b8_g8_r8_a8.
+ * The highest bit of `pixel` is ignored. The alpha bits of the result will be
+ * zero, and the lowest three bits of each color are the same as the highest
+ * three bits (that's important, because if we get 0b11111 as input (i.e. color
+ * fully on) we should also give 0b11111111 as output, rather than 0b11111000).
+ * For reference, the bits are converted like this:
+ * ?rrrrrgggggbbbbb   ->   00000000rrrrrrrrggggggggbbbbbbbb
+ *    |12 |8  |4  |0          |28 |24 |20 |16 |12 |8  |4  |0 */
+static UINT convert_555_pixel_to_888(USHORT pixel)
+{
+    UINT red   = (pixel & 0x7c00) << (16 + 3 - 10)
+               | (pixel & 0x7000) << (16 - 2 - 10);
+    UINT green = (pixel & 0x03e0) << (8  + 3 - 5 )
+               | (pixel & 0x0380) << (8  - 2 - 5 );
+    UINT blue  = (pixel & 0x001f) << (0  + 3 - 0 )
+               | (pixel & 0x001c) >> (     2     );
+    return red | green | blue;
+}
+
+/* Blends an r8_g8_b8_a8 pixel onto an r5_b5_g5 pixel, and gives the result as
+ * an r5_b5_g5 pixel. */
+static USHORT blend_8888_pixel_onto_555(UINT pixel, USHORT old_pixel) {
+    float alpha = ((pixel >> 24) & 0xff) / 256.0f;
+    float red   = ((pixel >> 16) & 0xff) / 256.0f;
+    float green = ((pixel >> 8 ) & 0xff) / 256.0f;
+    float blue  = ((pixel >> 0 ) & 0xff) / 256.0f;
+    float old_red   = ((old_pixel >> 10) & 0x1f) / 32.0f;
+    float old_green = ((old_pixel >> 5 ) & 0x1f) / 32.0f;
+    float old_blue  = ((old_pixel >> 0 ) & 0x1f) / 32.0f;
+
+    red   = red   * alpha + old_red   * (1 - alpha);
+    green = green * alpha + old_green * (1 - alpha);
+    blue  = blue  * alpha + old_blue  * (1 - alpha);
+
+    return ((int)(red   * 32.0f) & 0x1f) << 10
+         | ((int)(green * 32.0f) & 0x1f) << 5
+         | ((int)(blue  * 32.0f) & 0x1f);
+}
+
 static BOOL flush_memory_dc( struct wgl_context *context, HDC hdc, BOOL write, void (*flush)(void) )
 {
     const struct opengl_funcs *funcs = &display_funcs;
@@ -1274,9 +1313,70 @@ static BOOL flush_memory_dc( struct wgl_context *context, HDC hdc, BOOL write, v
 
         if (!get_image_from_bitmap( bmp, info, &bits, &src ))
         {
-            int width = info->bmiHeader.biWidth, height = info->bmiHeader.biSizeImage / 4 / width;
-            if (write) funcs->p_glDrawPixels( width, height, GL_BGRA, GL_UNSIGNED_BYTE, bits.ptr );
-            else funcs->p_glReadPixels( 0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, bits.ptr );
+            /* Depending on the `write` parameter, either overwrite the bitmap from the
+             * GL canvas or vice versa.
+             * Note: biHeight is negative if the image origin is the top-left. */
+            int width = info->bmiHeader.biWidth, height = abs( info->bmiHeader.biHeight );
+            int pixel_count = width * height;
+
+            if (info->bmiHeader.biBitCount == 16)
+            {
+                /* Special case: 16 bpp bitmap.
+                 * The GDI Generic software renderer only implements r5g5b5, with the most
+                 * significant bit being zero. Most OpenGL drivers do not implement this pixel
+                 * format, so for portability, we render to a 32 bpp OpenGL context and then convert
+                 * it to r5g5b5 on the CPU.
+                 * Note: Doing this malloc each flush isn't exactly efficient, but (according to my
+                 *       intuition) its performance impact is dwarfed by the cost of glReadPixels
+                 *       later on. A matter of maybe microseconds versus tens of milliseconds. */
+                UINT *temp_image = malloc( 4 * pixel_count );
+                USHORT *bitmap_pixels = bits.ptr;
+
+                if (temp_image && write)
+                {
+                    for (int i = 0; i < pixel_count; i++)
+                        temp_image[i] = convert_555_pixel_to_888( bitmap_pixels[i] );
+                    funcs->p_glDrawPixels( width, height, GL_BGRA, GL_UNSIGNED_BYTE, temp_image );
+                }
+                else if (temp_image)
+                {
+                    float clear_color[4];
+
+                    /* Note: Despite asking for BGRA we actually get ABGR, with
+                     *       the alpha bits being the eight highest bits. */
+                    funcs->p_glReadPixels( 0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, temp_image );
+                    for (int i = 0; i < pixel_count; i++)
+                        bitmap_pixels[i] = blend_8888_pixel_onto_555( temp_image[i], bitmap_pixels[i] );
+
+                    /* Something difficult to fake about bitmap rendering is that a program can use
+                     * a mix of blitting and OpenGL operations. Civilization 3 and SimGolf depend on
+                     * this. There's no easy way to replicate the direct memory edits on the
+                     * GPU-based pbuffer (since there's no API call), so instead I'm using a
+                     * workaround: Each time after we draw the pbuffer onto the bitmap, we clear the
+                     * pbuffer with transparent. In the end, this gives you the same bitmap as a
+                     * result (unless you call glReadPixels, which will give you pixels from the
+                     * transparent-background pbuffer). */
+
+                    /* Remember the old clear color (rather inefficient). */
+                    funcs->p_glClear( GL_COLOR_BUFFER_BIT );
+                    funcs->p_glReadPixels( 0, 0, 1, 1, GL_RGBA, GL_FLOAT, clear_color );
+
+                    /* Set the color buffer to transparent. */
+                    funcs->p_glClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+                    funcs->p_glClear( GL_COLOR_BUFFER_BIT );
+
+                    /* Restore the old clear color. */
+                    funcs->p_glClearColor( clear_color[0], clear_color[1], clear_color[2], clear_color[3] );
+                }
+
+                free( temp_image );
+            }
+            else
+            {
+                /* Normal case: 24 bpp or 32 bpp bitmap. */
+                if (write) funcs->p_glDrawPixels( width, height, GL_BGRA, GL_UNSIGNED_BYTE, bits.ptr );
+                else funcs->p_glReadPixels( 0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, bits.ptr );
+            }
         }
         GDI_ReleaseObj( dc->hBitmap );
     }
@@ -1285,11 +1385,56 @@ static BOOL flush_memory_dc( struct wgl_context *context, HDC hdc, BOOL write, v
     return ret;
 }
 
+static int find_bitmap_compatible_r8g8b8a8_pixel_format( void )
+{
+    const struct opengl_funcs *funcs = &display_funcs;
+    struct wgl_pixel_format* formats;
+    UINT num_formats, num_onscreen;
+
+    funcs->p_get_pixel_formats( NULL, 0, &num_formats, &num_onscreen );
+    if (!(formats = calloc( num_formats, sizeof(*formats) ))) goto error;
+    funcs->p_get_pixel_formats( formats, num_formats, &num_formats, &num_onscreen );
+
+    for (int i = 1; i <= num_formats; i++)
+    {
+        const PIXELFORMATDESCRIPTOR pfd = formats[i].pfd;
+
+        /* The pixel format must have eight bits for each color. We don't need to check the bitshift
+         * because it's always RGBA, and also because the Wine X11 driver doesn't actually check the
+         * bitshift, it just makes up some numbers, so even if it wasn't RGBA, we wouldn't be
+         * able to tell. */
+        if (!(pfd.dwFlags & PFD_DRAW_TO_BITMAP)
+            || pfd.cRedBits != 8 || pfd.cGreenBits != 8 || pfd.cBlueBits != 8 || pfd.cAlphaBits != 8)
+            continue;
+
+        free( formats );
+        return i;
+    }
+
+    error:;
+    WARN( "Unable to get bitmap-compatible r8g8b8a8 pixel format. "
+            "The program will likely not be able to initialize OpenGL.\n" );
+    free( formats );
+    return 0;
+}
+
 static BOOL set_dc_pixel_format( HDC hdc, int new_format, BOOL internal )
 {
     const struct opengl_funcs *funcs = &display_funcs;
     UINT total, onscreen;
     HWND hwnd;
+
+    if (new_format == FAKE_16BIT_MEMDC_PIXEL_FORMAT)
+    {
+        /* 16-bit memory DCs are a special case where we need to fake the pixel format.
+         * Check `test_16bit_bitmap_rendering` for more info. */
+        int rgba_format;
+
+        TRACE( "Setting pixel format to fake format for 16-bit bitmaps. (hdc: %p)\n", hdc );
+        if (!(rgba_format = find_bitmap_compatible_r8g8b8a8_pixel_format())) return FALSE;
+
+        return NtGdiSetPixelFormat( hdc, rgba_format );
+    }
 
     funcs->p_get_pixel_formats( NULL, 0, &total, &onscreen );
     if (new_format <= 0 || new_format > total) return FALSE;
