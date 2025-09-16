@@ -51,8 +51,6 @@ typedef struct tagCLASS
     HICON        hIcon;         /* Default icon */
     HICON        hIconSm;       /* Default small icon */
     HICON        icon_internal; /* internal small icon, derived from hIcon */
-    HCURSOR      hCursor;       /* Default cursor */
-    HBRUSH       hbrBackground; /* Default background */
     struct client_menu_name *menu_name; /* Default menu name */
     const shared_object_t *shared; /* class object in session shared memory */
 } CLASS;
@@ -563,6 +561,8 @@ ATOM WINAPI NtUserRegisterClassExWOW( const WNDCLASSEXW *wc, UNICODE_STRING *nam
     {
         req->local      = class->local;
         req->style      = wc->style;
+        req->cursor     = wine_server_user_handle( wc->hCursor );
+        req->background = wine_server_user_handle( wc->hbrBackground );
         req->instance   = wine_server_client_ptr( instance );
         req->cls_extra  = wc->cbClsExtra;
         req->win_extra  = wc->cbWndExtra;
@@ -601,8 +601,6 @@ ATOM WINAPI NtUserRegisterClassExWOW( const WNDCLASSEXW *wc, UNICODE_STRING *nam
     class->hIcon         = wc->hIcon;
     class->hIconSm       = wc->hIconSm;
     class->icon_internal = icon_internal;
-    class->hCursor       = wc->hCursor;
-    class->hbrBackground = wc->hbrBackground;
     class->menu_name     = menu_name;
     class->shared        = shared;
     release_class_ptr( class );
@@ -623,6 +621,7 @@ BOOL WINAPI NtUserUnregisterClass( UNICODE_STRING *name, HINSTANCE instance, str
 {
     struct list drawables = LIST_INIT( drawables );
     CLASS *class = NULL;
+    HBRUSH background;
 
     /* create the desktop window to trigger builtin class registration */
     get_desktop_window();
@@ -633,7 +632,9 @@ BOOL WINAPI NtUserUnregisterClass( UNICODE_STRING *name, HINSTANCE instance, str
     {
         req->instance = wine_server_client_ptr( instance );
         req->atom     = wine_server_add_atom( req, name );
-        if (!wine_server_call_err( req )) class = wine_server_get_ptr( reply->client_ptr );
+        wine_server_call_err( req );
+        class = wine_server_get_ptr( reply->client_ptr );
+        background = wine_server_ptr_handle( reply->background );
     }
     SERVER_END_REQ;
     if (!class)
@@ -646,8 +647,8 @@ BOOL WINAPI NtUserUnregisterClass( UNICODE_STRING *name, HINSTANCE instance, str
 
     if (class->dce) free_dce( class->dce, 0, &drawables );
     list_remove( &class->entry );
-    if (class->hbrBackground > (HBRUSH)(COLOR_GRADIENTINACTIVECAPTION + 1))
-        NtGdiDeleteObjectApp( class->hbrBackground );
+    if (background > (HBRUSH)(COLOR_GRADIENTINACTIVECAPTION + 1))
+        NtGdiDeleteObjectApp( background );
     *menu_name = class->menu_name;
     NtUserDestroyCursor( class->icon_internal, 0 );
     free( class );
@@ -685,8 +686,8 @@ ATOM WINAPI NtUserGetClassInfoEx( HINSTANCE instance, UNICODE_STRING *name, WNDC
             wc->hInstance     = (instance == user32_module) ? 0 : instance;
             wc->hIcon         = class->hIcon;
             wc->hIconSm       = class->hIconSm;
-            wc->hCursor       = class->hCursor;
-            wc->hbrBackground = class->hbrBackground;
+            wc->hCursor       = wine_server_ptr_handle( class_shm->cursor );
+            wc->hbrBackground = wine_server_ptr_handle( class_shm->background );
             wc->lpszMenuName  = (WCHAR *)class->menu_name;
             wc->lpszClassName = name->Buffer;
         }
@@ -836,6 +837,13 @@ static ULONG_PTR set_class_long_size( HWND hwnd, INT offset, LONG_PTR newval, UI
 
     switch(offset)
     {
+    case GCL_CBWNDEXTRA:
+    case GCL_STYLE:
+    case GCLP_HBRBACKGROUND:
+    case GCLP_HCURSOR:
+    case GCLP_HMODULE:
+        set_server_info( hwnd, offset, newval, size, &retval );
+        break;
     case GCLP_MENUNAME:
         retval = (ULONG_PTR)class->menu_name;
         class->menu_name = (void *)newval;
@@ -844,14 +852,6 @@ static ULONG_PTR set_class_long_size( HWND hwnd, INT offset, LONG_PTR newval, UI
         newval = (ULONG_PTR)alloc_winproc( (WNDPROC)newval, ansi );
         if (!set_server_info( hwnd, offset, newval, size, &retval )) break;
         retval = (ULONG_PTR)get_winproc( (WNDPROC)retval, ansi );
-        break;
-    case GCLP_HBRBACKGROUND:
-        retval = (ULONG_PTR)class->hbrBackground;
-        class->hbrBackground = (HBRUSH)newval;
-        break;
-    case GCLP_HCURSOR:
-        retval = (ULONG_PTR)class->hCursor;
-        class->hCursor = (HCURSOR)newval;
         break;
     case GCLP_HICON:
         retval = (ULONG_PTR)class->hIcon;
@@ -862,15 +862,6 @@ static ULONG_PTR set_class_long_size( HWND hwnd, INT offset, LONG_PTR newval, UI
         retval = (ULONG_PTR)class->hIconSm;
         if (retval == newval) break;
         class->hIconSm = (HICON)newval;
-        break;
-    case GCL_STYLE:
-        if (!set_server_info( hwnd, offset, newval, size, &retval )) break;
-        break;
-    case GCL_CBWNDEXTRA:
-        if (!set_server_info( hwnd, offset, newval, size, &retval )) break;
-        break;
-    case GCLP_HMODULE:
-        if (!set_server_info( hwnd, offset, newval, size, &retval )) break;
         break;
     case GCL_CBCLSEXTRA:  /* cannot change this one */
         RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
@@ -934,6 +925,8 @@ static ULONG_PTR get_class_long_shm( HWND hwnd, INT offset, UINT size, BOOL ansi
         case GCL_CBCLSEXTRA:     ret = class_shm->cls_extra; break;
         case GCL_CBWNDEXTRA:     ret = class_shm->win_extra; break;
         case GCLP_HMODULE:       ret = class_shm->instance; break;
+        case GCLP_HCURSOR:       ret = class_shm->cursor; break;
+        case GCLP_HBRBACKGROUND: ret = class_shm->background; break;
         default:
             valid = offset >= 0 && offset <= (INT)(class_shm->cls_extra - size);
             if (valid) memcpy( &ret, (char *)class_shm->extra + offset, size );
@@ -964,8 +957,6 @@ static ULONG_PTR get_class_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
     {
     case GCLP_HICONSM:
     case GCLP_HICON:
-    case GCLP_HCURSOR:
-    case GCLP_HBRBACKGROUND:
     case GCLP_MENUNAME:
         break;
     default:
@@ -985,8 +976,6 @@ static ULONG_PTR get_class_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
             {
                 switch (offset)
                 {
-                case GCLP_HBRBACKGROUND:
-                case GCLP_HCURSOR:
                 case GCLP_HICON:
                 case GCLP_HICONSM:
                 case GCLP_MENUNAME:
@@ -1004,12 +993,6 @@ static ULONG_PTR get_class_long_size( HWND hwnd, INT offset, UINT size, BOOL ans
 
     switch(offset)
     {
-    case GCLP_HBRBACKGROUND:
-        retvalue = (ULONG_PTR)class->hbrBackground;
-        break;
-    case GCLP_HCURSOR:
-        retvalue = (ULONG_PTR)class->hCursor;
-        break;
     case GCLP_HICON:
         retvalue = (ULONG_PTR)class->hIcon;
         break;

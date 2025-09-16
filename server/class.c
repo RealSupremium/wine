@@ -239,6 +239,8 @@ DECL_HANDLER(create_class)
         shared->name_offset  = name_offset;
         shared->name_len     = name.len;
         shared->atom         = base_atom;
+        shared->cursor       = req->cursor;
+        shared->background   = req->background;
         shared->instance     = req->instance;
         shared->style        = req->style;
         shared->wndproc      = req->wndproc;
@@ -314,6 +316,14 @@ DECL_HANDLER(set_class_info)
         case GCLP_WNDPROC:
             reply->old_info = shared->wndproc;
             shared->wndproc = req->new_info;
+            break;
+        case GCLP_HCURSOR:
+            reply->old_info = shared->cursor;
+            shared->cursor = req->new_info;
+            break;
+        case GCLP_HBRBACKGROUND:
+            reply->old_info = shared->background;
+            shared->background = req->new_info;
             break;
         default:
             if (req->size > sizeof(req->new_info) || req->offset < 0 ||

@@ -1045,6 +1045,8 @@ typedef volatile struct
     client_ptr_t         wndproc;            /* class window proc */
     unsigned int         cls_extra;          /* number of class extra bytes */
     unsigned int         win_extra;          /* number of window extra bytes */
+    user_handle_t        cursor;             /* default cursor */
+    user_handle_t        background;         /* default background */
     mod_handle_t         instance;           /* module instance */
     data_size_t          name_offset;        /* offset in WCHAR of the unversioned class name, constant */
     data_size_t          name_len;           /* len in bytes of the class name, constant */
@@ -3270,6 +3272,8 @@ enum caret_state
     int            local;          /* is it a local class? */
     atom_t         atom;           /* class atom */
     unsigned int   style;          /* class style */
+    user_handle_t  cursor;         /* class default cursor */
+    user_handle_t  background;     /* class default background */
     mod_handle_t   instance;       /* module instance */
     client_ptr_t   client_ptr;     /* pointer to class in client address space */
     client_ptr_t   wndproc;        /* class window proc client pointer */
@@ -3290,6 +3294,7 @@ enum caret_state
     VARARG(name,unicode_str);      /* class name */
 @REPLY
     client_ptr_t   client_ptr;     /* pointer to class in client address space */
+    user_handle_t  background;     /* class default background */
 @END
 
 
