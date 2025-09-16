@@ -241,6 +241,7 @@ DECL_HANDLER(create_class)
         shared->atom         = base_atom;
         shared->instance     = req->instance;
         shared->style        = req->style;
+        shared->wndproc      = req->wndproc;
         shared->win_extra    = req->win_extra;
         shared->cls_extra    = req->cls_extra;
         memset( (void *)shared->extra, 0, req->cls_extra );
@@ -309,6 +310,10 @@ DECL_HANDLER(set_class_info)
         case GCLP_HMODULE:
             reply->old_info = shared->instance;
             shared->instance = req->new_info;
+            break;
+        case GCLP_WNDPROC:
+            reply->old_info = shared->wndproc;
+            shared->wndproc = req->new_info;
             break;
         default:
             if (req->size > sizeof(req->new_info) || req->offset < 0 ||

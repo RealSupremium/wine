@@ -1042,6 +1042,7 @@ typedef volatile struct
 {
     atom_t               atom;               /* class atom */
     unsigned int         style;              /* class style */
+    client_ptr_t         wndproc;            /* class window proc */
     unsigned int         cls_extra;          /* number of class extra bytes */
     unsigned int         win_extra;          /* number of window extra bytes */
     mod_handle_t         instance;           /* module instance */
@@ -3271,6 +3272,7 @@ enum caret_state
     unsigned int   style;          /* class style */
     mod_handle_t   instance;       /* module instance */
     client_ptr_t   client_ptr;     /* pointer to class in client address space */
+    client_ptr_t   wndproc;        /* class window proc client pointer */
     short int      cls_extra;      /* number of extra class bytes */
     short int      win_extra;      /* number of window extra bytes */
     data_size_t    name_offset;    /* base class name offset for specified atom */
