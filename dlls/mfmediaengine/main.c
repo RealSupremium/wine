@@ -71,6 +71,22 @@ static double mftime_to_seconds(MFTIME time)
     return (double)time / 10000000.0;
 }
 
+static HRESULT create_video_media_type_from_fourcc(IMFMediaType **media_type, UINT32 fourcc)
+{
+    GUID subtype;
+    HRESULT hr;
+
+    if (FAILED(hr = MFCreateMediaType(media_type)))
+        return hr;
+
+    memcpy(&subtype, &MFVideoFormat_Base, sizeof(subtype));
+    subtype.Data1 = fourcc;
+    IMFMediaType_SetGUID(*media_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    IMFMediaType_SetGUID(*media_type, &MF_MT_SUBTYPE, &subtype);
+
+    return hr;
+}
+
 enum media_engine_mode
 {
     MEDIA_ENGINE_INVALID,
@@ -1175,9 +1191,8 @@ static HRESULT media_engine_create_audio_renderer(struct media_engine *engine, I
 
 static HRESULT media_engine_create_video_renderer(struct media_engine *engine, IMFTopologyNode **node)
 {
+    UINT32 output_format, fourcc;
     IMFMediaType *media_type;
-    UINT32 output_format;
-    GUID subtype;
     HRESULT hr;
 
     *node = NULL;
@@ -1188,18 +1203,14 @@ static HRESULT media_engine_create_video_renderer(struct media_engine *engine, I
         return E_FAIL;
     }
 
-    memcpy(&subtype, &MFVideoFormat_Base, sizeof(subtype));
-    if (!(subtype.Data1 = MFMapDXGIFormatToDX9Format(output_format)))
+    if (!(fourcc = MFMapDXGIFormatToDX9Format(output_format)))
     {
         WARN("Unrecognized output format %#x.\n", output_format);
         return E_FAIL;
     }
 
-    if (FAILED(hr = MFCreateMediaType(&media_type)))
+    if (FAILED(hr = create_video_media_type_from_fourcc(&media_type, fourcc)))
         return hr;
-
-    IMFMediaType_SetGUID(media_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
-    IMFMediaType_SetGUID(media_type, &MF_MT_SUBTYPE, &subtype);
 
     hr = create_video_frame_sink(media_type, (IUnknown *)engine->device_manager, &engine->sink_events, &engine->presentation.frame_sink);
     IMFMediaType_Release(media_type);
