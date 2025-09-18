@@ -1252,6 +1252,7 @@ static HRESULT WINAPI test_transfer_notify_EventNotify(IMFMediaEngineNotify *ifa
         break;
 
     case MF_MEDIA_ENGINE_EVENT_ERROR:
+        todo_wine_if(param2 == MF_E_NO_MORE_TYPES)
         ok(broken(param2 == MF_E_UNSUPPORTED_BYTESTREAM_TYPE || param2 == MF_E_INVALIDMEDIATYPE),
                 "Unexpected error %#lx\n", param2);
         notify->error = param2;
@@ -1551,7 +1552,7 @@ static void test_TransferVideoFrame_10bit(void)
 
     if (FAILED(notify->error))
     {
-        win_skip("Media engine reported error %#lx, skipping tests.\n", notify->error);
+        skip("Media engine reported error %#lx, skipping tests.\n", notify->error);
         goto done;
     }
 

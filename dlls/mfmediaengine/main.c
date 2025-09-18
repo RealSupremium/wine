@@ -1164,27 +1164,41 @@ static HRESULT media_engine_create_effects(struct effect *effects, size_t count,
 static HRESULT media_engine_create_audio_renderer(struct media_engine *engine, IMFTopologyNode **node)
 {
     unsigned int category, role;
-    IMFActivate *sar_activate;
+    IMFStreamSink *stream_sink;
+    IMFAttributes *attributes;
+    IMFMediaSink *media_sink;
     HRESULT hr;
 
     *node = NULL;
 
-    if (FAILED(hr = MFCreateAudioRendererActivate(&sar_activate)))
+    if (FAILED(hr = MFCreateAttributes(&attributes, 2)))
         return hr;
 
     /* Configuration attributes keys differ between Engine and SAR. */
     if (SUCCEEDED(IMFAttributes_GetUINT32(engine->attributes, &MF_MEDIA_ENGINE_AUDIO_CATEGORY, &category)))
-        IMFActivate_SetUINT32(sar_activate, &MF_AUDIO_RENDERER_ATTRIBUTE_STREAM_CATEGORY, category);
+        IMFAttributes_SetUINT32(attributes, &MF_AUDIO_RENDERER_ATTRIBUTE_STREAM_CATEGORY, category);
     if (SUCCEEDED(IMFAttributes_GetUINT32(engine->attributes, &MF_MEDIA_ENGINE_AUDIO_ENDPOINT_ROLE, &role)))
-        IMFActivate_SetUINT32(sar_activate, &MF_AUDIO_RENDERER_ATTRIBUTE_ENDPOINT_ROLE, role);
+        IMFAttributes_SetUINT32(attributes, &MF_AUDIO_RENDERER_ATTRIBUTE_ENDPOINT_ROLE, role);
+    hr = MFCreateAudioRenderer(attributes, &media_sink);
+    IMFAttributes_Release(attributes);
+
+    if (FAILED(hr))
+        return hr;
 
     if (SUCCEEDED(hr = MFCreateTopologyNode(MF_TOPOLOGY_OUTPUT_NODE, node)))
     {
-        IMFTopologyNode_SetObject(*node, (IUnknown *)sar_activate);
-        IMFTopologyNode_SetUINT32(*node, &MF_TOPONODE_NOSHUTDOWN_ON_REMOVE, FALSE);
+        if (FAILED(hr = IMFMediaSink_GetStreamSinkByIndex(media_sink, 0, &stream_sink)))
+            hr = IMFMediaSink_AddStreamSink(media_sink, 0, NULL, &stream_sink);
+
+        if (SUCCEEDED(hr))
+        {
+            IMFTopologyNode_SetObject(*node, (IUnknown *)stream_sink);
+            IMFTopologyNode_SetUINT32(*node, &MF_TOPONODE_NOSHUTDOWN_ON_REMOVE, FALSE);
+            IMFStreamSink_Release(stream_sink);
+        }
     }
 
-    IMFActivate_Release(sar_activate);
+    IMFMediaSink_Release(media_sink);
 
     return hr;
 }
@@ -1270,12 +1284,84 @@ static void media_engine_clear_effects(struct effects *effects)
     memset(effects, 0, sizeof(*effects));
 }
 
+static HRESULT sar_node_set_media_type(IMFTopologyNode *sar_node)
+{
+    IMFMediaTypeHandler *handler;
+    MF_TOPOLOGY_TYPE node_type;
+    IMFStreamSink *stream_sink;
+    IMFTopologyNode *up_node;
+    IMFMediaType *media_type;
+    IMFStreamDescriptor *sd;
+    IMFTransform *transform;
+    DWORD up_output;
+    HRESULT hr;
+
+    if (FAILED(hr = IMFTopologyNode_GetInput(sar_node, 0, &up_node, &up_output)))
+        return hr;
+    if (FAILED(hr = IMFTopologyNode_GetNodeType(up_node, &node_type)))
+    {
+        IMFTopologyNode_Release(up_node);
+        return hr;
+    }
+
+    switch (node_type)
+    {
+        case MF_TOPOLOGY_SOURCESTREAM_NODE:
+            if (SUCCEEDED(hr = IMFTopologyNode_GetUnknown(up_node, &MF_TOPONODE_STREAM_DESCRIPTOR,
+                    &IID_IMFStreamDescriptor, (void **)&sd)))
+            {
+                hr = IMFStreamDescriptor_GetMediaTypeHandler(sd, &handler);
+                IMFStreamDescriptor_Release(sd);
+                if (SUCCEEDED(hr))
+                {
+                    hr = IMFMediaTypeHandler_GetCurrentMediaType(handler, &media_type);
+                    IMFMediaTypeHandler_Release(handler);
+                }
+            }
+            break;
+        case MF_TOPOLOGY_TRANSFORM_NODE:
+            if (SUCCEEDED(hr = IMFTopologyNode_GetObject(up_node, (IUnknown **)&transform)))
+            {
+                hr = IMFTransform_GetOutputCurrentType(transform, up_output, &media_type);
+                IMFTransform_Release(transform);
+            }
+            break;
+        default:
+            WARN("Unhandled node type %u.\n", node_type);
+            hr = MF_E_UNEXPECTED;
+            break;
+    }
+
+    if (FAILED(hr))
+    {
+        IMFTopologyNode_Release(up_node);
+        return hr;
+    }
+
+    if (SUCCEEDED(hr = IMFTopologyNode_GetObject(sar_node, (IUnknown **)&stream_sink)))
+    {
+        hr = IMFStreamSink_GetMediaTypeHandler(stream_sink, &handler);
+        IMFStreamSink_Release(stream_sink);
+        if (SUCCEEDED(hr))
+        {
+            hr = IMFMediaTypeHandler_SetCurrentMediaType(handler, media_type);
+            IMFMediaTypeHandler_Release(handler);
+        }
+    }
+
+    IMFMediaType_Release(media_type);
+    IMFTopologyNode_Release(up_node);
+    return hr;
+}
+
 static HRESULT media_engine_create_topology(struct media_engine *engine, IMFMediaSource *source)
 {
     IMFStreamDescriptor *sd_audio = NULL, *sd_video = NULL;
+    IMFTopology *topology, *resolved_topology = NULL;
     IMFPresentationDescriptor *pd;
+    IMFTopoLoader *topo_loader;
     DWORD stream_count = 0, i;
-    IMFTopology *topology;
+    TOPOID sar_node_id;
     UINT64 duration;
     HRESULT hr;
 
@@ -1372,6 +1458,7 @@ static HRESULT media_engine_create_topology(struct media_engine *engine, IMFMedi
                 if (FAILED(hr = media_engine_create_effects(engine->audio_effects.effects, engine->audio_effects.count,
                         audio_src, sar_node, topology)))
                     WARN("Failed to create audio effect nodes, hr %#lx.\n", hr);
+                IMFTopologyNode_GetTopoNodeID(sar_node, &sar_node_id);
             }
 
             if (sar_node)
@@ -1410,12 +1497,34 @@ static HRESULT media_engine_create_topology(struct media_engine *engine, IMFMedi
         IMFTopology_SetUINT32(topology, &MF_TOPOLOGY_ENUMERATE_SOURCE_TYPES, TRUE);
         IMFTopology_SetUINT32(topology, &MF_TOPOLOGY_ENABLE_XVP_FOR_PLAYBACK, TRUE);
 
+        /* MESessionTopologySet is not sent until the session is started, which would
+         * complicate things if loading failed, so the topology is resolved here. The session
+         * engine does not set types on the sinks when NORESOLUTION is specified. Video type
+         * is set explicitly, but audio type must be taken from the sink's upstream node. */
+        if (SUCCEEDED(hr) && SUCCEEDED(hr = MFCreateTopoLoader(&topo_loader)))
+        {
+            hr = IMFTopoLoader_Load(topo_loader, topology, &resolved_topology, NULL);
+            IMFTopoLoader_Release(topo_loader);
+
+            if (FAILED(hr))
+                WARN("Failed to load topology, hr %#lx.\n", hr);
+        }
         if (SUCCEEDED(hr))
-            hr = IMFMediaSession_SetTopology(engine->session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology);
+        {
+            hr = IMFMediaSession_SetTopology(engine->session,
+                    MFSESSION_SETTOPOLOGY_IMMEDIATE | MFSESSION_SETTOPOLOGY_NORESOLUTION, resolved_topology);
+            if (SUCCEEDED(hr) && SUCCEEDED(hr = IMFTopology_GetNodeByID(resolved_topology, sar_node_id, &sar_node)))
+            {
+                hr = sar_node_set_media_type(sar_node);
+                IMFTopologyNode_Release(sar_node);
+            }
+        }
     }
 
     if (topology)
         IMFTopology_Release(topology);
+    if (resolved_topology)
+        IMFTopology_Release(resolved_topology);
 
     if (sd_video)
         IMFStreamDescriptor_Release(sd_video);
