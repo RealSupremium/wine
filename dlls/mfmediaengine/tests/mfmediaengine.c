@@ -1252,7 +1252,6 @@ static HRESULT WINAPI test_transfer_notify_EventNotify(IMFMediaEngineNotify *ifa
         break;
 
     case MF_MEDIA_ENGINE_EVENT_ERROR:
-        todo_wine_if(param2 == MF_E_NO_MORE_TYPES)
         ok(broken(param2 == MF_E_UNSUPPORTED_BYTESTREAM_TYPE || param2 == MF_E_INVALIDMEDIATYPE),
                 "Unexpected error %#lx\n", param2);
         notify->error = param2;
@@ -1552,7 +1551,7 @@ static void test_TransferVideoFrame_10bit(void)
 
     if (FAILED(notify->error))
     {
-        skip("Media engine reported error %#lx, skipping tests.\n", notify->error);
+        win_skip("Media engine reported error %#lx, skipping tests.\n", notify->error);
         goto done;
     }
 
@@ -1591,19 +1590,12 @@ static void test_TransferVideoFrame_10bit(void)
     ok(!!map_desc.pData, "got pData %p\n", map_desc.pData);
     ok(map_desc.DepthPitch == 16384, "got DepthPitch %u\n", map_desc.DepthPitch);
     ok(map_desc.RowPitch == desc.Width * 4, "got RowPitch %u\n", map_desc.RowPitch);
-    todo_wine
     check_r10g10b10a2_diff(&map_desc, 32, 5, 0x3ff, 0x3ff, 0x3ff, 24);
-    todo_wine
     check_r10g10b10a2_diff(&map_desc, 32, 14, 0x3fa, 0x3ff, 0x4, 31);
-    todo_wine
     check_r10g10b10a2_diff(&map_desc, 32, 23, 0x5, 0x3ff, 0x3ff, 25);
-    todo_wine
     check_r10g10b10a2_diff(&map_desc, 32, 32, 0x1, 0x3ff, 0x6, 27);
-    todo_wine
     check_r10g10b10a2_diff(&map_desc, 32, 41, 0x3fd, 0, 0x3f7, 10);
-    todo_wine
     check_r10g10b10a2_diff(&map_desc, 32, 50, 0x3fd, 0, 0, 10);
-    todo_wine
     check_r10g10b10a2_diff(&map_desc, 32, 59, 0x2, 0, 0x3ff, 10);
     ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
 

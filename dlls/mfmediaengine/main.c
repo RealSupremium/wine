@@ -1361,6 +1361,7 @@ static HRESULT media_engine_create_topology(struct media_engine *engine, IMFMedi
     IMFPresentationDescriptor *pd;
     IMFTopoLoader *topo_loader;
     DWORD stream_count = 0, i;
+    IMFMediaType *media_type;
     TOPOID sar_node_id;
     UINT64 duration;
     HRESULT hr;
@@ -1503,7 +1504,15 @@ static HRESULT media_engine_create_topology(struct media_engine *engine, IMFMedi
          * is set explicitly, but audio type must be taken from the sink's upstream node. */
         if (SUCCEEDED(hr) && SUCCEEDED(hr = MFCreateTopoLoader(&topo_loader)))
         {
-            hr = IMFTopoLoader_Load(topo_loader, topology, &resolved_topology, NULL);
+            if (FAILED(hr = IMFTopoLoader_Load(topo_loader, topology, &resolved_topology, NULL))
+                    && svr_node && SUCCEEDED(hr = create_video_media_type_from_fourcc(&media_type,
+                    MFMapDXGIFormatToDX9Format(DXGI_FORMAT_B8G8R8A8_UNORM))))
+            {
+                video_frame_sink_set_media_type(engine->presentation.frame_sink, media_type);
+                IMFMediaType_Release(media_type);
+                engine->video_frame.output_format = DXGI_FORMAT_B8G8R8A8_UNORM;
+                hr = IMFTopoLoader_Load(topo_loader, topology, &resolved_topology, NULL);
+            }
             IMFTopoLoader_Release(topo_loader);
 
             if (FAILED(hr))
@@ -2615,7 +2624,54 @@ static HRESULT get_d3d11_resource_from_sample(IMFSample *sample, ID3D11Texture2D
     return hr;
 }
 
-static BOOL transfer_needs_render_pipeline(const D3D11_TEXTURE2D_DESC *dst_desc,
+static DXGI_FORMAT dxgi_format_get_typeless_format(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:
+        case DXGI_FORMAT_R32G32B32A32_UINT:
+        case DXGI_FORMAT_R32G32B32A32_SINT:
+            return DXGI_FORMAT_R32G32B32A32_TYPELESS;
+
+        case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        case DXGI_FORMAT_R16G16B16A16_UNORM:
+        case DXGI_FORMAT_R16G16B16A16_UINT:
+        case DXGI_FORMAT_R16G16B16A16_SNORM:
+        case DXGI_FORMAT_R16G16B16A16_SINT:
+            return DXGI_FORMAT_R16G16B16A16_TYPELESS;
+
+        case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+        case DXGI_FORMAT_R10G10B10A2_UNORM:
+        case DXGI_FORMAT_R10G10B10A2_UINT:
+            return DXGI_FORMAT_R10G10B10A2_TYPELESS;
+
+        case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+        case DXGI_FORMAT_R8G8B8A8_UNORM:
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        case DXGI_FORMAT_R8G8B8A8_UINT:
+        case DXGI_FORMAT_R8G8B8A8_SNORM:
+        case DXGI_FORMAT_R8G8B8A8_SINT:
+            return DXGI_FORMAT_R8G8B8A8_TYPELESS;
+
+        case DXGI_FORMAT_B8G8R8A8_UNORM:
+        case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+            return DXGI_FORMAT_B8G8R8A8_TYPELESS;
+
+        case DXGI_FORMAT_B8G8R8X8_TYPELESS:
+        case DXGI_FORMAT_B8G8R8X8_UNORM:
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+            return DXGI_FORMAT_B8G8R8X8_TYPELESS;
+
+        default:
+            WARN("Unhandled format %#x.\n", format);
+            return format;
+    }
+}
+
+static BOOL transfer_needs_render_pipeline(const D3D11_TEXTURE2D_DESC *src_desc, const D3D11_TEXTURE2D_DESC *dst_desc,
         const D3D11_BOX *src_box, const RECT *dst_rect)
 {
     if (dst_rect->right && dst_rect->bottom
@@ -2623,7 +2679,9 @@ static BOOL transfer_needs_render_pipeline(const D3D11_TEXTURE2D_DESC *dst_desc,
             || dst_rect->bottom - dst_rect->top != src_box->bottom - src_box->top))
         return TRUE;
 
-    return FALSE;
+    /* If block-compressed formats were to show up in the dst then we
+     * would need to also check copy-to-BC and byte count compatibility. */
+    return dxgi_format_get_typeless_format(src_desc->Format) != dxgi_format_get_typeless_format(dst_desc->Format);
 }
 
 static HRESULT media_engine_render_d3d11(struct media_engine *engine, ID3D11Texture2D *texture,
@@ -2680,7 +2738,7 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
     src_box.bottom = src_rect->bottom * src_desc.Height + 0.5f;
     src_box.back = 1;
 
-    if (transfer_needs_render_pipeline(&dst_desc, &src_box, dst_rect))
+    if (transfer_needs_render_pipeline(&src_desc, &dst_desc, &src_box, dst_rect))
     {
         ID3D11Texture2D_Release(src_texture);
         return media_engine_render_d3d11(engine, dst_texture, src_rect, dst_rect, color);
