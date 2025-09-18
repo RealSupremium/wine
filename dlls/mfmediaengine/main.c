@@ -2522,6 +2522,7 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
     ID3D11Device *device;
     IMFSample *sample;
     UINT subresource;
+    LONGLONG pts;
     HRESULT hr;
 
     ID3D11Texture2D_GetDesc(dst_texture, &dst_desc);
@@ -2538,7 +2539,13 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
         color = &color_default;
 
     if (!video_frame_sink_get_sample(engine->presentation.frame_sink, &sample))
-        return MF_E_UNEXPECTED;
+    {
+        /* The app does not need to call OnVideoStreamTick() before transferring
+         * a frame, but we need it to get the current sample. */
+        IMFMediaEngineEx_OnVideoStreamTick(&engine->IMFMediaEngineEx_iface, &pts);
+        if (!video_frame_sink_get_sample(engine->presentation.frame_sink, &sample))
+            return MF_E_UNEXPECTED;
+    }
     hr = get_d3d11_resource_from_sample(sample, &src_texture, &subresource);
     IMFSample_Release(sample);
     if (FAILED(hr))

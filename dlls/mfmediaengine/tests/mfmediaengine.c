@@ -2105,7 +2105,6 @@ static void test_effect(void)
 
     SetRect(&dst_rect, 0, 0, desc.Width, desc.Height);
     hr = IMFMediaEngineEx_TransferVideoFrame(notify->media_engine, (IUnknown *)texture, NULL, &dst_rect, NULL);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     count = test_transform_get_sample_count(video_effect);
