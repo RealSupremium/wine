@@ -503,14 +503,16 @@ static inline void mark_block_tail( struct block *block, DWORD flags )
 static inline void initialize_block( struct block *block, SIZE_T old_size, SIZE_T size, DWORD flags )
 {
     char *data = (char *)(block + 1);
-    SIZE_T i;
+    SIZE_T i, aligned_size;
 
     if (size <= old_size) return;
 
     if (flags & HEAP_ZERO_MEMORY)
     {
-        valgrind_make_writable( data + old_size, size - old_size );
-        memset( data + old_size, 0, size - old_size );
+        aligned_size = ROUND_SIZE( size, sizeof(void *) - 1 );
+        valgrind_make_writable( data + old_size, aligned_size - old_size );
+        memset( data + old_size, 0, aligned_size - old_size );
+        valgrind_make_noaccess( data + size, aligned_size - size );
     }
     else if (flags & HEAP_FREE_CHECKING_ENABLED)
     {
@@ -968,6 +970,7 @@ static struct block *split_block( struct heap *heap, ULONG flags, struct block *
 
 static void *allocate_region( struct heap *heap, ULONG flags, SIZE_T *region_size, SIZE_T *commit_size )
 {
+    const SIZE_T align = 0x400 * sizeof(void*);  /* minimum alignment for virtual allocations */
     void *addr = NULL;
     NTSTATUS status;
 
@@ -976,6 +979,9 @@ static void *allocate_region( struct heap *heap, ULONG flags, SIZE_T *region_siz
         WARN( "Heap %p isn't growable, cannot allocate %#Ix bytes\n", heap, *region_size );
         return NULL;
     }
+
+    *region_size = ROUND_SIZE( *region_size, align - 1 );
+    *commit_size = ROUND_SIZE( *commit_size, align - 1 );
 
     /* allocate the memory block */
     if ((status = NtAllocateVirtualMemory( NtCurrentProcess(), &addr, 0, region_size, MEM_RESERVE,
@@ -2173,6 +2179,7 @@ static NTSTATUS heap_resize_block_lfh( struct block *block, ULONG flags, SIZE_T 
     if (ROUND_SIZE( *old_size, BLOCK_ALIGN - 1) != ROUND_SIZE( size, BLOCK_ALIGN - 1)) return STATUS_NO_MEMORY;
     if (size >= *old_size) return STATUS_NO_MEMORY;
 
+    block_size = BLOCK_BIN_SIZE( BLOCK_SIZE_BIN( block_size ) );
     block_set_flags( block, BLOCK_FLAG_USER_MASK & ~BLOCK_FLAG_USER_INFO, BLOCK_USER_FLAGS( flags ) );
     block->tail_size = block_size - sizeof(*block) - size;
     initialize_block( block, *old_size, size, flags );
@@ -2569,6 +2576,15 @@ NTSTATUS WINAPI RtlQueryHeapInformation( HANDLE handle, HEAP_INFORMATION_CLASS i
         FIXME( "HEAP_INFORMATION_CLASS %u not implemented!\n", info_class );
         return STATUS_INVALID_INFO_CLASS;
     }
+}
+
+/***********************************************************************
+ *           RtlQueryProcessHeapInformation    (NTDLL.@)
+ */
+NTSTATUS WINAPI RtlQueryProcessHeapInformation( PDEBUG_BUFFER debug_buffer )
+{
+    FIXME("(%p): stub\n", debug_buffer);
+    return STATUS_NOT_IMPLEMENTED;
 }
 
 /***********************************************************************

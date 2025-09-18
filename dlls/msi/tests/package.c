@@ -3899,8 +3899,7 @@ static void test_appsearch(void)
     }
     ok( r == ERROR_SUCCESS, "Could not create key: %d.\n", r );
 
-    r = RegSetValueExA(hkey, NULL, 0, REG_SZ, (const BYTE *)"c:\\windows\\system32\\notepad.exe",
-                       sizeof("c:\\windows\\system32\\notepad.exe"));
+    r = reg_set_str(hkey, NULL, "c:\\windows\\system32\\notepad.exe");
     ok( r == ERROR_SUCCESS, "Could not set key value: %d.\n", r);
     RegCloseKey(hkey);
     add_reglocator_entry( hdb, "NewSignature4", 2, "Software\\Winetest_msi", "", msidbLocatorTypeFileName );
@@ -3908,8 +3907,7 @@ static void test_appsearch(void)
     r = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Winetest_msi", 0, NULL, 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY,
                         NULL, &hkey, NULL);
     ok( r == ERROR_SUCCESS, "Could not create key: %d.\n", r );
-    r = RegSetValueExA(hkey, NULL, 0, REG_SZ, (const BYTE *)"c:\\windows\\system32\\notepad.exe",
-                       sizeof("c:\\windows\\system32\\notepad.exe"));
+    r = reg_set_str(hkey, NULL, "c:\\windows\\system32\\notepad.exe");
     ok( r == ERROR_SUCCESS, "Could not set key value: %d.\n", r);
     RegCloseKey(hkey);
     add_reglocator_entry( hdb, "NewSignature5", 2, "Software\\Winetest_msi", "",
@@ -4249,15 +4247,13 @@ static void test_appsearch_reglocator(void)
     }
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
-    res = RegSetValueExA(classes, "Value1", 0, REG_SZ,
-                         (const BYTE *)"regszdata", 10);
+    res = reg_set_str(classes, "Value1", "regszdata");
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     res = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\Wine", &hkcu);
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
-    res = RegSetValueExA(hkcu, "Value1", 0, REG_SZ,
-                         (const BYTE *)"regszdata", 10);
+    res = reg_set_str(hkcu, "Value1", "regszdata");
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     users = 0;
@@ -4266,8 +4262,7 @@ static void test_appsearch_reglocator(void)
 
     if (res == ERROR_SUCCESS)
     {
-        res = RegSetValueExA(users, "Value1", 0, REG_SZ,
-                             (const BYTE *)"regszdata", 10);
+        res = reg_set_str(users, "Value1", "regszdata");
         ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
     }
 
@@ -4277,8 +4272,7 @@ static void test_appsearch_reglocator(void)
     res = RegSetValueA(hklm, NULL, REG_SZ, "defvalue", 8);
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
-    res = RegSetValueExA(hklm, "Value1", 0, REG_SZ,
-                         (const BYTE *)"regszdata", 10);
+    res = reg_set_str(hklm, "Value1", "regszdata");
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     val = 42;
@@ -4309,8 +4303,7 @@ static void test_appsearch_reglocator(void)
                          (const BYTE *)binary, sizeof(binary));
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
-    res = RegSetValueExA(hklm, "Value8", 0, REG_SZ,
-                         (const BYTE *)"#regszdata", 11);
+    res = reg_set_str(hklm, "Value8", "#regszdata");
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     strcpy(expected, CURR_DIR);
@@ -4332,8 +4325,7 @@ static void test_appsearch_reglocator(void)
                          (const BYTE *)path, lstrlenA(path) + 1);
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
-    res = RegSetValueExA(hklm, "Value12", 0, REG_SZ,
-                         (const BYTE *)"", 1);
+    res = reg_set_str(hklm, "Value12", "");
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     create_file_with_version("FileName3.dll", MAKELONG(2, 1), MAKELONG(4, 3));
@@ -5283,6 +5275,12 @@ static void test_featureparents(void)
     /* msidbFeatureAttributesUIDisallowAbsent */
     add_feature_entry( hdb, "'lyra', '', '', '', 2, 1, '', 16" );
 
+    /* msidbFeatureAttributesDisallowAdvertise */
+    add_feature_entry( hdb, "'cygnus', '', '', '', 2, 1, '', 8" );
+
+    /* advertise allowed */
+    add_feature_entry( hdb, "'lacerta', '', '', '', 2, 1, '', 0" );
+
     /* disabled because of install level */
     add_feature_entry( hdb, "'waters', '', '', '', 15, 101, '', 9" );
 
@@ -5378,6 +5376,8 @@ static void test_featureparents(void)
     test_feature_states( __LINE__, hpkg, "perseus", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_SOURCE, FALSE );
     test_feature_states( __LINE__, hpkg, "orion", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_LOCAL, FALSE );
     test_feature_states( __LINE__, hpkg, "lyra", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_LOCAL, FALSE );
+    test_feature_states( __LINE__, hpkg, "cygnus", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_LOCAL, FALSE );
+    test_feature_states( __LINE__, hpkg, "lacerta", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_LOCAL, FALSE );
     test_feature_states( __LINE__, hpkg, "waters", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_UNKNOWN, FALSE );
     test_feature_states( __LINE__, hpkg, "bayer", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_UNKNOWN, FALSE );
 
@@ -5402,10 +5402,18 @@ static void test_featureparents(void)
     r = MsiSetFeatureStateA(hpkg, "nosuchfeature", INSTALLSTATE_ABSENT);
     ok( r == ERROR_UNKNOWN_FEATURE, "Expected ERROR_UNKNOWN_FEATURE, got %u\n", r);
 
+    r = MsiSetFeatureStateA(hpkg, "cygnus", INSTALLSTATE_ADVERTISED);
+    ok(!r, "got %d\n", r);
+
+    r = MsiSetFeatureStateA(hpkg, "lacerta", INSTALLSTATE_ADVERTISED);
+    ok(!r, "got %d\n", r);
+
     test_feature_states( __LINE__, hpkg, "zodiac", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_LOCAL, FALSE );
     test_feature_states( __LINE__, hpkg, "perseus", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_SOURCE, FALSE );
     test_feature_states( __LINE__, hpkg, "orion", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_ABSENT, FALSE );
     test_feature_states( __LINE__, hpkg, "lyra", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_ABSENT, FALSE );
+    test_feature_states( __LINE__, hpkg, "cygnus", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_ABSENT, FALSE );
+    test_feature_states( __LINE__, hpkg, "lacerta", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_ADVERTISED, FALSE );
     test_feature_states( __LINE__, hpkg, "waters", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_UNKNOWN, FALSE );
     test_feature_states( __LINE__, hpkg, "bayer", ERROR_SUCCESS, INSTALLSTATE_ABSENT, INSTALLSTATE_UNKNOWN, FALSE );
 
@@ -5620,7 +5628,8 @@ static void test_installprops(void)
     sprintf(buf, "%d", LOBYTE(LOWORD(GetVersion())) * 100 + HIBYTE(LOWORD(GetVersion())));
     check_prop(hpkg, "VersionNT", buf, 1, 1);
 
-    if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
+    if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||
+        si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64)
     {
         sprintf(buf, "%d", si.wProcessorLevel);
         check_prop(hpkg, "Intel", buf, 1, 0);

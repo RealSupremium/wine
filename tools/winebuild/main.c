@@ -61,7 +61,6 @@ static int fake_module;
 static DLLSPEC *main_spec;
 
 static const struct strarray empty_strarray;
-struct strarray lib_path = { 0 };
 struct strarray tools_path = { 0 };
 struct strarray as_command = { 0 };
 struct strarray cc_command = { 0 };
@@ -183,6 +182,7 @@ static const char usage_str[] =
 "       --data-only           Generate a data-only dll (i.e. without any executable code)\n"
 "   -d, --delay-lib=LIB       Import the specified library in delayed mode\n"
 "   -D SYM                    Ignored for C flags compatibility\n"
+"       --disable-dynamicbase Disable 'ASLR' address space layout randomization (default: ASLR on)\n"
 "   -e, --entry=FUNC          Set the DLL entry point function (default: DllMain)\n"
 "   -E, --export=FILE         Export the symbols defined in the .spec or .def file\n"
 "       --external-symbols    Allow linking to external symbols\n"
@@ -196,8 +196,6 @@ static const char usage_str[] =
 "   -K, FLAGS                 Compiler flags (only -KPIC is supported)\n"
 "       --large-address-aware Support an address space larger than 2Gb\n"
 "       --ld-cmd=LD           Command to use for linking (default: ld)\n"
-"   -l, --library=LIB         Import the specified library\n"
-"   -L, --library-path=DIR    Look for imports libraries in DIR\n"
 "   -m16, -m32, -m64          Force building 16-bit, 32-bit resp. 64-bit code\n"
 "   -M, --main-module=MODULE  Set the name of the main module for a Win16 dll\n"
 "       --nm-cmd=NM           Command to use to get undefined symbols (default: nm)\n"
@@ -235,6 +233,7 @@ enum long_options_values
     LONG_OPT_ASCMD,
     LONG_OPT_CCCMD,
     LONG_OPT_DATA_ONLY,
+    LONG_OPT_DISABLE_DYNAMICBASE,
     LONG_OPT_EXTERNAL_SYMS,
     LONG_OPT_FAKE_MODULE,
     LONG_OPT_FIXUP_CTORS,
@@ -269,6 +268,7 @@ static const struct long_option long_options[] =
     { "as-cmd",              1, LONG_OPT_ASCMD },
     { "cc-cmd",              1, LONG_OPT_CCCMD },
     { "data-only",           0, LONG_OPT_DATA_ONLY },
+    { "disable-dynamicbase", 0, LONG_OPT_DISABLE_DYNAMICBASE },
     { "external-symbols",    0, LONG_OPT_EXTERNAL_SYMS },
     { "fake-module",         0, LONG_OPT_FAKE_MODULE },
     { "large-address-aware", 0, LONG_OPT_LARGE_ADDRESS_AWARE },
@@ -290,8 +290,6 @@ static const struct long_option long_options[] =
     { "help",                0, 'h' },
     { "heap",                1, 'H' },
     { "kill-at",             0, 'k' },
-    { "library",             1, 'l' },
-    { "library-path",        1, 'L' },
     { "main-module",         1, 'M' },
     { "dll-name",            1, 'N' },
     { "output",              1, 'o' },
@@ -378,9 +376,6 @@ static void option_callback( int optc, char *optarg )
     case 'K':
         /* ignored, because cc generates correct code. */
         break;
-    case 'L':
-        strarray_add( &lib_path, xstrdup( optarg ));
-        break;
     case 'm':
         if (!strcmp( optarg, "16" )) main_spec->type = SPEC_WIN16;
         else if (!strcmp( optarg, "32" )) force_pointer_size = 4;
@@ -421,9 +416,6 @@ static void option_callback( int optc, char *optarg )
     case 'k':
         kill_at = 1;
         break;
-    case 'l':
-        add_import_dll( optarg, NULL );
-        break;
     case 'o':
         if (unlink( optarg ) == -1 && errno != ENOENT)
             fatal_error( "Unable to create output file '%s'\n", optarg );
@@ -446,6 +438,9 @@ static void option_callback( int optc, char *optarg )
         break;
     case LONG_OPT_DEF:
         set_exec_mode( MODE_DEF );
+        break;
+    case LONG_OPT_DISABLE_DYNAMICBASE:
+        main_spec->dll_characteristics &= ~IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
         break;
     case LONG_OPT_EXE:
         set_exec_mode( MODE_EXE );
@@ -551,22 +546,6 @@ static struct strarray load_resources( struct strarray files, DLLSPEC *spec )
     return ret;
 }
 
-/* add input files that look like import libs to the import list */
-static struct strarray load_import_libs( struct strarray files )
-{
-    struct strarray ret = empty_strarray;
-    int i;
-
-    for (i = 0; i < files.count; i++)
-    {
-        if (strendswith( files.str[i], ".def" ))
-            add_import_dll( NULL, files.str[i] );
-        else
-            strarray_add( &ret, files.str[i] ); /* not an import dll, keep it in the list */
-    }
-    return ret;
-}
-
 static int parse_input_file( DLLSPEC *spec )
 {
     FILE *input_file = open_input_file( NULL, spec_file_name );
@@ -581,6 +560,12 @@ static int parse_input_file( DLLSPEC *spec )
     return result;
 }
 
+static void check_target(void)
+{
+    if (is_pe()) return;
+    if (target.cpu == CPU_i386 || target.cpu == CPU_x86_64) return;
+    fatal_error( "Non-PE builds are not supported on this platform.\n" );
+}
 
 /*******************************************************************
  *         main
@@ -619,9 +604,11 @@ int main(int argc, char **argv)
         else
         {
             spec->characteristics |= IMAGE_FILE_LARGE_ADDRESS_AWARE;
-            spec->dll_characteristics |= IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA;
+            if (spec->dll_characteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE)
+                spec->dll_characteristics |= IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA;
         }
 
+        check_target();
         files = load_resources( files, spec );
         if (spec_file_name && !parse_input_file( spec )) break;
         if (!spec->init_func) spec->init_func = xstrdup( get_default_entry_point( spec ));
@@ -638,7 +625,6 @@ int main(int argc, char **argv)
         }
         if (!is_pe())
         {
-            files = load_import_libs( files );
             read_undef_symbols( spec, files );
             resolve_imports( spec );
         }
@@ -654,6 +640,7 @@ int main(int argc, char **argv)
         close_output_file();
         break;
     case MODE_IMPLIB:
+        check_target();
         if (!spec_file_name) fatal_error( "missing .spec file\n" );
         if (!parse_input_file( spec )) break;
         output_import_lib( spec, files );

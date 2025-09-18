@@ -24,6 +24,7 @@
 #include "winbase.h"
 #include "winuser.h"
 #include "ole2.h"
+#include "mshtmdid.h"
 
 #include "wine/debug.h"
 
@@ -384,11 +385,10 @@ static const tid_t NodeList_iface_tids[] = {
 };
 
 dispex_static_data_t NodeList_dispex = {
-    .id         = PROT_NodeList,
+    .id         = OBJID_NodeList,
     .vtbl       = &HTMLDOMChildrenCollection_dispex_vtbl,
     .disp_tid   = DispDOMChildrenCollection_tid,
     .iface_tids = NodeList_iface_tids,
-    .init_info  = HTMLDOMNode_init_dispex_info,
 };
 
 HRESULT create_child_collection(nsIDOMNodeList *nslist, DispatchEx *owner, IHTMLDOMChildrenCollection **ret)
@@ -553,6 +553,10 @@ static HRESULT WINAPI HTMLDOMNode_insertBefore(IHTMLDOMNode *iface, IHTMLDOMNode
 
     TRACE("(%p)->(%p %s %p)\n", This, newChild, debugstr_variant(&refChild), node);
 
+    *node = NULL;
+    if(!newChild)
+        return E_INVALIDARG;
+
     new_child = get_node_obj(newChild);
     if(!new_child) {
         ERR("invalid newChild\n");
@@ -619,6 +623,10 @@ static HRESULT WINAPI HTMLDOMNode_removeChild(IHTMLDOMNode *iface, IHTMLDOMNode 
 
     TRACE("(%p)->(%p %p)\n", This, oldChild, node);
 
+    *node = NULL;
+    if(!oldChild)
+        return E_INVALIDARG;
+
     node_obj = get_node_obj(oldChild);
     if(!node_obj)
         return E_FAIL;
@@ -650,6 +658,10 @@ static HRESULT WINAPI HTMLDOMNode_replaceChild(IHTMLDOMNode *iface, IHTMLDOMNode
     HRESULT hres;
 
     TRACE("(%p)->(%p %p %p)\n", This, newChild, oldChild, node);
+
+    *node = NULL;
+    if(!newChild || !oldChild)
+        return E_INVALIDARG;
 
     node_new = get_node_obj(newChild);
     if(!node_new)
@@ -693,7 +705,10 @@ static HRESULT WINAPI HTMLDOMNode_cloneNode(IHTMLDOMNode *iface, VARIANT_BOOL fD
         return E_FAIL;
     }
 
-    hres = This->vtbl->clone(This, nsnode, &new_node);
+    if(This->vtbl->clone)
+        hres = This->vtbl->clone(This, nsnode, &new_node);
+    else
+        hres = create_node(This->doc, nsnode, &new_node);
     nsIDOMNode_Release(nsnode);
     if(FAILED(hres))
         return hres;
@@ -736,6 +751,10 @@ static HRESULT WINAPI HTMLDOMNode_appendChild(IHTMLDOMNode *iface, IHTMLDOMNode 
     HRESULT hres;
 
     TRACE("(%p)->(%p %p)\n", This, newChild, node);
+
+    *node = NULL;
+    if(!newChild)
+        return E_INVALIDARG;
 
     node_obj = get_node_obj(newChild);
     if(!node_obj)
@@ -1190,6 +1209,43 @@ static const IHTMLDOMNode3Vtbl HTMLDOMNode3Vtbl = {
     HTMLDOMNode3_isSupported
 };
 
+static inline HTMLDOMNode *impl_from_IWineHTMLDOMNodePrivate(IWineHTMLDOMNodePrivate *iface)
+{
+    return CONTAINING_RECORD(iface, HTMLDOMNode, IWineHTMLDOMNodePrivate_iface);
+}
+
+DISPEX_IDISPATCH_IMPL(HTMLDOMNode_private, IWineHTMLDOMNodePrivate, impl_from_IWineHTMLDOMNodePrivate(iface)->event_target.dispex)
+
+static HRESULT WINAPI HTMLDOMNode_private_get_hasAttributes(IWineHTMLDOMNodePrivate *iface, VARIANT_BOOL *p)
+{
+    HTMLDOMNode *This = impl_from_IWineHTMLDOMNodePrivate(iface);
+
+    FIXME("(%p)->(%p)\n", This, p);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI HTMLDOMNode_private_normalize(IWineHTMLDOMNodePrivate *iface)
+{
+    HTMLDOMNode *This = impl_from_IWineHTMLDOMNodePrivate(iface);
+
+    FIXME("(%p)\n", This);
+
+    return E_NOTIMPL;
+}
+
+static const IWineHTMLDOMNodePrivateVtbl HTMLDOMNode_private_vtbl = {
+    HTMLDOMNode_private_QueryInterface,
+    HTMLDOMNode_private_AddRef,
+    HTMLDOMNode_private_Release,
+    HTMLDOMNode_private_GetTypeInfoCount,
+    HTMLDOMNode_private_GetTypeInfo,
+    HTMLDOMNode_private_GetIDsOfNames,
+    HTMLDOMNode_private_Invoke,
+    HTMLDOMNode_private_get_hasAttributes,
+    HTMLDOMNode_private_normalize,
+};
+
 static inline HTMLDOMNode *HTMLDOMNode_from_DispatchEx(DispatchEx *iface)
 {
     return CONTAINING_RECORD(iface, HTMLDOMNode, event_target.dispex);
@@ -1209,6 +1265,8 @@ void *HTMLDOMNode_query_interface(DispatchEx *dispex, REFIID riid)
         return &This->IHTMLDOMNode2_iface;
     if(IsEqualGUID(&IID_IHTMLDOMNode3, riid))
         return &This->IHTMLDOMNode3_iface;
+    if(IsEqualGUID(&IID_IWineHTMLDOMNodePrivate, riid))
+        return &This->IWineHTMLDOMNodePrivate_iface;
 
     return EventTarget_query_interface(&This->event_target, riid);
 }
@@ -1245,15 +1303,50 @@ void HTMLDOMNode_destructor(DispatchEx *dispex)
     free(This);
 }
 
-static HRESULT HTMLDOMNode_clone(HTMLDOMNode *This, nsIDOMNode *nsnode, HTMLDOMNode **ret)
-{
-    return create_node(This->doc, nsnode, ret);
-}
-
 void HTMLDOMNode_init_dispex_info(dispex_data_t *info, compat_mode_t mode)
 {
-    if(mode >= COMPAT_MODE_IE9)
-        dispex_info_add_interface(info, IHTMLDOMNode3_tid, NULL);
+    static const dispex_hook_t ie9_hooks[] = {
+        {DISPID_IHTMLDOMNODE_REMOVENODE,  NULL},
+        {DISPID_IHTMLDOMNODE_REPLACENODE, NULL},
+        {DISPID_IHTMLDOMNODE_SWAPNODE,    NULL},
+
+        /* Common for all modes */
+        {DISPID_IHTMLDOMNODE_NODETYPE,           .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_PARENTNODE,         .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_CHILDNODES,         .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_ATTRIBUTES,         .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_NODENAME,           .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_NODEVALUE,          .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_FIRSTCHILD,         .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_LASTCHILD,          .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_PREVIOUSSIBLING,    .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE_NEXTSIBLING,        .noattr = TRUE},
+        {DISPID_UNKNOWN}
+    };
+    const dispex_hook_t *const hooks = ie9_hooks + 3;
+    static const dispex_hook_t node2_hooks[] = {
+        {DISPID_IHTMLDOMNODE2_OWNERDOCUMENT,     .noattr = TRUE},
+        {DISPID_UNKNOWN}
+    };
+    static const dispex_hook_t node3_hooks[] = {
+        {DISPID_IHTMLDOMNODE3_LOCALNAME,         .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE3_NAMESPACEURI,      .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE3_PREFIX,            .noattr = TRUE},
+        {DISPID_IHTMLDOMNODE3_TEXTCONTENT,       .noattr = TRUE},
+        {DISPID_UNKNOWN}
+    };
+    static const dispex_hook_t priv_hooks[] = {
+        {DISPID_IHTMLELEMENT6_IE9_HASATTRIBUTES, .noattr = TRUE},
+        {DISPID_UNKNOWN}
+    };
+
+    dispex_info_add_interface(info, IHTMLDOMNode_tid, mode >= COMPAT_MODE_IE9 ? ie9_hooks : hooks);
+    dispex_info_add_interface(info, IHTMLDOMNode2_tid, node2_hooks);
+
+    if(mode >= COMPAT_MODE_IE9) {
+        dispex_info_add_interface(info, IHTMLDOMNode3_tid, node3_hooks);
+        dispex_info_add_interface(info, IWineHTMLDOMNodePrivate_tid, priv_hooks);
+    }
 
     EventTarget_init_dispex_info(info, mode);
 }
@@ -1262,7 +1355,6 @@ static const cpc_entry_t HTMLDOMNode_cpc[] = {{NULL}};
 
 static const NodeImplVtbl HTMLDOMNodeImplVtbl = {
     .cpc_entries           = HTMLDOMNode_cpc,
-    .clone                 = HTMLDOMNode_clone
 };
 
 void HTMLDOMNode_Init(HTMLDocumentNode *doc, HTMLDOMNode *node, nsIDOMNode *nsnode, dispex_static_data_t *dispex_data)
@@ -1272,6 +1364,7 @@ void HTMLDOMNode_Init(HTMLDocumentNode *doc, HTMLDOMNode *node, nsIDOMNode *nsno
     node->IHTMLDOMNode_iface.lpVtbl = &HTMLDOMNodeVtbl;
     node->IHTMLDOMNode2_iface.lpVtbl = &HTMLDOMNode2Vtbl;
     node->IHTMLDOMNode3_iface.lpVtbl = &HTMLDOMNode3Vtbl;
+    node->IWineHTMLDOMNodePrivate_iface.lpVtbl = &HTMLDOMNode_private_vtbl;
 
     init_event_target(&node->event_target, dispex_data, doc->script_global);
 
@@ -1293,15 +1386,10 @@ static const dispex_static_data_vtbl_t Node_dispex_vtbl = {
     .unlink          = HTMLDOMNode_unlink
 };
 
-static const tid_t HTMLDOMNode_iface_tids[] = {
-    IHTMLDOMNode_tid,
-    0
-};
 dispex_static_data_t Node_dispex = {
-    .id         = PROT_Node,
+    .id         = OBJID_Node,
     .vtbl       = &Node_dispex_vtbl,
     .disp_tid   = IHTMLDOMNode_tid,
-    .iface_tids = HTMLDOMNode_iface_tids,
     .init_info  = HTMLDOMNode_init_dispex_info,
 };
 
@@ -1343,9 +1431,17 @@ static HRESULT create_node(HTMLDocumentNode *doc, nsIDOMNode *nsnode, HTMLDOMNod
         *ret = &comment->node;
         break;
     }
-    case ATTRIBUTE_NODE:
-        ERR("Called on attribute node\n");
-        return E_UNEXPECTED;
+    case ATTRIBUTE_NODE: {
+        HTMLDOMAttribute *attr;
+        nsIDOMAttr *nsattr;
+        nsresult nsres;
+        nsres = nsIDOMNode_QueryInterface(nsnode, &IID_nsIDOMAttr, (void **)&nsattr);
+        assert(nsres == NS_OK);
+        hres = create_attr_node(doc, nsattr, &attr);
+        if(SUCCEEDED(hres))
+            *ret = &attr->node;
+        return hres;
+    }
     default: {
         HTMLDOMNode *node;
 

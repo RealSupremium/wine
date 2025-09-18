@@ -44,9 +44,6 @@
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 
-#define VK_NO_PROTOTYPES
-#define WINE_VK_HOST
-
 #include "x11drv.h"
 #include "winreg.h"
 #include "xcomposite.h"
@@ -71,6 +68,7 @@ Window root_window;
 BOOL usexvidmode = TRUE;
 BOOL usexrandr = TRUE;
 BOOL usexcomposite = TRUE;
+BOOL use_egl = FALSE;
 BOOL use_take_focus = TRUE;
 BOOL use_primary_selection = FALSE;
 BOOL use_system_cursors = TRUE;
@@ -85,12 +83,6 @@ int copy_default_colors = 128;
 int alloc_system_colors = 256;
 int xrender_error_base = 0;
 char *process_name = NULL;
-UINT64 client_foreign_window_proc = 0;
-UINT64 dnd_enter_event_callback = 0;
-UINT64 dnd_position_event_callback = 0;
-UINT64 dnd_post_drop_callback = 0;
-UINT64 dnd_drop_event_callback = 0;
-UINT64 dnd_leave_event_callback = 0;
 
 static x11drv_error_callback err_callback;   /* current callback for error */
 static Display *err_callback_display;        /* display callback is set for */
@@ -135,6 +127,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "_ICC_PROFILE",
     "_KDE_NET_WM_STATE_SKIP_SWITCHER",
     "_MOTIF_WM_HINTS",
+    "_NET_ACTIVE_WINDOW",
     "_NET_STARTUP_INFO_BEGIN",
     "_NET_STARTUP_INFO",
     "_NET_SUPPORTED",
@@ -353,12 +346,12 @@ HKEY open_hkcu_key( const char *name )
 
         sid = ((TOKEN_USER *)sid_data)->User.Sid;
         len = sprintf( buffer, "\\Registry\\User\\S-%u-%u", sid->Revision,
-                       (int)MAKELONG( MAKEWORD( sid->IdentifierAuthority.Value[5],
-                                                sid->IdentifierAuthority.Value[4] ),
-                                      MAKEWORD( sid->IdentifierAuthority.Value[3],
-                                                sid->IdentifierAuthority.Value[2] )));
+                       MAKELONG( MAKEWORD( sid->IdentifierAuthority.Value[5],
+                                           sid->IdentifierAuthority.Value[4] ),
+                                 MAKEWORD( sid->IdentifierAuthority.Value[3],
+                                           sid->IdentifierAuthority.Value[2] )));
         for (i = 0; i < sid->SubAuthorityCount; i++)
-            len += sprintf( buffer + len, "-%u", (int)sid->SubAuthority[i] );
+            len += sprintf( buffer + len, "-%u", sid->SubAuthority[i] );
 
         ascii_to_unicode( bufferW, buffer, len );
         hkcu = reg_open_key( NULL, bufferW, len * sizeof(WCHAR) );
@@ -457,6 +450,9 @@ static void setup_options(void)
 
     if (!get_config_key( hkey, appkey, "Managed", buffer, sizeof(buffer) ))
         managed_mode = IS_OPTION_TRUE( buffer[0] );
+
+    if (!get_config_key( hkey, appkey, "UseEGL", buffer, sizeof(buffer) ))
+        use_egl = IS_OPTION_TRUE( buffer[0] );
 
     if (!get_config_key( hkey, appkey, "UseXVidMode", buffer, sizeof(buffer) ))
         usexvidmode = IS_OPTION_TRUE( buffer[0] );
@@ -626,7 +622,6 @@ static void init_visuals( Display *display, int screen )
  */
 static NTSTATUS x11drv_init( void *arg )
 {
-    struct init_params *params = arg;
     Display *display;
     void *libx11 = dlopen( SONAME_LIBX11, RTLD_NOW|RTLD_GLOBAL );
 
@@ -647,13 +642,6 @@ static NTSTATUS x11drv_init( void *arg )
 
     if (!XInitThreads()) ERR( "XInitThreads failed, trouble ahead\n" );
     if (!(display = XOpenDisplay( NULL ))) return STATUS_UNSUCCESSFUL;
-
-    dnd_enter_event_callback = params->dnd_enter_event_callback;
-    dnd_position_event_callback = params->dnd_position_event_callback;
-    dnd_post_drop_callback = params->dnd_post_drop_callback;
-    dnd_drop_event_callback = params->dnd_drop_event_callback;
-    dnd_leave_event_callback = params->dnd_leave_event_callback;
-    client_foreign_window_proc = params->foreign_window_proc;
 
     fcntl( ConnectionNumber(display), F_SETFD, 1 ); /* set close on exec flag */
     root_window = DefaultRootWindow( display );
@@ -687,8 +675,8 @@ static NTSTATUS x11drv_init( void *arg )
     X11DRV_InitKeyboard( gdi_display );
     if (use_xim) use_xim = xim_init( input_style );
 
+    init_icm_profile();
     init_user_driver();
-    X11DRV_DisplayDevices_RegisterEventHandlers();
     return STATUS_SUCCESS;
 }
 
@@ -704,6 +692,7 @@ void X11DRV_ThreadDetach(void)
     {
         if (data->xim) XCloseIM( data->xim );
         if (data->font_set) XFreeFontSet( data->display, data->font_set );
+        if (data->net_supported) XFree( data->net_supported );
         XSync( gdi_display, False ); /* make sure XReparentWindow requests have completed before closing the thread display */
         XCloseDisplay( data->display );
         free( data );
@@ -768,8 +757,11 @@ struct x11drv_thread_data *x11drv_init_thread_data(void)
     set_queue_display_fd( data->display );
     NtUserGetThreadInfo()->driver_data = (UINT_PTR)data;
 
+    XSelectInput( data->display, DefaultRootWindow( data->display ), PropertyChangeMask );
     if (use_xim) xim_thread_attach( data );
     x11drv_xinput2_init( data );
+    net_supported_init( data );
+    net_active_window_init( data );
 
     return data;
 }
@@ -826,12 +818,6 @@ C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
 
 #ifdef _WIN64
 
-static NTSTATUS x11drv_wow64_tablet_get_packet( void *arg )
-{
-    FIXME( "%p\n", arg );
-    return 0;
-}
-
 static NTSTATUS x11drv_wow64_tablet_info( void *arg )
 {
     struct
@@ -852,7 +838,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
     x11drv_init,
     x11drv_tablet_attach_queue,
-    x11drv_wow64_tablet_get_packet,
+    x11drv_tablet_get_packet,
     x11drv_wow64_tablet_info,
     x11drv_tablet_load_info,
 };

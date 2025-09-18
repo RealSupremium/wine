@@ -558,10 +558,17 @@ static void fill_filename_from_selection(FileDialogImpl *This)
 static LPWSTR get_first_ext_from_spec(LPWSTR buf, LPCWSTR spec)
 {
     WCHAR *endpos, *ext;
+    INT len;
 
-    lstrcpyW(buf, spec);
-    if( (endpos = StrChrW(buf, ';')) )
-        *endpos = '\0';
+    if( (endpos = StrChrW(spec, ';')) )
+        len = endpos-spec+1;
+    else
+        len = lstrlenW(spec)+1;
+
+    if (len > MAX_PATH)
+        return NULL;
+
+    lstrcpynW(buf, spec, len);
 
     ext = PathFindExtensionW(buf);
     if(StrChrW(ext, '*'))
@@ -2542,6 +2549,26 @@ static HRESULT WINAPI IFileDialog2_fnSetFileTypes(IFileDialog2 *iface, UINT cFil
     {
         This->filterspecs[i].pszName = StrDupW(rgFilterSpec[i].pszName);
         This->filterspecs[i].pszSpec = StrDupW(rgFilterSpec[i].pszSpec);
+
+        if (This->filterspecs[i].pszName != NULL && This->filterspecs[i].pszSpec != NULL)
+        {
+            DWORD name_len = lstrlenW(This->filterspecs[i].pszName);
+
+            if (name_len == 0 || This->filterspecs[i].pszName[name_len - 1] != L')')
+            {
+                DWORD spec_len = lstrlenW(This->filterspecs[i].pszSpec);
+
+                DWORD total_len = name_len + spec_len + 4;
+
+                WCHAR* pszName = LocalAlloc(LMEM_FIXED, total_len * sizeof(WCHAR));
+                if (pszName != NULL)
+                {
+                    swprintf(pszName, total_len, L"%s (%s)", This->filterspecs[i].pszName, This->filterspecs[i].pszSpec);
+                    LocalFree((void *)This->filterspecs[i].pszName);
+                    This->filterspecs[i].pszName = pszName;
+                }
+            }
+        }
     }
     This->filterspec_count = cFileTypes;
 

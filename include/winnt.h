@@ -52,42 +52,42 @@ extern "C" {
 #define FASTCALL __fastcall
 
 #ifndef DECLSPEC_IMPORT
-# if __has_declspec_attribute(dllimport)
-#  define DECLSPEC_IMPORT __declspec(dllimport)
-# elif defined(__MINGW32__) || defined(__CYGWIN__)
+# if defined(__MINGW32__) || defined(__CYGWIN__)
 #  define DECLSPEC_IMPORT __attribute__((dllimport))
 # elif defined(__GNUC__)
 #  define DECLSPEC_IMPORT __attribute__((visibility ("hidden")))
+# elif __has_declspec_attribute(dllimport)
+#  define DECLSPEC_IMPORT __declspec(dllimport)
 # else
 #  define DECLSPEC_IMPORT
 # endif
 #endif
 
 #ifndef DECLSPEC_NORETURN
-# if __has_declspec_attribute(noreturn) && !defined(MIDL_PASS)
-#  define DECLSPEC_NORETURN __declspec(noreturn)
-# elif defined(__GNUC__)
+# ifdef __GNUC__
 #  define DECLSPEC_NORETURN __attribute__((noreturn))
+# elif __has_declspec_attribute(noreturn) && !defined(MIDL_PASS)
+#  define DECLSPEC_NORETURN __declspec(noreturn)
 # else
 #  define DECLSPEC_NORETURN
 # endif
 #endif
 
 #ifndef DECLSPEC_ALIGN
-# if __has_declspec_attribute(align) && !defined(MIDL_PASS)
-#  define DECLSPEC_ALIGN(x) __declspec(align(x))
-# elif defined(__GNUC__)
+# ifdef __GNUC__
 #  define DECLSPEC_ALIGN(x) __attribute__((aligned(x)))
+# elif __has_declspec_attribute(align) && !defined(MIDL_PASS)
+#  define DECLSPEC_ALIGN(x) __declspec(align(x))
 # else
 #  define DECLSPEC_ALIGN(x)
 # endif
 #endif
 
 #ifndef DECLSPEC_NOTHROW
-# if __has_declspec_attribute(nothrow) && !defined(MIDL_PASS)
-#  define DECLSPEC_NOTHROW __declspec(nothrow)
-# elif defined(__GNUC__)
+# ifdef __GNUC__
 #  define DECLSPEC_NOTHROW __attribute__((nothrow))
+# elif __has_declspec_attribute(nothrow) && !defined(MIDL_PASS)
+#  define DECLSPEC_NOTHROW __declspec(nothrow)
 # else
 #  define DECLSPEC_NOTHROW
 # endif
@@ -114,15 +114,15 @@ extern "C" {
 #endif
 
 #ifndef DECLSPEC_SELECTANY
-# if __has_declspec_attribute(selectany)
-#define DECLSPEC_SELECTANY __declspec(selectany)
-#elif defined(__MINGW32__)
-#define DECLSPEC_SELECTANY __attribute__((selectany))
-#elif defined(__GNUC__)
-#define DECLSPEC_SELECTANY __attribute__((weak))
-#else
-#define DECLSPEC_SELECTANY
-#endif
+# ifdef __MINGW32__
+#  define DECLSPEC_SELECTANY __attribute__((selectany))
+# elif defined(__GNUC__)
+#  define DECLSPEC_SELECTANY __attribute__((weak))
+# elif __has_declspec_attribute(selectany)
+#  define DECLSPEC_SELECTANY __declspec(selectany)
+# else
+#  define DECLSPEC_SELECTANY
+# endif
 #endif
 
 #ifndef NOP_FUNCTION
@@ -152,21 +152,21 @@ extern "C" {
 #endif
 
 #ifndef DECLSPEC_NOINLINE
-# if __has_declspec_attribute(noinline)
-#  define DECLSPEC_NOINLINE  __declspec(noinline)
-# elif defined(__GNUC__)
+# ifdef __GNUC__
 #  define DECLSPEC_NOINLINE __attribute__((noinline))
+# elif __has_declspec_attribute(noinline)
+#  define DECLSPEC_NOINLINE  __declspec(noinline)
 # else
 #  define DECLSPEC_NOINLINE
 # endif
 #endif
 
 #ifndef DECLSPEC_DEPRECATED
-# if __has_declspec_attribute(deprecated) && !defined(MIDL_PASS)
-#  define DECLSPEC_DEPRECATED __declspec(deprecated)
-#  define DEPRECATE_SUPPORTED
-# elif defined(__GNUC__) && ((__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 2)))
+# ifdef __GNUC__
 #  define DECLSPEC_DEPRECATED __attribute__((deprecated))
+#  define DEPRECATE_SUPPORTED
+# elif __has_declspec_attribute(deprecated) && !defined(MIDL_PASS)
+#  define DECLSPEC_DEPRECATED __declspec(deprecated)
 #  define DEPRECATE_SUPPORTED
 # else
 #  define DECLSPEC_DEPRECATED
@@ -179,12 +179,12 @@ extern "C" {
 #if defined(__WINESRC__) && !defined(WINE_UNIX_LIB)
 /* Wine uses .spec file for PE exports */
 # define DECLSPEC_EXPORT
-#elif __has_declspec_attribute(dllexport)
-# define DECLSPEC_EXPORT __declspec(dllexport)
 #elif defined(__MINGW32__)
 # define DECLSPEC_EXPORT __attribute__((dllexport))
 #elif defined(__GNUC__) && ((__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 3))) && !defined(__sun)
 # define DECLSPEC_EXPORT __attribute__((visibility ("default")))
+#elif __has_declspec_attribute(dllexport)
+# define DECLSPEC_EXPORT __declspec(dllexport)
 #else
 # define DECLSPEC_EXPORT
 #endif
@@ -228,28 +228,6 @@ extern "C" {
 #endif
 
 /* Anonymous union/struct handling */
-
-#ifndef NONAMELESSSTRUCT
-# ifdef __GNUC__
-   /* Anonymous struct support starts with gcc 2.96 or gcc/g++ 3.x */
-#  if (__GNUC__ < 2) || ((__GNUC__ == 2) && (defined(__cplusplus) || (__GNUC_MINOR__ < 96)))
-#   define NONAMELESSSTRUCT
-#  endif
-# elif defined(__SUNPRO_C) || defined(__SUNPRO_CC)
-#  define NONAMELESSSTRUCT
-# endif
-#endif  /* NONAMELESSSTRUCT */
-
-#ifndef NONAMELESSUNION
-# ifdef __GNUC__
-   /* Anonymous unions support starts with gcc 2.96/g++ 2.95 */
-#  if (__GNUC__ < 2) || ((__GNUC__ == 2) && ((__GNUC_MINOR__ < 95) || ((__GNUC_MINOR__ == 95) && !defined(__cplusplus))))
-#   define NONAMELESSUNION
-#  endif
-# elif defined(__SUNPRO_C) || defined(__SUNPRO_CC)
-#  define NONAMELESSUNION
-# endif
-#endif  /* NONAMELESSUNION */
 
 #undef DUMMYSTRUCTNAME
 #undef DUMMYSTRUCTNAME1
@@ -323,10 +301,7 @@ extern "C" {
 
 #if !defined(WINE_NO_NAMELESS_EXTENSION)
 # ifdef __GNUC__
-   /* Anonymous structs support starts with gcc 2.96/g++ 2.95 */
-#  if (__GNUC__ > 2) || ((__GNUC__ == 2) && ((__GNUC_MINOR__ > 95) || ((__GNUC_MINOR__ == 95) && defined(__cplusplus))))
-#   define __C89_NAMELESS __extension__
-#  endif
+#  define __C89_NAMELESS __extension__
 # elif defined(_MSC_VER)
 #  define __C89_NAMELESS
 # endif
@@ -494,14 +469,14 @@ typedef VOID           *PVOID64;
 typedef BYTE            BOOLEAN,    *PBOOLEAN;
 typedef char            CHAR,       *PCHAR;
 typedef short           SHORT,      *PSHORT;
-#if !defined(__LP64__) && !defined(WINE_NO_LONG_TYPES)
+#if !defined(__LP64__) && !defined(WINE_NO_LONG_TYPES) && !defined(WINE_UNIX_LIB)
 typedef long            LONG,       *PLONG;
 #else
 typedef int             LONG,       *PLONG;
 #endif
 
 /* Some systems might have wchar_t, but we really need 16 bit characters */
-#if defined(WINE_UNICODE_NATIVE)
+#if defined(WINE_UNICODE_NATIVE) || defined(__MINGW32__) || defined(_MSC_VER)
 typedef wchar_t         WCHAR;
 #elif __cpp_unicode_literals >= 200710
 typedef char16_t        WCHAR;
@@ -519,21 +494,19 @@ typedef ULONG           UCSCHAR;
 #ifndef _ULONGLONG_
 # define _ULONGLONG_
 # ifdef _MSC_VER
-typedef signed __int64   LONGLONG,  *PLONGLONG;
-typedef unsigned __int64 ULONGLONG, *PULONGLONG;
+typedef signed __int64   LONGLONG;
+typedef unsigned __int64 ULONGLONG;
 # else
-typedef signed __int64   DECLSPEC_ALIGN(8) LONGLONG,   *PLONGLONG;
-typedef unsigned __int64 DECLSPEC_ALIGN(8) ULONGLONG,  *PULONGLONG;
+typedef signed __int64   DECLSPEC_ALIGN(8) LONGLONG;
+typedef unsigned __int64 DECLSPEC_ALIGN(8) ULONGLONG;
 # endif
+typedef LONGLONG *PLONGLONG;
+typedef ULONGLONG *PULONGLONG;
 #endif
 
 #ifndef _DWORDLONG_
 # define _DWORDLONG_
-# ifdef _MSC_VER
 typedef ULONGLONG DWORDLONG, *PDWORDLONG;
-# else
-typedef ULONGLONG   DECLSPEC_ALIGN(8) DWORDLONG,   *PDWORDLONG;
-# endif
 #endif
 
 /* ANSI string types */
@@ -632,7 +605,7 @@ typedef DWORD FLONG;
 
 /* Macro to deal with LP64 <=> LLP64 differences in numeric constants with 'l' modifier */
 #ifndef __MSABI_LONG
-#if !defined(__LP64__) && !defined(WINE_NO_LONG_TYPES)
+#if !defined(__LP64__) && !defined(WINE_NO_LONG_TYPES) && !defined(WINE_UNIX_LIB)
 #  define __MSABI_LONG(x)         x ## l
 # else
 #  define __MSABI_LONG(x)         x
@@ -1169,7 +1142,7 @@ typedef struct _I386_FLOATING_SAVE_AREA
 
 #define I386_MAXIMUM_SUPPORTED_EXTENSION     512
 
-#include "pshpack4.h"
+#pragma pack(push,4)
 typedef struct _I386_CONTEXT
 {
     DWORD   ContextFlags;  /* 000 */
@@ -1209,7 +1182,7 @@ typedef struct _I386_CONTEXT
 
     BYTE    ExtendedRegisters[I386_MAXIMUM_SUPPORTED_EXTENSION];  /* 0xcc */
 } I386_CONTEXT, WOW64_CONTEXT, *PWOW64_CONTEXT;
-#include "poppack.h"
+#pragma pack(pop)
 
 #define CONTEXT_i386      0x00010000
 #define CONTEXT_i486      0x00010000
@@ -1511,15 +1484,25 @@ typedef struct _XSTATE_CONFIGURATION
     ULONG64 EnabledFeatures;
     ULONG64 EnabledVolatileFeatures;
     ULONG Size;
-    ULONG OptimizedSave:1;
-    ULONG CompactionEnabled:1;
+    union
+    {
+        ULONG ControlFlags;
+        struct
+        {
+            ULONG OptimizedSave : 1;
+            ULONG CompactionEnabled : 1;
+            ULONG ExtendedFeatureDisable : 1;
+        };
+    };
     XSTATE_FEATURE Features[MAXIMUM_XSTATE_FEATURES];
-
     ULONG64 EnabledSupervisorFeatures;
     ULONG64 AlignedFeatures;
     ULONG AllFeatureSize;
     ULONG AllFeatures[MAXIMUM_XSTATE_FEATURES];
     ULONG64 EnabledUserVisibleSupervisorFeatures;
+    ULONG64 ExtendedFeatureDisableFeatures;
+    ULONG AllNonLargeFeatureSize;
+    ULONG Spare;
 } XSTATE_CONFIGURATION, *PXSTATE_CONFIGURATION;
 
 typedef struct _XSAVE_AREA_HEADER
@@ -2471,7 +2454,7 @@ NTSYSAPI struct _TEB * WINAPI NtCurrentTeb(void);
 static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
 {
     struct _TEB *teb;
-    __asm__(".byte 0x64\n\tmovl (0x18),%0" : "=r" (teb));
+    __asm__("movl %%fs:0x18,%0" : "=r" (teb));
     return teb;
 }
 #elif defined(__i386__) && defined(_MSC_VER)
@@ -2496,7 +2479,7 @@ static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
 static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
 {
     struct _TEB *teb;
-    __asm__(".byte 0x65\n\tmovq (0x30),%0" : "=r" (teb));
+    __asm__("movq %%gs:0x30,%0" : "=r" (teb));
     return teb;
 }
 #elif defined(__x86_64__) && defined(_MSC_VER)
@@ -2590,7 +2573,7 @@ static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
  * File formats definitions
  */
 
-#include <pshpack2.h>
+#pragma pack(push,2)
 typedef struct _IMAGE_DOS_HEADER {
     WORD  e_magic;      /* 00: MZ Header signature */
     WORD  e_cblp;       /* 02: Bytes on last page of file */
@@ -2612,7 +2595,7 @@ typedef struct _IMAGE_DOS_HEADER {
     WORD  e_res2[10];   /* 28: Reserved words */
     DWORD e_lfanew;     /* 3c: Offset to extended header */
 } IMAGE_DOS_HEADER, *PIMAGE_DOS_HEADER;
-#include <poppack.h>
+#pragma pack(pop)
 
 #define IMAGE_DOS_SIGNATURE    0x5A4D     /* MZ   */
 #define IMAGE_OS2_SIGNATURE    0x454E     /* NE   */
@@ -2625,7 +2608,7 @@ typedef struct _IMAGE_DOS_HEADER {
  * This is the Windows executable (NE) header.
  * the name IMAGE_OS2_HEADER is misleading, but in the SDK this way.
  */
-#include <pshpack2.h>
+#pragma pack(push,2)
 typedef struct
 {
     WORD  ne_magic;             /* 00 NE signature 'NE' */
@@ -2659,9 +2642,9 @@ typedef struct
     WORD  ne_swaparea;          /* 3c Reserved by Microsoft */
     WORD  ne_expver;            /* 3e Expected Windows version number */
 } IMAGE_OS2_HEADER, *PIMAGE_OS2_HEADER;
-#include <poppack.h>
+#pragma pack(pop)
 
-#include <pshpack2.h>
+#pragma pack(push,2)
 typedef struct _IMAGE_VXD_HEADER {
   WORD  e32_magic;
   BYTE  e32_border;
@@ -2715,7 +2698,7 @@ typedef struct _IMAGE_VXD_HEADER {
   WORD  e32_devid;
   WORD  e32_ddkver;
 } IMAGE_VXD_HEADER, *PIMAGE_VXD_HEADER;
-#include <poppack.h>
+#pragma pack(pop)
 
 /* These defines describe the meanings of the bits in the Characteristics
    field */
@@ -3059,7 +3042,7 @@ typedef struct _IMAGE_SECTION_HEADER {
 #define IMAGE_SCN_MEM_READ			0x40000000
 #define IMAGE_SCN_MEM_WRITE			0x80000000
 
-#include <pshpack2.h>
+#pragma pack(push,2)
 
 typedef struct _IMAGE_SYMBOL {
     union {
@@ -3128,7 +3111,7 @@ typedef IMAGE_AUX_SYMBOL *PIMAGE_AUX_SYMBOL;
 
 #define IMAGE_SIZEOF_AUX_SYMBOL 18
 
-#include <poppack.h>
+#pragma pack(pop)
 
 #define IMAGE_SYM_UNDEFINED           (SHORT)0
 #define IMAGE_SYM_ABSOLUTE            (SHORT)-1
@@ -3249,10 +3232,10 @@ typedef struct _IMAGE_EXPORT_DIRECTORY {
 /* Import name entry */
 typedef struct _IMAGE_IMPORT_BY_NAME {
 	WORD	Hint;
-	BYTE	Name[1];
+	char	Name[1];
 } IMAGE_IMPORT_BY_NAME,*PIMAGE_IMPORT_BY_NAME;
 
-#include <pshpack8.h>
+#pragma pack(push,8)
 /* Import thunk */
 typedef struct _IMAGE_THUNK_DATA64 {
 	union {
@@ -3262,7 +3245,7 @@ typedef struct _IMAGE_THUNK_DATA64 {
 		ULONGLONG AddressOfData;
 	} u1;
 } IMAGE_THUNK_DATA64,*PIMAGE_THUNK_DATA64;
-#include <poppack.h>
+#pragma pack(pop)
 
 typedef struct _IMAGE_THUNK_DATA32 {
 	union {
@@ -3336,7 +3319,7 @@ typedef struct _IMAGE_BASE_RELOCATION
 	/* WORD	TypeOffset[1]; */
 } IMAGE_BASE_RELOCATION,*PIMAGE_BASE_RELOCATION;
 
-#include <pshpack2.h>
+#pragma pack(push,2)
 
 typedef struct _IMAGE_RELOCATION
 {
@@ -3348,7 +3331,7 @@ typedef struct _IMAGE_RELOCATION
     WORD    Type;
 } IMAGE_RELOCATION, *PIMAGE_RELOCATION;
 
-#include <poppack.h>
+#pragma pack(pop)
 
 #define IMAGE_SIZEOF_RELOCATION 10
 
@@ -3981,7 +3964,7 @@ typedef struct _IMAGE_DYNAMIC_RELOCATION_TABLE
     DWORD     Size;
 } IMAGE_DYNAMIC_RELOCATION_TABLE, *PIMAGE_DYNAMIC_RELOCATION_TABLE;
 
-#include <pshpack1.h>
+#pragma pack(push,1)
 
 typedef struct _IMAGE_DYNAMIC_RELOCATION32
 {
@@ -4013,7 +3996,7 @@ typedef struct _IMAGE_DYNAMIC_RELOCATION64_V2
     DWORD     Flags;
 } IMAGE_DYNAMIC_RELOCATION64_V2, *PIMAGE_DYNAMIC_RELOCATION64_V2;
 
-#include <poppack.h>
+#pragma pack(pop)
 
 #ifdef _WIN64
 typedef IMAGE_DYNAMIC_RELOCATION64     IMAGE_DYNAMIC_RELOCATION;
@@ -4904,12 +4887,12 @@ typedef struct _LUID {
     LONG HighPart;
 } LUID, *PLUID;
 
-#include <pshpack4.h>
+#pragma pack(push,4)
 typedef struct _LUID_AND_ATTRIBUTES {
   LUID   Luid;
   DWORD  Attributes;
 } LUID_AND_ATTRIBUTES, *PLUID_AND_ATTRIBUTES;
-#include <poppack.h>
+#pragma pack(pop)
 
 /*
  * PRIVILEGE_SET
@@ -5006,7 +4989,7 @@ typedef struct _SECURITY_QUALITY_OF_SERVICE {
  * TOKEN_STATISTICS
  */
 
-#include <pshpack4.h>
+#pragma pack(push,4)
 typedef struct _TOKEN_STATISTICS {
   LUID  TokenId;
   LUID  AuthenticationId;
@@ -5019,7 +5002,7 @@ typedef struct _TOKEN_STATISTICS {
   DWORD PrivilegeCount;
   LUID  ModifiedId;
 } TOKEN_STATISTICS;
-#include <poppack.h>
+#pragma pack(pop)
 
 typedef struct _TOKEN_GROUPS_AND_PRIVILEGES {
   DWORD                 SidCount;
@@ -6180,6 +6163,14 @@ typedef struct _OBJECT_TYPE_LIST {
     GUID *ObjectType;
 } OBJECT_TYPE_LIST, *POBJECT_TYPE_LIST;
 
+typedef enum _AUDIT_EVENT_TYPE
+{
+    AuditEventObjectAccess,
+    AuditEventDirectoryServiceAccess
+} AUDIT_EVENT_TYPE, *PAUDIT_EVENT_TYPE;
+
+#define AUDIT_ALLOW_NO_PRIVILEGE 0x1
+
 typedef struct _RTL_CRITICAL_SECTION_DEBUG
 {
   WORD   Type;
@@ -6242,17 +6233,18 @@ NTSYSAPI VOID WINAPI RtlRunOnceInitialize(PRTL_RUN_ONCE);
 NTSYSAPI DWORD WINAPI RtlRunOnceExecuteOnce(PRTL_RUN_ONCE,PRTL_RUN_ONCE_INIT_FN,PVOID,PVOID*);
 NTSYSAPI DWORD WINAPI RtlRunOnceBeginInitialize(PRTL_RUN_ONCE, DWORD, PVOID*);
 NTSYSAPI DWORD WINAPI RtlRunOnceComplete(PRTL_RUN_ONCE, DWORD, PVOID);
+NTSYSAPI WORD WINAPI RtlCaptureStackBackTrace(DWORD,DWORD,void**,DWORD*);
 
-#include <pshpack8.h>
+#pragma pack(push,8)
 typedef struct _IO_COUNTERS {
-    ULONGLONG DECLSPEC_ALIGN(8) ReadOperationCount;
-    ULONGLONG DECLSPEC_ALIGN(8) WriteOperationCount;
-    ULONGLONG DECLSPEC_ALIGN(8) OtherOperationCount;
-    ULONGLONG DECLSPEC_ALIGN(8) ReadTransferCount;
-    ULONGLONG DECLSPEC_ALIGN(8) WriteTransferCount;
-    ULONGLONG DECLSPEC_ALIGN(8) OtherTransferCount;
+    ULONGLONG ReadOperationCount;
+    ULONGLONG WriteOperationCount;
+    ULONGLONG OtherOperationCount;
+    ULONGLONG ReadTransferCount;
+    ULONGLONG WriteTransferCount;
+    ULONGLONG OtherTransferCount;
 } IO_COUNTERS, *PIO_COUNTERS;
-#include <poppack.h>
+#pragma pack(pop)
 
 typedef struct {
 	DWORD dwOSVersionInfoSize;
@@ -7105,13 +7097,16 @@ static FORCEINLINE void MemoryBarrier(void)
 #pragma intrinsic(__iso_volatile_load32)
 #pragma intrinsic(__iso_volatile_load64)
 #pragma intrinsic(__iso_volatile_store32)
+#pragma intrinsic(__iso_volatile_store64)
 #define __WINE_LOAD32_NO_FENCE(src) (__iso_volatile_load32(src))
 #define __WINE_LOAD64_NO_FENCE(src) (__iso_volatile_load64(src))
 #define __WINE_STORE32_NO_FENCE(dest, value) (__iso_volatile_store32(dest, value))
+#define __WINE_STORE64_NO_FENCE(dest, value) (__iso_volatile_store64(dest, value))
 #else  /* _MSC_VER >= 1700 */
 #define __WINE_LOAD32_NO_FENCE(src) (*(src))
 #define __WINE_LOAD64_NO_FENCE(src) (*(src))
 #define __WINE_STORE32_NO_FENCE(dest, value) ((void)(*(dest) = (value)))
+#define __WINE_STORE64_NO_FENCE(dest, value) ((void)(*(dest) = (value)))
 #endif  /* _MSC_VER >= 1700 */
 
 #if defined(__i386__) || defined(__x86_64__)
@@ -7121,20 +7116,36 @@ void _ReadWriteBarrier(void);
 
 static void __wine_memory_barrier_acq_rel(void)
 {
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__aarch64__) || defined(__arm64ec__)
+    __dmb(_ARM64_BARRIER_ISH);
+#elif defined(__i386__) || defined(__x86_64__)
 #pragma warning(suppress:4996)
     _ReadWriteBarrier();
 #elif defined(__arm__)
     __dmb(_ARM_BARRIER_ISH);
-#elif defined(__aarch64__)
-    __dmb(_ARM64_BARRIER_ISH);
-#endif  /* defined(__i386__) || defined(__x86_64__) */
+#endif
 }
 
 static FORCEINLINE LONG ReadAcquire( LONG const volatile *src )
 {
     LONG value = __WINE_LOAD32_NO_FENCE( (int const volatile *)src );
     __wine_memory_barrier_acq_rel();
+    return value;
+}
+
+static FORCEINLINE LONG64 ReadAcquire64( LONG64 const volatile *src )
+{
+    LONG64 value;
+#if defined(__i386__) && _MSC_VER < 1700
+    __asm {
+        mov   eax, src
+        fild  qword ptr [eax]
+        fistp value
+    }
+#else
+    value = __WINE_LOAD64_NO_FENCE( (__int64 const volatile *)src );
+    __wine_memory_barrier_acq_rel();
+#endif
     return value;
 }
 
@@ -7146,7 +7157,16 @@ static FORCEINLINE LONG ReadNoFence( LONG const volatile *src )
 
 static FORCEINLINE LONG64 ReadNoFence64( LONG64 const volatile *src )
 {
-    LONG64 value = __WINE_LOAD64_NO_FENCE( (__int64 const volatile *)src );
+    LONG64 value;
+#if defined(__i386__) && _MSC_VER < 1700
+    __asm {
+        mov   eax, src
+        fild  qword ptr [eax]
+        fistp value
+    }
+#else
+    value = __WINE_LOAD64_NO_FENCE( (__int64 const volatile *)src );
+#endif
     return value;
 }
 
@@ -7154,6 +7174,20 @@ static FORCEINLINE void WriteRelease( LONG volatile *dest, LONG value )
 {
     __wine_memory_barrier_acq_rel();
     __WINE_STORE32_NO_FENCE( (int volatile *)dest, value );
+}
+
+static FORCEINLINE void WriteRelease64( LONG64 volatile *dest, LONG64 value )
+{
+#if defined(__i386__) && _MSC_VER < 1700
+    __asm {
+        mov   eax, dest
+        fild  value
+        fistp qword ptr [eax]
+    }
+#else
+    __wine_memory_barrier_acq_rel();
+    __WINE_STORE64_NO_FENCE( (__int64 volatile *)dest, value );
+#endif
 }
 
 static FORCEINLINE void WriteNoFence( LONG volatile *dest, LONG value )
@@ -7311,10 +7345,10 @@ static FORCEINLINE void MemoryBarrier(void)
 
 #if defined(__x86_64__) || defined(__i386__)
 /* On x86, Support old GCC with either no or buggy (GCC BZ#81316) __atomic_* support */
-#define __WINE_ATOMIC_LOAD_ACQUIRE(ptr, ret) do { *(ret) = *(ptr); __asm__ __volatile__( "" ::: "memory" ); } while (0)
-#define __WINE_ATOMIC_LOAD_RELAXED(ptr, ret) do { *(ret) = *(ptr); } while (0)
-#define __WINE_ATOMIC_STORE_RELEASE(ptr, val) do { __asm__ __volatile__( "" ::: "memory" ); *(ptr) = *(val); } while (0)
-#define __WINE_ATOMIC_STORE_RELAXED(ptr, val) do { *(ptr) = *(val); } while (0)
+#define __WINE_ATOMIC_LOAD_ACQUIRE(ptr, ret) do { C_ASSERT(sizeof(*(ptr)) <= sizeof(void *)); *(ret) = *(ptr); __asm__ __volatile__( "" ::: "memory" ); } while (0)
+#define __WINE_ATOMIC_LOAD_RELAXED(ptr, ret) do { C_ASSERT(sizeof(*(ptr)) <= sizeof(void *)); *(ret) = *(ptr); } while (0)
+#define __WINE_ATOMIC_STORE_RELEASE(ptr, val) do { C_ASSERT(sizeof(*(ptr)) <= sizeof(void *)); __asm__ __volatile__( "" ::: "memory" ); *(ptr) = *(val); } while (0)
+#define __WINE_ATOMIC_STORE_RELAXED(ptr, val) do { C_ASSERT(sizeof(*(ptr)) <= sizeof(void *)); *(ptr) = *(val); } while (0)
 #else
 #define __WINE_ATOMIC_LOAD_ACQUIRE(ptr, ret) __atomic_load(ptr, ret, __ATOMIC_ACQUIRE)
 #define __WINE_ATOMIC_LOAD_RELAXED(ptr, ret) __atomic_load(ptr, ret, __ATOMIC_RELAXED)
@@ -7329,6 +7363,17 @@ static FORCEINLINE LONG ReadAcquire( LONG const volatile *src )
     return value;
 }
 
+static FORCEINLINE LONG64 ReadAcquire64( LONG64 const volatile *src )
+{
+    LONG64 value;
+#ifdef __i386__
+    __asm__ __volatile__( "fildq %1\n\tfistpq %0" : "=m" (value) : "m" (*src) : "memory", "st" );
+#else
+    __WINE_ATOMIC_LOAD_ACQUIRE( src, &value );
+#endif
+    return value;
+}
+
 static FORCEINLINE LONG ReadNoFence( LONG const volatile *src )
 {
     LONG value;
@@ -7339,13 +7384,26 @@ static FORCEINLINE LONG ReadNoFence( LONG const volatile *src )
 static FORCEINLINE LONG64 ReadNoFence64( LONG64 const volatile *src )
 {
     LONG64 value;
+#ifdef __i386__
+    __asm__ __volatile__( "fildq %1\n\tfistpq %0" : "=m" (value) : "m" (*src) : "memory", "st" );
+#else
     __WINE_ATOMIC_LOAD_RELAXED( src, &value );
+#endif
     return value;
 }
 
 static FORCEINLINE void WriteRelease( LONG volatile *dest, LONG value )
 {
     __WINE_ATOMIC_STORE_RELEASE( dest, &value );
+}
+
+static FORCEINLINE void WriteRelease64( LONG64 volatile *dest, LONG64 value )
+{
+#ifdef __i386__
+    __asm__ __volatile__( "fildq %1\n\tfistpq %0" : "=m" (*dest) : "m" (value) : "memory", "st" );
+#else
+    __WINE_ATOMIC_STORE_RELEASE( dest, &value );
+#endif
 }
 
 static FORCEINLINE void WriteNoFence( LONG volatile *dest, LONG value )
@@ -7410,16 +7468,46 @@ static FORCEINLINE unsigned char InterlockedCompareExchange128( volatile __int64
 
 static FORCEINLINE void YieldProcessor(void)
 {
-#ifdef __GNUC__
-#if defined(__i386__) || defined(__x86_64__)
-    __asm__ __volatile__( "rep; nop" : : : "memory" );
-#elif defined(__arm__) || defined(__aarch64__)
+#if defined(__GNUC__) || defined(__clang__)
+#if defined(__arm__) || defined(__aarch64__) || defined(__arm64ec__)
     __asm__ __volatile__( "dmb ishst\n\tyield" : : : "memory" );
+#elif defined(__i386__) || defined(__x86_64__)
+    __asm__ __volatile__( "rep; nop" : : : "memory" );
 #else
     __asm__ __volatile__( "" : : : "memory" );
 #endif
 #endif
 }
+
+#if defined(__x86_64__)
+# if defined(__arm64ec__)
+#  define __shiftright128 ShiftRight128
+#  define _umul128 UnsignedMultiply128
+# else
+#  define ShiftRight128 __shiftright128
+#  define UnsignedMultiply128 _umul128
+#  if defined(_MSC_VER)
+DWORD64 __shiftright128(DWORD64,DWORD64,BYTE);
+DWORD64 _umul128(DWORD64,DWORD64,DWORD64*);
+#   pragma intrinsic(__shiftright128)
+#   pragma intrinsic(_umul128)
+#  endif
+# endif
+#endif
+
+#if (defined(__x86_64__) && !defined(_MSC_VER)) || defined(__aarch64__) || defined(__arm64ec__)
+static FORCEINLINE DWORD64 ShiftRight128( DWORD64 lo, DWORD64 hi, BYTE shift )
+{
+    return ((unsigned __int128)hi << 64 | lo) >> shift;
+}
+
+static FORCEINLINE DWORD64 UnsignedMultiply128( DWORD64 a, DWORD64 b, DWORD64 *hi )
+{
+    unsigned __int128 v = (unsigned __int128)a * b;
+    *hi = v >> 64;
+    return (DWORD64)v;
+}
+#endif
 
 #ifdef __cplusplus
 }

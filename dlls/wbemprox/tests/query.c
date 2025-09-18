@@ -90,7 +90,7 @@ static void test_select( IWbemServices *services )
         L"SELECT\na\rFROM\tb",
         L"SELECT * FROM Win32_Process WHERE Caption LIKE \"%firefox.exe\"",
         L"SELECT * FROM Win32_VideoController where availability = '3'",
-        L"SELECT * FROM Win3_BIOS WHERE NAME <> NULL",
+        L"SELECT * FROM Win32_BIOS WHERE NAME <> NULL",
         L"SELECT * FROM Win32_BIOS WHERE NULL = NAME",
         L"SELECT * FROM Win32_LogicalDiskToPartition",
         L"SELECT * FROM Win32_DiskDriveToDiskPartition",
@@ -216,6 +216,68 @@ static void test_like_query( IWbemServices *services )
 }
 
 
+static void test_IWbemClassObject_Next( IWbemServices *services )
+{
+    struct
+    {
+        const WCHAR *name;
+        BOOL found;
+    }
+    system_props[] =
+    {
+        {L"__GENUS"}, {L"__CLASS"}, {L"__RELPATH"}, {L"__PROPERTY_COUNT"}, {L"__DERIVATION"},
+        {L"__SERVER"}, {L"__NAMESPACE"}, {L"__PATH"},
+    };
+
+    BSTR wql = SysAllocString( L"wql" ), query = SysAllocString( L"SELECT * FROM Win32_LogicalDisk" );
+    BSTR name;
+    IEnumWbemClassObject *result;
+    IWbemClassObject *obj;
+    HRESULT hr;
+    unsigned int i, j;
+    DWORD count;
+
+    hr = IWbemServices_ExecQuery( services, wql, query, 0, NULL, &result );
+    if (hr != S_OK)
+    {
+        win_skip( "Win32_Volume not available\n" );
+        return;
+    }
+
+    hr = IEnumWbemClassObject_Next( result, 10000, 1, &obj, &count );
+    ok( hr == S_OK, "got %#lx.\n", hr );
+
+    IWbemClassObject_BeginEnumeration(obj, 0);
+    hr = IWbemClassObject_Next( obj, WBEM_FLAG_SYSTEM_ONLY, &name, NULL, NULL, NULL );
+    ok( hr == WBEM_E_INVALID_PARAMETER, "got %#lx.\n", hr );
+    hr = IWbemClassObject_Next( obj, WBEM_FLAG_NONSYSTEM_ONLY, &name, NULL, NULL, NULL );
+    ok( hr == WBEM_E_INVALID_PARAMETER, "got %#lx.\n", hr );
+
+    for (i = 0; !(hr = IWbemClassObject_Next( obj, 0, &name, NULL, NULL, NULL )); ++i)
+    {
+        ok( hr == S_OK, "got %#lx\n", hr );
+        for (j = 0; j < ARRAY_SIZE(system_props); ++j)
+        {
+            if (!wcscmp(name, system_props[j].name))
+            {
+                system_props[j].found = TRUE;
+                break;
+            }
+        }
+        SysFreeString( name );
+    }
+    ok( hr == WBEM_S_NO_MORE_DATA, "got %#lx.\n", hr );
+    IWbemClassObject_Release( obj );
+
+    for (i = 0; i < ARRAY_SIZE(system_props); ++i)
+        ok( system_props[i].found, "%s not found.\n", debugstr_w(system_props[i].name) );
+
+    IEnumWbemClassObject_Release( result );
+    SysFreeString( query );
+    SysFreeString( wql );
+}
+
+
 static void test_associators( IWbemServices *services )
 {
     static const WCHAR *test[] =
@@ -304,7 +366,8 @@ static void test_IEnumWbemClassObject_Next( IWbemServices *services )
     SysFreeString( wql );
 }
 
-static void _check_property( ULONG line, IWbemClassObject *obj, const WCHAR *prop, VARTYPE vartype, CIMTYPE cimtype )
+static void _check_property( ULONG line, IWbemClassObject *obj, const WCHAR *prop, VARTYPE vartype, CIMTYPE cimtype,
+                             BOOL nullable)
 {
     CIMTYPE type = 0xdeadbeef;
     VARIANT val;
@@ -313,7 +376,8 @@ static void _check_property( ULONG line, IWbemClassObject *obj, const WCHAR *pro
     VariantInit( &val );
     hr = IWbemClassObject_Get( obj, prop, 0, &val, &type, NULL );
     ok( hr == S_OK, "%lu: failed to get description %#lx\n", line, hr );
-    ok( V_VT( &val ) == vartype, "%lu: unexpected variant type 0x%x\n", line, V_VT(&val) );
+    ok( V_VT( &val ) == vartype || (nullable && V_VT( &val ) == VT_NULL), "%lu: unexpected variant type 0x%x\n",
+        line, V_VT(&val) );
     ok( type == cimtype, "%lu: unexpected type %#lx\n", line, type );
     switch (V_VT(&val))
     {
@@ -337,7 +401,8 @@ static void _check_property( ULONG line, IWbemClassObject *obj, const WCHAR *pro
     }
     VariantClear( &val );
 }
-#define check_property(a,b,c,d) _check_property(__LINE__,a,b,c,d)
+#define check_property(a,b,c,d) _check_property(__LINE__,a,b,c,d,FALSE)
+#define check_property_nullable(a,b,c,d) _check_property(__LINE__,a,b,c,d,TRUE)
 
 static void test_Win32_Service( IWbemServices *services )
 {
@@ -549,6 +614,7 @@ static void test_Win32_Process( IWbemServices *services, BOOL use_full_path )
     IWbemClassObject *process, *sig_in, *sig_out, *out, *params;
     WCHAR cmdlineW[MAX_PATH + 64 + 1];
     IWbemQualifierSet *qualifiers;
+    WCHAR executable_path[255];
     VARIANT retval, val;
     SAFEARRAY *names;
     LONG bound, i;
@@ -718,7 +784,6 @@ static void test_Win32_Process( IWbemServices *services, BOOL use_full_path )
     hr = IWbemServices_ExecMethod( services, class, method, 0, NULL, NULL, &out, NULL );
     ok( hr == S_OK, "failed to execute method %#lx\n", hr );
     SysFreeString( method );
-    SysFreeString( class );
 
     type = 0xdeadbeef;
     VariantInit( &retval );
@@ -765,8 +830,25 @@ static void test_Win32_Process( IWbemServices *services, BOOL use_full_path )
     hr = IWbemQualifierSet_Get( qualifiers, L"ID", 0, &val, &flavor );
     ok( hr == WBEM_E_NOT_FOUND, "got %#lx\n", hr );
 
+    /* Test instance properties */
+
+    hr = IWbemServices_GetObject( services, class, 0, NULL, &process, NULL );
+    ok( hr == S_OK, "got %#lx\n", hr );
+
+    type = 0xdeadbeef;
+    VariantInit( &val );
+    hr = IWbemClassObject_Get( process, L"ExecutablePath", 0, &val, &type, NULL );
+    ok( hr == S_OK, "IWbemClassObject_Get failed with %#lx\n", hr );
+    ok( V_VT( &val ) == VT_BSTR, "unexpected variant type 0x%x\n", V_VT( &val ) );
+    ok( type == CIM_STRING, "unexpected type %#lx\n", type );
+    GetModuleFileNameW( NULL, executable_path, ARRAY_SIZE(executable_path) );
+    ok( !lstrcmpiW( V_BSTR( &val ), executable_path ), "got %s, expected %s\n", wine_dbgstr_w(V_BSTR(&val)), wine_dbgstr_w(executable_path) );
+    VariantClear( &val );
+    IWbemClassObject_Release( process );
+
     IWbemQualifierSet_Release( qualifiers );
     IWbemClassObject_Release( out );
+    SysFreeString( class );
 }
 
 static void test_Win32_ComputerSystem( IWbemServices *services )
@@ -1686,6 +1768,15 @@ static void test_Win32_PhysicalMemory( IWbemServices *services )
 
         type = 0xdeadbeef;
         VariantInit( &val );
+        hr = IWbemClassObject_Get( obj, L"Manufacturer", 0, &val, &type, NULL );
+        ok( hr == S_OK, "got %#lx\n", hr );
+        ok( V_VT( &val ) == VT_BSTR || V_VT( &val ) == VT_NULL, "unexpected variant type %#x\n", V_VT( &val ) );
+        ok( type == CIM_STRING, "unexpected type %#lx\n", type );
+        trace( "Manufacturer %s\n", wine_dbgstr_w(V_BSTR( &val )) );
+        VariantClear( &val );
+
+        type = 0xdeadbeef;
+        VariantInit( &val );
         hr = IWbemClassObject_Get( obj, L"PartNumber", 0, &val, &type, NULL );
         ok( hr == S_OK, "got %#lx\n", hr );
         ok( V_VT( &val ) == VT_BSTR || V_VT( &val ) == VT_NULL, "unexpected variant type %#x\n", V_VT( &val ) );
@@ -1701,6 +1792,53 @@ static void test_Win32_PhysicalMemory( IWbemServices *services )
         ok( type == CIM_STRING, "unexpected type %#lx\n", type );
         trace( "SerialNumber %s\n", wine_dbgstr_w(V_BSTR( &val )) );
         VariantClear( &val );
+
+        IWbemClassObject_Release( obj );
+    }
+
+    IEnumWbemClassObject_Release( result );
+    SysFreeString( query );
+    SysFreeString( wql );
+}
+
+static void test_Win32_PhysicalMemoryArray( IWbemServices *services )
+{
+    BSTR wql = SysAllocString( L"wql" ), query = SysAllocString( L"SELECT * FROM Win32_PhysicalMemoryArray" );
+    IEnumWbemClassObject *result;
+    IWbemClassObject *obj;
+    CIMTYPE type;
+    VARIANT val;
+    DWORD count;
+    HRESULT hr;
+
+    hr = IWbemServices_ExecQuery( services, wql, query, 0, NULL, &result );
+    if (hr != S_OK)
+    {
+        win_skip( "Win32_PhysicalMemoryArray not available\n" );
+        return;
+    }
+
+    for (;;)
+    {
+        hr = IEnumWbemClassObject_Next( result, 10000, 1, &obj, &count );
+        if (hr != S_OK) break;
+
+        check_property( obj, L"Caption", VT_BSTR, CIM_STRING );
+        check_property( obj, L"MaxCapacity", VT_I4, CIM_UINT32 );
+        check_property( obj, L"Model", VT_NULL, CIM_STRING );
+        check_property( obj, L"Name", VT_BSTR, CIM_STRING );
+        check_property( obj, L"Status", VT_NULL, CIM_STRING );
+
+        type = 0xdeadbeef;
+        VariantInit( &val );
+        hr = IWbemClassObject_Get( obj, L"MaxCapacityEx", 0, &val, &type, NULL );
+        ok( hr == S_OK || broken(hr == WBEM_E_NOT_FOUND) /* < win10 */, "got %#lx\n", hr );
+        if (hr == S_OK)
+        {
+            ok( V_VT( &val ) == VT_BSTR, "unexpected variant type %#x\n", V_VT( &val ) );
+            ok( type == CIM_UINT64, "unexpected type %#lx\n", type );
+            VariantClear( &val );
+        }
 
         IWbemClassObject_Release( obj );
     }
@@ -1800,6 +1938,39 @@ static void test_Win32_Processor( IWbemServices *services )
     SysFreeString( wql );
 }
 
+static void test_Win32_CacheMemory( IWbemServices *services )
+{
+    BSTR wql = SysAllocString( L"wql" ), query = SysAllocString( L"SELECT * FROM Win32_CacheMemory" );
+    IEnumWbemClassObject *result;
+    IWbemClassObject *obj;
+    DWORD count;
+    HRESULT hr;
+
+    hr = IWbemServices_ExecQuery( services, wql, query, 0, NULL, &result );
+    ok( hr == S_OK, "got %#lx\n", hr );
+
+    for (;;)
+    {
+        hr = IEnumWbemClassObject_Next( result, 10000, 1, &obj, &count );
+        if (hr != S_OK) break;
+
+        check_property( obj, L"BlockSize", VT_BSTR, CIM_UINT64 );
+        check_property( obj, L"CacheSpeed", VT_I4, CIM_UINT32 );
+        check_property( obj, L"CacheType", VT_I4, CIM_UINT16 );
+        check_property( obj, L"DeviceID", VT_BSTR, CIM_STRING );
+        check_property( obj, L"InstalledSize", VT_I4, CIM_UINT32 );
+        check_property( obj, L"Level", VT_I4, CIM_UINT16 );
+        check_property( obj, L"MaxCacheSize", VT_I4, CIM_UINT32 );
+        check_property( obj, L"NumberOfBlocks", VT_BSTR, CIM_UINT64 );
+        check_property( obj, L"Status", VT_BSTR, CIM_STRING );
+        IWbemClassObject_Release( obj );
+    }
+
+    IEnumWbemClassObject_Release( result );
+    SysFreeString( query );
+    SysFreeString( wql );
+}
+
 static void test_Win32_VideoController( IWbemServices *services )
 {
     BSTR wql = SysAllocString( L"wql" ), query = SysAllocString( L"SELECT * FROM Win32_VideoController" );
@@ -1832,8 +2003,28 @@ static void test_Win32_VideoController( IWbemServices *services )
         check_property( obj, L"__SERVER", VT_BSTR, CIM_STRING );
         check_property( obj, L"AdapterCompatibility", VT_BSTR, CIM_STRING );
         check_property( obj, L"Availability", VT_I4, CIM_UINT16 );
+        check_property( obj, L"Caption", VT_BSTR, CIM_STRING );
         check_property( obj, L"ConfigManagerErrorCode", VT_I4, CIM_UINT32 );
         check_property( obj, L"DriverDate", VT_BSTR, CIM_DATETIME );
+        check_property( obj, L"DriverVersion", VT_BSTR, CIM_STRING );
+        check_property( obj, L"Status", VT_BSTR, CIM_STRING );
+
+        type = 0xdeadbeef;
+        VariantInit( &val );
+        hr = IWbemClassObject_Get( obj, L"AdapterDACType", 0, &val, &type, NULL );
+        ok( hr == S_OK, "got %#lx\n", hr );
+        ok( V_VT( &val ) == VT_BSTR || V_VT( &val ) == VT_NULL, "unexpected variant type 0x%x\n", V_VT( &val ) );
+        ok( type == CIM_STRING, "unexpected type %#lx\n", type );
+        trace( "AdapterDACType %s\n", wine_dbgstr_w(V_BSTR( &val )) );
+        VariantClear( &val );
+
+        type = 0xdeadbeef;
+        VariantInit( &val );
+        hr = IWbemClassObject_Get( obj, L"AdapterRAM", 0, &val, &type, NULL );
+        ok( hr == S_OK, "got %#lx\n", hr );
+        ok( V_VT( &val ) == VT_I4 || V_VT( &val ) == VT_NULL, "unexpected variant type 0x%x\n", V_VT( &val ) );
+        ok( type == CIM_UINT32, "unexpected type %#lx\n", type );
+        trace( "AdapterRAM %lu\n", V_UI4( &val ) );
 
         type = 0xdeadbeef;
         VariantInit( &val );
@@ -1844,7 +2035,6 @@ static void test_Win32_VideoController( IWbemServices *services )
         trace( "installeddisplaydrivers %s\n", wine_dbgstr_w(V_BSTR( &val )) );
         VariantClear( &val );
 
-        check_property( obj, L"Status", VT_BSTR, CIM_STRING );
         IWbemClassObject_Release( obj );
     }
 
@@ -2395,7 +2585,7 @@ static void test_MSSMBios_RawSMBiosTables( IWbemLocator *locator )
     VariantInit( &val );
     hr = IWbemClassObject_Get( obj, L"SMBiosData", 0, &val, &type, NULL );
     ok( hr == S_OK, "got %#lx\n", hr );
-    todo_wine ok( V_VT( &val ) == (VT_UI1 | VT_ARRAY), "got %#x\n", V_VT(&val) );
+    ok( V_VT( &val ) == (VT_UI1 | VT_ARRAY), "got %#x\n", V_VT(&val) );
     ok( type == (CIM_UINT8 | CIM_FLAG_ARRAY), "got %#lx\n", type );
 
     IWbemClassObject_Release( obj );
@@ -2403,6 +2593,73 @@ static void test_MSSMBios_RawSMBiosTables( IWbemLocator *locator )
     IWbemServices_Release( services );
     SysFreeString( path );
     SysFreeString( bios );
+}
+
+static void test_MSFT_PhysicalDisk( IWbemLocator *locator )
+{
+    BSTR path = SysAllocString( L"ROOT\\Microsoft\\Windows\\Storage" );
+    BSTR query = SysAllocString( L"SELECT * FROM MSFT_PhysicalDisk" );
+    BSTR wql = SysAllocString( L"wql" );
+    IEnumWbemClassObject *result;
+    IWbemServices *services;
+    IWbemClassObject *obj;
+    ULONG count;
+    HRESULT hr;
+
+    hr = IWbemLocator_ConnectServer( locator, path, NULL, NULL, NULL, 0, NULL, NULL, &services );
+    ok( hr == S_OK, "failed to get IWbemServices interface %#lx\n", hr );
+
+    hr = IWbemServices_ExecQuery( services, wql, query, 0, NULL, &result );
+    ok( hr == S_OK, "got %#lx\n", hr );
+
+    for (;;)
+    {
+        hr = IEnumWbemClassObject_Next( result, 10000, 1, &obj, &count );
+        if (hr != S_OK) break;
+
+        /* Properties not checked with 'if (0)' are absent on older Windows. */
+        if (0) check_property_nullable( obj, L"AdapterSerialNumber", VT_BSTR, CIM_STRING );
+        check_property( obj, L"AllocatedSize", VT_BSTR, CIM_UINT64 );
+        check_property( obj, L"BusType", VT_I4, CIM_UINT16 );
+        check_property_nullable( obj, L"CannotPoolReason", VT_ARRAY | VT_I4, CIM_FLAG_ARRAY | CIM_UINT16 );
+        check_property( obj, L"CanPool", VT_BOOL, CIM_BOOLEAN );
+        check_property_nullable( obj, L"Description", VT_BSTR, CIM_STRING );
+        check_property( obj, L"DeviceID", VT_BSTR, CIM_STRING );
+        check_property_nullable( obj, L"EnclosureNumber", VT_I4, CIM_UINT16 );
+        check_property( obj, L"FirmwareVersion", VT_BSTR, CIM_STRING );
+        check_property( obj, L"FriendlyName", VT_BSTR, CIM_STRING );
+        if (0) check_property_nullable( obj, L"FruId", VT_BSTR, CIM_STRING );
+        check_property( obj, L"HealthStatus", VT_I4, CIM_UINT16 );
+        check_property_nullable( obj, L"IsIndicationEnabled", VT_BOOL, CIM_BOOLEAN );
+        check_property( obj, L"IsPartial", VT_BOOL, CIM_BOOLEAN );
+        check_property( obj, L"LogicalSectorSize", VT_BSTR, CIM_UINT64 );
+        check_property_nullable( obj, L"Manufacturer", VT_BSTR, CIM_STRING );
+        check_property( obj, L"MediaType", VT_I4, CIM_UINT16 );
+        check_property( obj, L"Model", VT_BSTR, CIM_STRING );
+        if (0) check_property_nullable( obj, L"OperationalDetails", VT_ARRAY | VT_BSTR, CIM_FLAG_ARRAY | CIM_STRING );
+        check_property( obj, L"OperationalStatus", VT_ARRAY | VT_I4, CIM_FLAG_ARRAY | CIM_UINT16 );
+        check_property_nullable( obj, L"OtherCannotPoolReasonDescription", VT_BSTR, CIM_STRING );
+        check_property_nullable( obj, L"PartNumber", VT_BSTR, CIM_STRING );
+        check_property_nullable( obj, L"PhysicalLocation", VT_BSTR, CIM_STRING );
+        check_property( obj, L"PhysicalSectorSize", VT_BSTR, CIM_UINT64 );
+        check_property_nullable( obj, L"SerialNumber", VT_BSTR, CIM_STRING );
+        check_property( obj, L"Size", VT_BSTR, CIM_UINT64 );
+        check_property_nullable( obj, L"SlotNumber", VT_I4, CIM_UINT16 );
+        check_property_nullable( obj, L"SoftwareVersion", VT_BSTR, CIM_STRING );
+        check_property( obj, L"SpindleSpeed", VT_I4, CIM_UINT32 );
+        check_property( obj, L"SupportedUsages", VT_ARRAY | VT_I4, CIM_FLAG_ARRAY | CIM_UINT16 );
+        check_property( obj, L"UniqueId", VT_BSTR, CIM_STRING );
+        if (0) check_property( obj, L"UniqueIdFormat", VT_I4, CIM_UINT16 );
+        check_property( obj, L"Usage", VT_I4, CIM_UINT16 );
+        if (0) check_property( obj, L"VirtualDiskFootprint", VT_BSTR, CIM_UINT64 );
+        IWbemClassObject_Release( obj );
+    }
+
+    IEnumWbemClassObject_Release( result );
+    IWbemServices_Release( services );
+    SysFreeString( wql );
+    SysFreeString( path );
+    SysFreeString( query );
 }
 
 START_TEST(query)
@@ -2454,12 +2711,14 @@ START_TEST(query)
     test_query_semisync( services );
     test_select( services );
     test_like_query( services );
+    test_IWbemClassObject_Next( services );
 
     /* classes */
     test_SoftwareLicensingProduct( services );
     test_StdRegProv( services );
     test_SystemSecurity( services );
     test_Win32_Baseboard( services );
+    test_Win32_CacheMemory( services );
     test_Win32_ComputerSystem( services );
     test_Win32_ComputerSystemProduct( services );
     test_Win32_Bios( services );
@@ -2473,6 +2732,7 @@ START_TEST(query)
     test_Win32_OperatingSystem( services );
     test_Win32_PageFileUsage( services );
     test_Win32_PhysicalMemory( services );
+    test_Win32_PhysicalMemoryArray( services );
     test_Win32_PnPEntity( services );
     test_Win32_Printer( services );
     test_Win32_Process( services, FALSE );
@@ -2488,6 +2748,7 @@ START_TEST(query)
     test_SystemRestore( services );
     test_empty_namespace( locator );
     test_MSSMBios_RawSMBiosTables( locator );
+    test_MSFT_PhysicalDisk( locator );
 
     SysFreeString( path );
     IWbemServices_Release( services );

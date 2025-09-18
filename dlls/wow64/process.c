@@ -436,6 +436,27 @@ NTSTATUS WINAPI wow64_NtFlushProcessWriteBuffers( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtGetNextProcess
+ */
+NTSTATUS WINAPI wow64_NtGetNextProcess( UINT *args )
+{
+    HANDLE process = get_handle( &args );
+    ACCESS_MASK access = get_ulong( &args );
+    ULONG attributes = get_ulong( &args );
+    ULONG flags = get_ulong( &args );
+    ULONG *handle_ptr = get_ptr( &args );
+
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    *handle_ptr = 0;
+    status = NtGetNextProcess( process, access, attributes, flags, &handle );
+    put_handle( handle_ptr, handle );
+    return status;
+}
+
+
+/**********************************************************************
  *           wow64_NtGetNextThread
  */
 NTSTATUS WINAPI wow64_NtGetNextThread( UINT *args )
@@ -556,6 +577,7 @@ NTSTATUS WINAPI wow64_NtQueryInformationProcess( UINT *args )
     case ProcessTimes:  /* KERNEL_USER_TIMES */
     case ProcessDefaultHardErrorMode:  /* ULONG */
     case ProcessPriorityClass:  /* PROCESS_PRIORITY_CLASS */
+    case ProcessPriorityBoost:  /* ULONG */
     case ProcessHandleCount:  /* ULONG */
     case ProcessSessionInformation:  /* ULONG */
     case ProcessDebugFlags:  /* ULONG */
@@ -606,6 +628,7 @@ NTSTATUS WINAPI wow64_NtQueryInformationProcess( UINT *args )
     case ProcessAffinityMask:  /* ULONG_PTR */
     case ProcessWow64Information:  /* ULONG_PTR */
     case ProcessDebugObjectHandle:  /* HANDLE */
+        if (retlen) *(volatile ULONG *)retlen |= 0;
         if (len == sizeof(ULONG))
         {
             ULONG_PTR data;
@@ -617,7 +640,7 @@ NTSTATUS WINAPI wow64_NtQueryInformationProcess( UINT *args )
             }
             else if (status == STATUS_PORT_NOT_SET)
             {
-                *(ULONG *)ptr = 0;
+                if (!ptr) return STATUS_ACCESS_VIOLATION;
                 if (retlen) *retlen = sizeof(ULONG);
             }
             return status;
@@ -658,9 +681,6 @@ NTSTATUS WINAPI wow64_NtQueryInformationProcess( UINT *args )
         if (retlen) *retlen = sizeof(SECTION_IMAGE_INFORMATION32);
         return STATUS_INFO_LENGTH_MISMATCH;
 
-    case ProcessWineLdtCopy:
-        return STATUS_NOT_IMPLEMENTED;
-
     default:
         FIXME( "unsupported class %u\n", class );
         return STATUS_INVALID_INFO_CLASS;
@@ -692,7 +712,7 @@ NTSTATUS WINAPI wow64_NtQueryInformationThread( UINT *args )
         if (!status)
         {
             info32.ExitStatus = info.ExitStatus;
-            info32.TebBaseAddress = is_process_id_wow64( &info.ClientId ) ?
+            info32.TebBaseAddress = is_process_id_wow64( &info.ClientId ) && info.TebBaseAddress ?
                                     PtrToUlong(info.TebBaseAddress) + 0x2000 : 0;
             info32.ClientId.UniqueProcess = HandleToULong( info.ClientId.UniqueProcess );
             info32.ClientId.UniqueThread = HandleToULong( info.ClientId.UniqueThread );
@@ -713,6 +733,7 @@ NTSTATUS WINAPI wow64_NtQueryInformationThread( UINT *args )
     case ThreadHideFromDebugger:  /* BOOLEAN */
     case ThreadSuspendCount:  /* ULONG */
     case ThreadPriorityBoost:   /* ULONG */
+    case ThreadIdealProcessorEx: /* PROCESSOR_NUMBER */
         /* FIXME: check buffer alignment */
         return NtQueryInformationThread( handle, class, ptr, len, retlen );
 
@@ -811,8 +832,26 @@ NTSTATUS WINAPI wow64_NtQueueApcThreadEx( UINT *args )
     ULONG arg2 = get_ulong( &args );
     ULONG arg3 = get_ulong( &args );
 
-    return NtQueueApcThreadEx( handle, reserve_handle, apc_32to64( func ),
-                             (ULONG_PTR)apc_param_32to64( func, arg1 ), arg2, arg3 );
+    return NtQueueApcThreadEx2( handle, reserve_handle, 0, apc_32to64( func ),
+                                (ULONG_PTR)apc_param_32to64( func, arg1 ), arg2, arg3 );
+}
+
+
+/**********************************************************************
+ *           wow64_NtQueueApcThreadEx
+ */
+NTSTATUS WINAPI wow64_NtQueueApcThreadEx2( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    HANDLE reserve_handle = get_handle( &args );
+    ULONG flags = get_ulong( &args );
+    ULONG func = get_ulong( &args );
+    ULONG arg1 = get_ulong( &args );
+    ULONG arg2 = get_ulong( &args );
+    ULONG arg3 = get_ulong( &args );
+
+    return NtQueueApcThreadEx2( handle, reserve_handle, flags, apc_32to64( func ),
+                                (ULONG_PTR)apc_param_32to64( func, arg1 ), arg2, arg3 );
 }
 
 
@@ -867,10 +906,13 @@ NTSTATUS WINAPI wow64_NtSetInformationProcess( UINT *args )
     {
     case ProcessDefaultHardErrorMode:   /* ULONG */
     case ProcessPriorityClass:   /* PROCESS_PRIORITY_CLASS */
+    case ProcessBasePriority:   /* ULONG */
+    case ProcessPriorityBoost:  /* ULONG */
     case ProcessExecuteFlags:   /* ULONG */
     case ProcessPagePriority:   /* MEMORY_PRIORITY_INFORMATION */
     case ProcessPowerThrottlingState:   /* PROCESS_POWER_THROTTLING_STATE */
     case ProcessLeapSecondInformation:   /* PROCESS_LEAP_SECOND_INFO */
+    case ProcessWineGrantAdminToken:   /* NULL */
         return NtSetInformationProcess( handle, class, ptr, len );
 
     case ProcessAccessToken: /* PROCESS_ACCESS_TOKEN */
@@ -963,6 +1005,7 @@ NTSTATUS WINAPI wow64_NtSetInformationThread( UINT *args )
     switch (class)
     {
     case ThreadZeroTlsCell:   /* ULONG */
+    case ThreadPriority:   /* ULONG */
     case ThreadBasePriority:   /* ULONG */
     case ThreadHideFromDebugger:   /* void */
     case ThreadEnableAlignmentFaultFixup:   /* BOOLEAN */
@@ -1085,4 +1128,25 @@ NTSTATUS WINAPI wow64_NtTerminateThread( UINT *args )
     if (pBTCpuThreadTerm) pBTCpuThreadTerm( handle, exit_code );
 
     return NtTerminateThread( handle, exit_code );
+}
+
+
+/**********************************************************************
+ *           wow64_NtWow64QueryInformationProcess64
+ */
+NTSTATUS WINAPI wow64_NtWow64QueryInformationProcess64( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    PROCESSINFOCLASS class = get_ulong( &args );
+    void *info = get_ptr( &args );
+    ULONG size = get_ulong( &args );
+    ULONG *ret_len = get_ptr( &args );
+
+    switch (class)
+    {
+    case ProcessBasicInformation:
+        return NtQueryInformationProcess( handle, class, info, size, ret_len );
+    default:
+        return STATUS_NOT_IMPLEMENTED;
+    }
 }

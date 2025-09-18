@@ -1165,15 +1165,11 @@ static void filedialog_change_filetype(IFileDialog *pfd, HWND dlg_hwnd)
     const WCHAR filetype1_broken[] = {'f','n','a','m','e','1',' ', '(','*','.','t','x','t',')',0};
 
     cb_filetype = find_window(dlg_hwnd, NULL, filetype1);
-    ok(cb_filetype != NULL || broken(cb_filetype == NULL), "Could not find combobox on first attempt\n");
-
     if(!cb_filetype)
     {
-        /* Not sure when this happens. Some specific version?
-         * Seen on 32-bit English Vista */
-        trace("Didn't find combobox on first attempt, trying broken string..\n");
+        /* Verified on Windows 10: the string "(*.txt)" is required to find the combobox. */
         cb_filetype = find_window(dlg_hwnd, NULL, filetype1_broken);
-        ok(broken(cb_filetype != NULL), "Failed to find combobox on second attempt\n");
+        ok(cb_filetype != NULL, "Failed to find combobox.\n");
         if(!cb_filetype)
             return;
     }
@@ -1430,7 +1426,7 @@ static void test_filename_opendlg_(LPCWSTR set_filename, LPCWSTR set_filename2,
 
     if(fs_count)
     {
-        hr = IFileOpenDialog_SetFileTypes(pfod, 2, filterspec);
+        hr = IFileOpenDialog_SetFileTypes(pfod, fs_count, filterspec);
         ok_(file,line)(hr == S_OK, "SetFileTypes failed: Got 0x%08lx\n", hr);
     }
 
@@ -1532,12 +1528,17 @@ static void test_filename(void)
     static const WCHAR ext2[] = {'*','.','w','t','2',0};
     static const WCHAR extdef[] = {'*','.','w','t','e',0};
     static const WCHAR complexext[] = {'*','.','w','t','2',';','*','.','w','t','1',0};
+    /* 300 chars, to be longer than MAX_PATH=260 */
+    static const WCHAR long_ext[] = L"*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;*.wt2;";
 
     static const COMDLG_FILTERSPEC filterspec[] = {
         { desc1, ext1 }, { desc2, ext2 }, { descdef, extdef }
     };
     static const COMDLG_FILTERSPEC filterspec2[] = {
         { desc1, complexext }
+    };
+    static const COMDLG_FILTERSPEC filterspec_long[] = {
+        { desc2, long_ext }
     };
 
     /* No extension */
@@ -1562,6 +1563,8 @@ static void test_filename(void)
     test_filename_savedlg(filename_mixedcaseW, NULL, defextW, filterspec, 0, 0, filename_mixedcaseW);
     /* Default extension, filterspec with default extension, filename filter */
     test_filename_savedlg(filename_noextW, ext2, defextW, filterspec, 3, 0, filename_ext2W);
+    /* Default extension, filterspec exceeds MAX_PATH */
+    test_filename_savedlg(filename_noextW, NULL, defextW, filterspec_long, 1, 0, filename_ext2W);
 
     GetCurrentDirectoryW(MAX_PATH, buf);
     ok(!!pSHCreateItemFromParsingName, "SHCreateItemFromParsingName is missing.\n");
@@ -1584,6 +1587,9 @@ static void test_filename(void)
     test_filename_opendlg(filename_noextW, NULL, psi_current, defextW, NULL, 0, 0, filename_defextW);
     /* IFileOpenDialog, default extension and filename filter, noextW deleted */
     test_filename_opendlg(filename_noextW, ext2, psi_current, defextW, NULL, 0, 0, filename_ext2W);
+    /* IFileOpenDialog, default extension, filterspec exceeds MAX_PATH */
+    test_filename_opendlg(filename_noextW, NULL, psi_current, defextW, filterspec_long, 1, 0, filename_ext2W);
+
     if(0) /* Interactive */
     {
     /* IFileOpenDialog, filterspec, no default extension, noextW deleted */

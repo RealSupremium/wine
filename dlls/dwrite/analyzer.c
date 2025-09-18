@@ -203,6 +203,13 @@ static const struct dwritescript_properties dwritescripts_properties[Script_Last
     { /* Diak */ { 0x6b616944, 342,  8, 0x0020, 1, 1, 0, 0, 0, 0, 0 }, { _OT('d','i','a','k') } },
     { /* Kits */ { 0x7374694b, 288,  8, 0x0020, 1, 0, 1, 1, 0, 0, 0 }, { _OT('k','i','t','s') } },
     { /* Yezi */ { 0x697a6559, 192,  8, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, { _OT('y','e','z','i') } },
+    { /* Cpmn */ { 0x6e6d7043, 402,  8, 0x0020, 0, 0, 1, 1, 0, 0, 0 }, { _OT('c','p','m','n') } },
+    { /* Kawi */ { 0x6977614b, 368, 15, 0x0020, 1, 0, 1, 0, 0, 0, 0 }, { _OT('k','a','w','i') } },
+    { /* Nagm */ { 0x6d67614e, 295,  8, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, { _OT('n','a','g','m') } },
+    { /* Ougr */ { 0x7267754f, 143,  8, 0x0020, 0, 1, 0, 0, 0, 1, 1 }, { _OT('o','u','g','r') } },
+    { /* Tnsa */ { 0x61736e54, 275,  8, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, { _OT('t','n','s','a') } },
+    { /* Toto */ { 0x6f746f54, 294,  8, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, { _OT('t','o','t','o') } },
+    { /* Vith */ { 0x68746956, 228,  8, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, { _OT('v','i','t','h') } },
 };
 #undef _OT
 
@@ -287,10 +294,13 @@ system_fallback_config[] =
     { "1A00-1A1F",              L"Noto Sans Buginese" },
     { "1A20-1AAF",              L"Noto Sans Tai Tham" },
     { "1B00-1B7F",              L"Noto Sans Balinese" },
-    { "1B80-1BBF, 1CC0-1CCF",   L"Noto Sans Sundanes" },
+    { "1B80-1BBF, 1CC0-1CCF",   L"Noto Sans Sundanese" },
     { "1BC0-1BFF",              L"Noto Sans Batak" },
     { "1C00-1C4F",              L"Noto Sans Lepcha" },
     { "1C50-1C7F",              L"Noto Sans Ol Chiki" },
+
+    /* Dingbats - 2700-27BF */
+    { "2700-27BF",              L"Noto Sans Symbols2"},
 
     { "2C80-2CFF",              L"Noto Sans Coptic" },
     { "2D30-2D7F",              L"Noto Sans Tifinagh" },
@@ -797,6 +807,12 @@ enum linebreaking_classes {
     b_EB,
     b_EM,
     b_ZWJ,
+    b_AK,
+    b_AP,
+    b_AS,
+    b_VF,
+    b_VI,
+    b_HH,
 };
 
 static BOOL has_strong_condition(DWRITE_BREAK_CONDITION old_condition, DWRITE_BREAK_CONDITION new_condition)
@@ -1019,7 +1035,7 @@ static HRESULT analyze_linebreaks(IDWriteTextAnalysisSource *source, UINT32 posi
             /* LB12a */
                 if (i > 0)
                 {
-                    if (break_class[i-1] != b_SP && break_class[i-1] != b_BA && break_class[i-1] != b_HY)
+                    if (break_class[i-1] != b_SP && break_class[i-1] != b_BA && break_class[i-1] != b_HY && break_class[i-1] != b_HH)
                         set_break_condition(i, BreakConditionBefore, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
                 }
                 break;
@@ -1088,6 +1104,7 @@ static HRESULT analyze_linebreaks(IDWriteTextAnalysisSource *source, UINT32 posi
             /* LB21 */
             case b_BA:
             case b_HY:
+            case b_HH:
             case b_NS:
                 set_break_condition(i, BreakConditionBefore, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
                 break;
@@ -1102,6 +1119,7 @@ static HRESULT analyze_linebreaks(IDWriteTextAnalysisSource *source, UINT32 posi
                     switch (break_class[i+1])
                     {
                     case b_HY:
+                    case b_HH:
                     case b_BA:
                         set_break_condition(i+1, BreakConditionAfter, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
                     }
@@ -1855,7 +1873,7 @@ static inline UINT32 get_cluster_length(UINT16 const *clustermap, UINT32 start, 
     UINT16 g = clustermap[start];
     UINT32 length = 1;
 
-    while (start < text_len && clustermap[++start] == g)
+    while (start < (text_len - 1) && clustermap[++start] == g)
         length++;
     return length;
 }

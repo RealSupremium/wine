@@ -503,6 +503,10 @@ static NTSTATUS pdo_pnp(DEVICE_OBJECT *device_obj, IRP *irp)
             ret = STATUS_SUCCESS;
             break;
 
+        case IRP_MN_QUERY_DEVICE_TEXT:
+            WARN("Unhandled IRP_MN_QUERY_DEVICE_TEXT text type %u.\n", stack->Parameters.QueryDeviceText.DeviceTextType);
+            break;
+
         default:
             FIXME("Unhandled minor function %#x.\n", stack->MinorFunction);
     }
@@ -558,6 +562,7 @@ static NTSTATUS usb_submit_urb(struct usb_device *device, IRP *irp)
         case URB_FUNCTION_SELECT_CONFIGURATION:
         case URB_FUNCTION_VENDOR_DEVICE:
         case URB_FUNCTION_VENDOR_INTERFACE:
+        case URB_FUNCTION_VENDOR_ENDPOINT:
         {
             struct usb_submit_urb_params params =
             {
@@ -589,6 +594,7 @@ static NTSTATUS usb_submit_urb(struct usb_device *device, IRP *irp)
 
                 case URB_FUNCTION_VENDOR_DEVICE:
                 case URB_FUNCTION_VENDOR_INTERFACE:
+                case URB_FUNCTION_VENDOR_ENDPOINT:
                 {
                     struct _URB_CONTROL_VENDOR_OR_CLASS_REQUEST *req = &urb->UrbControlVendorClassRequest;
                     if (req->TransferBufferMDL)

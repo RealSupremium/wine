@@ -347,7 +347,7 @@ static HRESULT WINAPI rendertarget_DrawGlyphRun(IDWriteBitmapRenderTarget1 *ifac
     DWRITE_RENDERING_MODE1 rendermode;
     DWRITE_GRID_FIT_MODE gridfitmode;
     DWRITE_TEXTURE_TYPE texturetype;
-    DWRITE_GLYPH_RUN scaled_run;
+    DWRITE_MATRIX m, scale = { 0 };
     IDWriteFontFace3 *fontface;
     RECT target_rect, bounds;
     HRESULT hr;
@@ -429,9 +429,10 @@ static HRESULT WINAPI rendertarget_DrawGlyphRun(IDWriteBitmapRenderTarget1 *ifac
         return hr;
     }
 
-    scaled_run = *run;
-    scaled_run.fontEmSize *= target->ppdip;
-    hr = IDWriteFactory7_CreateGlyphRunAnalysis(target->factory, &scaled_run, &target->m, rendermode, measuring_mode,
+    m = target->m;
+    scale.m11 = scale.m22 = target->ppdip;
+    dwrite_matrix_multiply(&m, &scale);
+    hr = IDWriteFactory7_CreateGlyphRunAnalysis(target->factory, run, &m, rendermode, measuring_mode,
             gridfitmode, target->antialiasmode, originX, originY, &analysis);
     if (FAILED(hr))
     {
@@ -478,6 +479,10 @@ static HRESULT WINAPI rendertarget_DrawGlyphRun(IDWriteBitmapRenderTarget1 *ifac
         }
 
         free(bitmap);
+    }
+    else if (bbox_ret)
+    {
+        *bbox_ret = bounds;
     }
 
     IDWriteGlyphRunAnalysis_Release(analysis);
@@ -688,8 +693,8 @@ static HRESULT WINAPI gdiinterop_CreateFontFromLOGFONT(IDWriteGdiInterop1 *iface
 static HRESULT WINAPI gdiinterop_ConvertFontToLOGFONT(IDWriteGdiInterop1 *iface,
     IDWriteFont *font, LOGFONTW *logfont, BOOL *is_systemfont)
 {
-    IDWriteFontCollection *collection;
-    IDWriteFontFamily *family;
+    IDWriteFontFileLoader *loader;
+    IDWriteFontFile *file;
     HRESULT hr;
 
     TRACE("%p, %p, %p, %p.\n", iface, font, logfont, is_systemfont);
@@ -698,20 +703,16 @@ static HRESULT WINAPI gdiinterop_ConvertFontToLOGFONT(IDWriteGdiInterop1 *iface,
 
     memset(logfont, 0, sizeof(*logfont));
 
-    if (!font)
+    file = get_fontfile_from_font(font);
+
+    if (!font || !file)
         return E_INVALIDARG;
 
-    hr = IDWriteFont_GetFontFamily(font, &family);
-    if (FAILED(hr))
+    if (FAILED(hr = IDWriteFontFile_GetLoader(file, &loader)))
         return hr;
 
-    hr = IDWriteFontFamily_GetFontCollection(family, &collection);
-    IDWriteFontFamily_Release(family);
-    if (FAILED(hr))
-        return hr;
-
-    *is_systemfont = is_system_collection(collection);
-    IDWriteFontCollection_Release(collection);
+    *is_systemfont = loader == get_local_fontfile_loader();
+    IDWriteFontFileLoader_Release(loader);
 
     get_logfont_from_font(font, logfont);
     logfont->lfCharSet = DEFAULT_CHARSET;

@@ -54,6 +54,8 @@ struct android_win_data
     HWND           parent;         /* parent hwnd for child windows */
     struct window_rects rects;     /* window rects in monitor DPI, relative to parent client area */
     ANativeWindow *window;         /* native window wrapper that forwards calls to the desktop process */
+    ANativeWindow *client;         /* native client surface wrapper that forwards calls to the desktop process */
+    BOOL           has_surface;    /* whether the client surface has been created on the Java side */
 };
 
 #define SWP_AGG_NOPOSCHANGE (SWP_NOSIZE | SWP_NOMOVE | SWP_NOCLIENTSIZE | SWP_NOCLIENTMOVE | SWP_NOZORDER)
@@ -98,7 +100,7 @@ static struct android_win_data *alloc_win_data( HWND hwnd )
     {
         data->hwnd = hwnd;
         data->window = create_ioctl_window( hwnd, FALSE,
-                                            (float)NtUserGetWinMonitorDpi( hwnd, MDT_DEFAULT ) / NtUserGetDpiForWindow( hwnd ));
+                                            (float)NtUserGetWinMonitorDpi( hwnd, MDT_RAW_DPI ) / NtUserGetDpiForWindow( hwnd ));
         pthread_mutex_lock( &win_data_mutex );
         win_data_context[context_idx(hwnd)] = data;
     }
@@ -113,6 +115,7 @@ static void free_win_data( struct android_win_data *data )
 {
     win_data_context[context_idx( data->hwnd )] = NULL;
     pthread_mutex_unlock( &win_data_mutex );
+    if (data->client) release_ioctl_window( data->client );
     if (data->window) release_ioctl_window( data->window );
     free( data );
 }
@@ -457,16 +460,16 @@ static int process_events( DWORD mask )
 
                 if (event->data.motion.input.mi.dwFlags & (MOUSEEVENTF_LEFTDOWN|MOUSEEVENTF_RIGHTDOWN|MOUSEEVENTF_MIDDLEDOWN))
                     TRACE( "BUTTONDOWN pos %d,%d hwnd %p flags %x\n",
-                           (int)event->data.motion.input.mi.dx, (int)event->data.motion.input.mi.dy,
-                           event->data.motion.hwnd, (int)event->data.motion.input.mi.dwFlags );
+                           event->data.motion.input.mi.dx, event->data.motion.input.mi.dy,
+                           event->data.motion.hwnd, event->data.motion.input.mi.dwFlags );
                 else if (event->data.motion.input.mi.dwFlags & (MOUSEEVENTF_LEFTUP|MOUSEEVENTF_RIGHTUP|MOUSEEVENTF_MIDDLEUP))
                     TRACE( "BUTTONUP pos %d,%d hwnd %p flags %x\n",
-                           (int)event->data.motion.input.mi.dx, (int)event->data.motion.input.mi.dy,
-                           event->data.motion.hwnd, (int)event->data.motion.input.mi.dwFlags );
+                           event->data.motion.input.mi.dx, event->data.motion.input.mi.dy,
+                           event->data.motion.hwnd, event->data.motion.input.mi.dwFlags );
                 else
                     TRACE( "MOUSEMOVE pos %d,%d hwnd %p flags %x\n",
-                           (int)event->data.motion.input.mi.dx, (int)event->data.motion.input.mi.dy,
-                           event->data.motion.hwnd, (int)event->data.motion.input.mi.dwFlags );
+                           event->data.motion.input.mi.dx, event->data.motion.input.mi.dy,
+                           event->data.motion.hwnd, event->data.motion.input.mi.dwFlags );
                 if (!capture && (event->data.motion.input.mi.dwFlags & MOUSEEVENTF_ABSOLUTE))
                 {
                     RECT rect;
@@ -984,8 +987,6 @@ void ANDROID_DestroyWindow( HWND hwnd )
     struct android_win_data *data;
 
     if (!(data = get_win_data( hwnd ))) return;
-
-    destroy_gl_drawable( hwnd );
     free_win_data( data );
 }
 
@@ -1050,7 +1051,7 @@ BOOL ANDROID_CreateWindowSurface( HWND hwnd, BOOL layered, const RECT *surface_r
 /***********************************************************************
  *           ANDROID_WindowPosChanged
  */
-void ANDROID_WindowPosChanged( HWND hwnd, HWND insert_after, UINT swp_flags, BOOL fullscreen,
+void ANDROID_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UINT swp_flags, BOOL fullscreen,
                                const struct window_rects *new_rects, struct window_surface *surface )
 {
     struct android_win_data *data;
@@ -1101,7 +1102,7 @@ void ANDROID_SetParent( HWND hwnd, HWND parent, HWND old_parent )
     TRACE( "win %p parent %p -> %p\n", hwnd, old_parent, parent );
 
     data->parent = (parent == NtUserGetDesktopWindow()) ? 0 : parent;
-    ioctl_set_window_parent( hwnd, parent, (float)NtUserGetWinMonitorDpi( hwnd, MDT_DEFAULT ) / NtUserGetDpiForWindow( hwnd ));
+    ioctl_set_window_parent( hwnd, parent, (float)NtUserGetWinMonitorDpi( hwnd, MDT_RAW_DPI ) / NtUserGetDpiForWindow( hwnd ));
     release_win_data( data );
 }
 
@@ -1183,7 +1184,15 @@ LRESULT ANDROID_WindowMessage( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
     case WM_ANDROID_REFRESH:
         if (wp)  /* opengl client window */
         {
-            update_gl_drawable( hwnd );
+            struct android_win_data *data;
+
+            if ((data = get_win_data( hwnd )))
+            {
+                data->has_surface = TRUE;
+                release_win_data( data );
+            }
+
+            detach_client_surfaces( hwnd );
         }
         else
         {
@@ -1196,6 +1205,30 @@ LRESULT ANDROID_WindowMessage( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
     }
 }
 
+ANativeWindow *get_client_window( HWND hwnd )
+{
+    struct android_win_data *data;
+    ANativeWindow *client;
+
+    if (!(data = get_win_data( hwnd ))) return NULL;
+    if (!data->client) data->client = create_ioctl_window( hwnd, TRUE, 1.0f );
+    client = grab_ioctl_window( data->client );
+    release_win_data( data );
+
+    return client;
+}
+
+BOOL has_client_surface( HWND hwnd )
+{
+    struct android_win_data *data;
+    BOOL ret;
+
+    if (!(data = get_win_data( hwnd ))) return FALSE;
+    ret = data->has_surface;
+    release_win_data( data );
+
+    return ret;
+}
 
 /***********************************************************************
  *           ANDROID_CreateDesktop

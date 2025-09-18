@@ -22,7 +22,7 @@
 
 #include <corecrt_wtime.h>
 
-#include <pshpack8.h>
+#pragma pack(push,8)
 
 #ifndef _CLOCK_T_DEFINED
 typedef __msvcrt_long clock_t;
@@ -36,6 +36,24 @@ typedef __msvcrt_long clock_t;
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct _timespec32
+{
+    __time32_t tv_sec;
+    __msvcrt_long tv_nsec;
+};
+
+struct _timespec64
+{
+    __time64_t tv_sec;
+    __msvcrt_long tv_nsec;
+};
+
+struct timespec
+{
+    time_t tv_sec;
+    __msvcrt_long tv_nsec;
+};
 
 #ifdef __i386__
 #define _daylight (*__p__daylight())
@@ -54,7 +72,7 @@ extern __msvcrt_long _timezone;
 extern char *_tzname;
 #endif
 
-#if !defined(_UCRT) && defined(_USE_32BIT_TIME_T)
+#if _MSVCR_VER < 120 && defined(_USE_32BIT_TIME_T)
 #define _ctime32     ctime
 #define _difftime32  difftime
 #define _gmtime32    gmtime
@@ -119,6 +137,6 @@ static inline time_t time(time_t *t) { return _time32(t); }
 }
 #endif
 
-#include <poppack.h>
+#pragma pack(pop)
 
 #endif /* __WINE_TIME_H */

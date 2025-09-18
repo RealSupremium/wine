@@ -21,7 +21,10 @@
 
 // Only portable API plays a role in the library itself, outside of lfs_wrap.c.
 // Also, we need to ensure no suffix renaming for the primary implementations.
-#define MPG123_PORTABLE_API
+// But: The _definition_ of non-portable API needs to be present for those
+// primary implementations being exported for DLL builds. Just the largefile
+// renaming needs to be skipped!
+#define MPG123_NO_LARGENAME
 #define MPG123_ENUM_API
 #include "mpg123.h"
 
@@ -322,9 +325,6 @@ int64_t INT123_bytes_to_samples(mpg123_handle *fr , int64_t b);
 int64_t INT123_outblock_bytes(mpg123_handle *fr, int64_t s);
 /* Postprocessing format conversion of freshly decoded buffer. */
 void INT123_postprocess_buffer(mpg123_handle *fr);
-
-int INT123_open_fixed_pre(mpg123_handle *mh, int channels, int encoding);
-int INT123_open_fixed_post(mpg123_handle *mh, int channels, int encoding);
 
 /* If networking is enabled and we really mean internal networking, the timeout_read function is available. */
 #if defined (NETWORK) && !defined (WANT_WIN32_SOCKETS)

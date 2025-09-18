@@ -25,9 +25,14 @@
 
 extern LRESULT WINAPI ImeWndProcA(HWND,UINT,WPARAM,LPARAM);
 extern LRESULT WINAPI ImeWndProcW(HWND,UINT,WPARAM,LPARAM);
-extern LRESULT WINAPI DesktopWndProc(HWND,UINT,WPARAM,LPARAM);
-extern LRESULT WINAPI IconTitleWndProc(HWND,UINT,WPARAM,LPARAM);
-extern LRESULT WINAPI PopupMenuWndProc(HWND,UINT,WPARAM,LPARAM);
+extern LRESULT WINAPI DesktopWndProcA(HWND,UINT,WPARAM,LPARAM);
+extern LRESULT WINAPI DesktopWndProcW(HWND,UINT,WPARAM,LPARAM);
+extern LRESULT WINAPI DialogWndProcA(HWND,UINT,WPARAM,LPARAM);
+extern LRESULT WINAPI DialogWndProcW(HWND,UINT,WPARAM,LPARAM);
+extern LRESULT WINAPI IconTitleWndProcA(HWND,UINT,WPARAM,LPARAM);
+extern LRESULT WINAPI IconTitleWndProcW(HWND,UINT,WPARAM,LPARAM);
+extern LRESULT WINAPI PopupMenuWndProcA(HWND,UINT,WPARAM,LPARAM);
+extern LRESULT WINAPI PopupMenuWndProcW(HWND,UINT,WPARAM,LPARAM);
 extern LRESULT WINAPI MessageWndProc(HWND,UINT,WPARAM,LPARAM);
 
 /* Wow handlers */
@@ -72,9 +77,6 @@ extern LRESULT ListBoxWndProc_common(HWND,UINT,WPARAM,LPARAM,BOOL);
 extern LRESULT MDIClientWndProc_common(HWND,UINT,WPARAM,LPARAM,BOOL);
 extern LRESULT ScrollBarWndProc_common(HWND,UINT,WPARAM,LPARAM,BOOL);
 extern LRESULT StaticWndProc_common(HWND,UINT,WPARAM,LPARAM,BOOL);
-
-/* Class functions */
-extern ATOM get_int_atom_value( UNICODE_STRING *name );
 
 /* desktop */
 extern BOOL update_wallpaper( const WCHAR *wallpaper, const WCHAR *pattern );

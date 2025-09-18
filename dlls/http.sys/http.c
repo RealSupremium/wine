@@ -267,8 +267,8 @@ static void parse_header(const char *name, int *name_len, const char **value, in
     while (*p == ' ' || *p == '\t') ++p;
     *value = p;
     while (isprint(*p) || *p == '\t') ++p;
-    while (isspace(*p)) --p; /* strip trailing LWS */
-    *value_len = p - *value + 1;
+    while (p > *value && isspace(p[-1])) --p; /* strip trailing LWS */
+    *value_len = p - *value;
 }
 
 #define http_unknown_header http_unknown_header_64
@@ -973,7 +973,7 @@ static NTSTATUS http_receive_request(struct request_queue *queue, IRP *irp)
         TRACE("Queuing IRP %p.\n", irp);
 
         IoSetCancelRoutine(irp, http_receive_request_cancel);
-        if (irp->Cancel && !IoSetCancelRoutine(irp, NULL))
+        if (irp->Cancel && IoSetCancelRoutine(irp, NULL))
         {
             /* The IRP was canceled before we set the cancel routine. */
             ret = STATUS_CANCELLED;

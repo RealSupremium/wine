@@ -539,15 +539,29 @@ static HRESULT WINAPI class_object_Next(
     struct table *table = get_view_table( view, obj->index );
     BSTR prop;
     HRESULT hr;
-    UINT i;
+    UINT i, view_idx_start;
 
     TRACE( "%p, %#lx, %p, %p, %p, %p\n", iface, lFlags, strName, pVal, pType, plFlavor );
 
-    for (i = obj->index_property; i < table->num_cols; i++)
+    if (lFlags)
     {
-        if (is_method( table, i )) continue;
-        if (!is_result_prop( view, table->columns[i].name )) continue;
-        if (!(prop = SysAllocString( table->columns[i].name ))) return E_OUTOFMEMORY;
+        WARN( "lFlags %#lx.\n", lFlags );
+        return WBEM_E_INVALID_PARAMETER;
+    }
+
+    view_idx_start = obj->record ? 0 : system_prop_count;
+    for (i = obj->index_property; i < table->num_cols + view_idx_start; i++)
+    {
+        if (i < view_idx_start)
+        {
+            if (!(prop = SysAllocString( system_props[i] ))) return E_OUTOFMEMORY;
+        }
+        else
+        {
+            if (is_method( table, i - view_idx_start )) continue;
+            if (!is_result_prop( view, table->columns[i - view_idx_start].name )) continue;
+            if (!(prop = SysAllocString( table->columns[i - view_idx_start].name ))) return E_OUTOFMEMORY;
+        }
         if (obj->record)
         {
             UINT index;
@@ -821,13 +835,21 @@ static HRESULT create_signature_table( IEnumWbemClassObject *iter, enum wbm_name
     hr = create_signature_columns_and_data( iter, &num_cols, &columns, &row );
     if (hr != S_OK) return hr;
 
-    if (!(table = create_table( name, num_cols, columns, 1, 1, row, NULL )))
+    if (!(table = alloc_table()))
     {
         free_columns( columns, num_cols );
         free( row );
         return E_OUTOFMEMORY;
     }
-    if (!add_table( ns, table )) free_table( table ); /* already exists */
+
+    table->name               = wcsdup( name );
+    table->num_cols           = num_cols;
+    table->columns            = columns;
+    table->num_rows           = 1;
+    table->num_rows_allocated = 1;
+    table->data               = row;
+    table->flags              = TABLE_FLAG_DYNAMIC;
+    if (!add_table( ns, table )) release_table( table ); /* already exists */
     return S_OK;
 }
 

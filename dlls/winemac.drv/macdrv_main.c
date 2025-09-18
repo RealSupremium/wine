@@ -44,7 +44,6 @@ C_ASSERT(NUM_EVENT_TYPES <= sizeof(macdrv_event_mask) * 8);
 
 int topmost_float_inactive = TOPMOST_FLOAT_INACTIVE_NONFULLSCREEN;
 int capture_displays_for_fullscreen = 0;
-BOOL skip_single_buffer_flushes = FALSE;
 BOOL allow_vsync = TRUE;
 BOOL allow_set_gamma = TRUE;
 int left_option_is_alt = 0;
@@ -62,9 +61,6 @@ int enable_app_nap = FALSE;
 
 UINT64 app_icon_callback = 0;
 UINT64 app_quit_request_callback = 0;
-UINT64 dnd_query_drag_callback = 0;
-UINT64 dnd_query_drop_callback = 0;
-UINT64 dnd_query_exited_callback = 0;
 
 CFDictionaryRef localized_strings;
 
@@ -137,12 +133,12 @@ HKEY open_hkcu_key(const char *name)
 
         sid = ((TOKEN_USER *)sid_data)->User.Sid;
         len = snprintf(buffer, sizeof(buffer), "\\Registry\\User\\S-%u-%u", sid->Revision,
-                      (unsigned int)MAKELONG(MAKEWORD(sid->IdentifierAuthority.Value[5],
-                                                      sid->IdentifierAuthority.Value[4]),
-                                             MAKEWORD(sid->IdentifierAuthority.Value[3],
-                                                      sid->IdentifierAuthority.Value[2])));
+                        MAKELONG(MAKEWORD(sid->IdentifierAuthority.Value[5],
+                                           sid->IdentifierAuthority.Value[4]),
+                                  MAKEWORD(sid->IdentifierAuthority.Value[3],
+                                            sid->IdentifierAuthority.Value[2])));
         for (i = 0; i < sid->SubAuthorityCount; i++)
-            len += snprintf(buffer + len, sizeof(buffer) - len, "-%u", (unsigned int)sid->SubAuthority[i]);
+            len += snprintf(buffer + len, sizeof(buffer) - len, "-%u", sid->SubAuthority[i]);
 
         ascii_to_unicode(bufferW, buffer, len);
         hkcu = reg_open_key(NULL, bufferW, len * sizeof(WCHAR));
@@ -325,9 +321,6 @@ static void setup_options(void)
     if (!get_config_key(hkey, appkey, "CaptureDisplaysForFullscreen", buffer, sizeof(buffer)))
         capture_displays_for_fullscreen = IS_OPTION_TRUE(buffer[0]);
 
-    if (!get_config_key(hkey, appkey, "SkipSingleBufferFlushes", buffer, sizeof(buffer)))
-        skip_single_buffer_flushes = IS_OPTION_TRUE(buffer[0]);
-
     if (!get_config_key(hkey, appkey, "AllowVerticalSync", buffer, sizeof(buffer)))
         allow_vsync = IS_OPTION_TRUE(buffer[0]);
 
@@ -438,9 +431,6 @@ static NTSTATUS macdrv_init(void *arg)
 
     app_icon_callback = params->app_icon_callback;
     app_quit_request_callback = params->app_quit_request_callback;
-    dnd_query_drag_callback = params->dnd_query_drag_callback;
-    dnd_query_drop_callback = params->dnd_query_drop_callback;
-    dnd_query_exited_callback = params->dnd_query_exited_callback;
 
     status = SessionGetInfo(callerSecuritySession, NULL, &attributes);
     if (status != noErr || !(attributes & sessionHasGraphicAccess))
@@ -615,11 +605,6 @@ static NTSTATUS macdrv_quit_result(void *arg)
 
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
-    macdrv_dnd_get_data,
-    macdrv_dnd_get_formats,
-    macdrv_dnd_have_format,
-    macdrv_dnd_release,
-    macdrv_dnd_retain,
     macdrv_init,
     macdrv_quit_result,
 };
@@ -628,24 +613,6 @@ C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
 
 #ifdef _WIN64
 
-static NTSTATUS wow64_dnd_get_data(void *arg)
-{
-    struct
-    {
-        UINT64 handle;
-        UINT format;
-        ULONG size;
-        ULONG data;
-    } *params32 = arg;
-    struct dnd_get_data_params params;
-
-    params.handle = params32->handle;
-    params.format = params32->format;
-    params.size = params32->size;
-    params.data = UlongToPtr(params32->data);
-    return macdrv_dnd_get_data(&params);
-}
-
 static NTSTATUS wow64_init(void *arg)
 {
     struct
@@ -653,28 +620,17 @@ static NTSTATUS wow64_init(void *arg)
         ULONG strings;
         UINT64 app_icon_callback;
         UINT64 app_quit_request_callback;
-        UINT64 dnd_query_drag_callback;
-        UINT64 dnd_query_drop_callback;
-        UINT64 dnd_query_exited_callback;
     } *params32 = arg;
     struct init_params params;
 
     params.strings = UlongToPtr(params32->strings);
     params.app_icon_callback = params32->app_icon_callback;
     params.app_quit_request_callback = params32->app_quit_request_callback;
-    params.dnd_query_drag_callback = params32->dnd_query_drag_callback;
-    params.dnd_query_drop_callback = params32->dnd_query_drop_callback;
-    params.dnd_query_exited_callback = params32->dnd_query_exited_callback;
     return macdrv_init(&params);
 }
 
 const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
-    wow64_dnd_get_data,
-    macdrv_dnd_get_formats,
-    macdrv_dnd_have_format,
-    macdrv_dnd_release,
-    macdrv_dnd_retain,
     wow64_init,
     macdrv_quit_result,
 };

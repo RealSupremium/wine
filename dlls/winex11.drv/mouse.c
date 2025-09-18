@@ -497,7 +497,9 @@ static void map_event_coords( HWND hwnd, Window window, Window event_root, int x
     TRACE( "hwnd %p, window %lx, event_root %lx, x_root %d, y_root %d, input %p\n", hwnd, window, event_root,
            x_root, y_root, input );
 
-    if (!hwnd)
+    if (window == root_window) pt = root_to_virtual_screen( pt.x, pt.y );
+    else if (event_root == root_window) pt = root_to_virtual_screen( x_root, y_root );
+    else if (!hwnd)
     {
         thread_data = x11drv_thread_data();
         if (!thread_data->clipping_cursor) return;
@@ -507,19 +509,15 @@ static void map_event_coords( HWND hwnd, Window window, Window event_root, int x
     }
     else if ((data = get_win_data( hwnd )))
     {
-        if (window == root_window) pt = root_to_virtual_screen( pt.x, pt.y );
-        else if (event_root == root_window) pt = root_to_virtual_screen( x_root, y_root );
+        if (window == data->client_window)
+        {
+            pt.x += data->rects.client.left;
+            pt.y += data->rects.client.top;
+        }
         else
         {
-            if (window == data->whole_window)
-            {
-                pt.x += data->rects.visible.left - data->rects.client.left;
-                pt.y += data->rects.visible.top - data->rects.client.top;
-            }
-
-            if (NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ) & WS_EX_LAYOUTRTL)
-                pt.x = data->rects.client.right - data->rects.client.left - 1 - pt.x;
-            NtUserMapWindowPoints( hwnd, 0, &pt, 1, 0 /* per-monitor DPI */ );
+            pt.x += data->rects.visible.left;
+            pt.y += data->rects.visible.top;
         }
         release_win_data( data );
     }
@@ -1389,7 +1387,7 @@ BOOL X11DRV_SetCursorPos( INT x, INT y )
 
     if (keyboard_grabbed)
     {
-        WARN( "refusing to warp to %u, %u\n", (int)pos.x, (int)pos.y );
+        WARN( "refusing to warp to %u, %u\n", pos.x, pos.y );
         return FALSE;
     }
 
@@ -1398,7 +1396,7 @@ BOOL X11DRV_SetCursorPos( INT x, INT y )
                       PointerMotionMask | ButtonPressMask | ButtonReleaseMask,
                       GrabModeAsync, GrabModeAsync, None, None, CurrentTime ) != GrabSuccess)
     {
-        WARN( "refusing to warp pointer to %u, %u without exclusive grab\n", (int)pos.x, (int)pos.y );
+        WARN( "refusing to warp pointer to %u, %u without exclusive grab\n", pos.x, pos.y );
         return FALSE;
     }
 
@@ -1448,22 +1446,15 @@ BOOL X11DRV_ClipCursor( const RECT *clip, BOOL reset )
 /***********************************************************************
  *           move_resize_window
  */
-void move_resize_window( HWND hwnd, int dir )
+void move_resize_window( HWND hwnd, int dir, POINT pos )
 {
     Display *display = thread_display();
-    DWORD pt;
-    POINT pos;
     int button = 0;
     XEvent xev;
     Window win, root, child;
     unsigned int xstate;
 
     if (!(win = X11DRV_get_whole_window( hwnd ))) return;
-
-    pt = NtUserGetThreadInfo()->message_pos;
-    pos.x = (short)LOWORD( pt );
-    pos.y = (short)HIWORD( pt );
-    NtUserLogicalToPerMonitorDPIPhysicalPoint( hwnd, &pos );
     pos = virtual_screen_to_root( pos.x, pos.y );
 
     if (NtUserGetKeyState( VK_LBUTTON ) & 0x8000) button = 1;
@@ -1543,6 +1534,7 @@ BOOL X11DRV_ButtonPress( HWND hwnd, XEvent *xev )
 {
     XButtonEvent *event = &xev->xbutton;
     int buttonNum = event->button - 1;
+    struct x11drv_win_data *data;
     INPUT input;
 
     if (buttonNum >= NB_BUTTONS) return FALSE;
@@ -1556,7 +1548,12 @@ BOOL X11DRV_ButtonPress( HWND hwnd, XEvent *xev )
     input.mi.time        = EVENT_x11_time_to_win32_time( event->time );
     input.mi.dwExtraInfo = 0;
 
-    update_user_time( event->time );
+    if ((data = get_win_data( hwnd )))
+    {
+        window_set_user_time( data, event->time, FALSE );
+        release_win_data( data );
+    }
+
     map_event_coords( hwnd, event->window, event->root, event->x_root, event->y_root, &input );
     send_mouse_input( hwnd, event->window, event->state, &input );
     return TRUE;
@@ -1679,7 +1676,7 @@ static BOOL map_raw_event_coords( XIRawEvent *event, INPUT *input )
     if (!xinput2_available) return FALSE;
     if (event->deviceid != thread_data->xinput2_pointer) return FALSE;
 
-    virtual_rect = NtUserGetVirtualScreenRect( MDT_DEFAULT );
+    virtual_rect = NtUserGetVirtualScreenRect( MDT_RAW_DPI );
 
     if (x->max <= x->min) x_scale = 1;
     else x_scale = (virtual_rect.right - virtual_rect.left) / (x->max - x->min);
@@ -1706,7 +1703,7 @@ static BOOL map_raw_event_coords( XIRawEvent *event, INPUT *input )
     input->mi.dy = round( y->value );
 
     TRACE( "event %f,%f value %f,%f input %d,%d\n", x_value, y_value, x->value, y->value,
-           (int)input->mi.dx, (int)input->mi.dy );
+           input->mi.dx, input->mi.dy );
 
     x->value -= input->mi.dx;
     y->value -= input->mi.dy;
@@ -1749,7 +1746,7 @@ static BOOL X11DRV_RawMotion( XGenericEventCookie *xev )
 
 static BOOL X11DRV_TouchEvent( HWND hwnd, XGenericEventCookie *xev )
 {
-    RECT virtual = NtUserGetVirtualScreenRect( MDT_DEFAULT );
+    RECT virtual = NtUserGetVirtualScreenRect( MDT_RAW_DPI );
     INPUT input = {.type = INPUT_HARDWARE};
     XIDeviceEvent *event = xev->data;
     int flags = 0;
@@ -1766,15 +1763,15 @@ static BOOL X11DRV_TouchEvent( HWND hwnd, XGenericEventCookie *xev )
     case XI_TouchBegin:
         input.hi.uMsg = WM_POINTERDOWN;
         flags |= POINTER_MESSAGE_FLAG_NEW;
-        TRACE("XI_TouchBegin detail %u pos %dx%d, flags %#x\n", event->detail, (int)pos.x, (int)pos.y, flags);
+        TRACE("XI_TouchBegin detail %u pos %dx%d, flags %#x\n", event->detail, pos.x, pos.y, flags);
         break;
     case XI_TouchEnd:
         input.hi.uMsg = WM_POINTERUP;
-        TRACE("XI_TouchEnd detail %u pos %dx%d, flags %#x\n", event->detail, (int)pos.x, (int)pos.y, flags);
+        TRACE("XI_TouchEnd detail %u pos %dx%d, flags %#x\n", event->detail, pos.x, pos.y, flags);
         break;
     case XI_TouchUpdate:
         input.hi.uMsg = WM_POINTERUPDATE;
-        TRACE("XI_TouchUpdate detail %u pos %dx%d, flags %#x\n", event->detail, (int)pos.x, (int)pos.y, flags);
+        TRACE("XI_TouchUpdate detail %u pos %dx%d, flags %#x\n", event->detail, pos.x, pos.y, flags);
         break;
     }
 

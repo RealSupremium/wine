@@ -36,6 +36,7 @@ enum startup_state { STARTUP_IN_PROGRESS, STARTUP_DONE, STARTUP_ABORTED };
 struct process
 {
     struct object        obj;             /* object header */
+    struct event_sync   *sync;            /* sync object for wait/signal */
     struct list          entry;           /* entry in system-wide process list */
     process_id_t         parent_id;       /* parent process id (at the time of creation) */
     struct list          thread_list;     /* thread list */
@@ -56,6 +57,8 @@ struct process
     timeout_t            end_time;        /* absolute time at process end */
     affinity_t           affinity;        /* process affinity mask */
     int                  priority;        /* priority class */
+    int                  base_priority;   /* base priority to calculate thread priority */
+    int                  disable_boost;   /* disable priority boost */
     int                  suspend;         /* global process suspend count */
     unsigned int         is_system:1;     /* is it a system process? */
     unsigned int         debug_children:1;/* also debug all child processes */
@@ -76,7 +79,6 @@ struct process
     struct token        *token;           /* security token associated with this process */
     struct list          views;           /* list of memory views */
     client_ptr_t         peb;             /* PEB address in client address space */
-    client_ptr_t         ldt_copy;        /* pointer to LDT copy in client addr space */
     struct dir_cache    *dir_cache;       /* map of client-side directory cache */
     unsigned int         trace_data;      /* opaque data used by the process tracing mechanism */
     struct rawinput_device *rawinput_devices;     /* list of registered rawinput devices */
@@ -85,7 +87,7 @@ struct process
     const struct rawinput_device *rawinput_kbd;   /* rawinput keyboard device, if any */
     struct list          rawinput_entry;  /* entry in the rawinput process list */
     struct list          kernel_object;   /* list of kernel object pointers */
-    pe_image_info_t      image_info;      /* main exe image info */
+    struct pe_image_info image_info;      /* main exe image info */
 };
 
 /* process functions */
@@ -93,7 +95,8 @@ struct process
 extern unsigned int alloc_ptid( void *ptr );
 extern void free_ptid( unsigned int id );
 extern void *get_ptid_entry( unsigned int id );
-extern struct process *create_process( int fd, struct process *parent, unsigned int flags, const startup_info_t *info,
+extern struct process *create_process( int fd, struct process *parent, unsigned int flags,
+                                       const struct startup_info_data *info,
                                        const struct security_descriptor *sd, const obj_handle_t *handles,
                                        unsigned int handle_count, struct token *token );
 extern data_size_t get_process_startup_info_size( struct process *process );
@@ -115,6 +118,7 @@ extern void kill_process( struct process *process, int violent_death );
 extern void kill_console_processes( struct thread *renderer, int exit_code );
 extern void detach_debugged_processes( struct debug_obj *debug_obj, int exit_code );
 extern void enum_processes( int (*cb)(struct process*, void*), void *user);
+extern void set_process_base_priority( struct process *process, int base_priority );
 
 /* console functions */
 extern struct thread *console_get_renderer( struct console *console );
@@ -139,6 +143,11 @@ static inline process_id_t get_process_id( struct process *process ) { return pr
 static inline int is_process_init_done( struct process *process )
 {
     return process->startup_state == STARTUP_DONE;
+}
+
+static inline int is_wow64_process( struct process *process )
+{
+    return is_machine_64bit( native_machine ) && !is_machine_64bit( process->machine );
 }
 
 static const unsigned int default_session_id = 1;

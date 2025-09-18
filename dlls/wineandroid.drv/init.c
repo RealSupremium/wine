@@ -78,7 +78,7 @@ void init_monitors( int width, int height )
     monitor_rc_work = virtual_screen_rect;
 
     if (!hwnd || !NtUserIsWindowVisible( hwnd )) return;
-    if (!NtUserGetWindowRect( hwnd, &rect, NtUserGetWinMonitorDpi( hwnd, MDT_DEFAULT ) )) return;
+    if (!NtUserGetWindowRect( hwnd, &rect, NtUserGetWinMonitorDpi( hwnd, MDT_RAW_DPI ) )) return;
     if (rect.top) monitor_rc_work.bottom = rect.top;
     else monitor_rc_work.top = rect.bottom;
     TRACE( "found tray %p %s work area %s\n", hwnd,
@@ -256,7 +256,7 @@ static BOOL ANDROID_DeleteDC( PHYSDEV dev )
  */
 LONG ANDROID_ChangeDisplaySettings( LPDEVMODEW displays, LPCWSTR primary_name, HWND hwnd, DWORD flags, LPVOID lpvoid )
 {
-    FIXME( "(%p,%s,%p,0x%08x,%p)\n", displays, debugstr_w(primary_name), hwnd, (int)flags, lpvoid );
+    FIXME( "(%p,%s,%p,0x%08x,%p)\n", displays, debugstr_w(primary_name), hwnd, flags, lpvoid );
     return DISP_CHANGE_SUCCESSFUL;
 }
 
@@ -294,15 +294,6 @@ UINT ANDROID_UpdateDisplayDevices( const struct gdi_device_manager *device_manag
 }
 
 
-/**********************************************************************
- *           ANDROID_wine_get_wgl_driver
- */
-static struct opengl_funcs *ANDROID_wine_get_wgl_driver( UINT version )
-{
-    return get_wgl_driver( version );
-}
-
-
 static const struct user_driver_funcs android_drv_funcs =
 {
     .dc_funcs.pCreateCompatibleDC = ANDROID_CreateCompatibleDC,
@@ -328,7 +319,7 @@ static const struct user_driver_funcs android_drv_funcs =
     .pWindowPosChanging = ANDROID_WindowPosChanging,
     .pCreateWindowSurface = ANDROID_CreateWindowSurface,
     .pWindowPosChanged = ANDROID_WindowPosChanged,
-    .pwine_get_wgl_driver = ANDROID_wine_get_wgl_driver,
+    .pOpenGLInit = ANDROID_OpenGLInit,
 };
 
 

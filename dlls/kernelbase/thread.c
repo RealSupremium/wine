@@ -274,7 +274,7 @@ INT WINAPI DECLSPEC_HOTPATCH GetThreadPriority( HANDLE thread )
     if (!set_ntstatus( NtQueryInformationThread( thread, ThreadBasicInformation,
                                                  &info, sizeof(info), NULL )))
         return THREAD_PRIORITY_ERROR_RETURN;
-    return info.Priority;
+    return info.BasePriority;
 }
 
 
@@ -344,13 +344,7 @@ HANDLE WINAPI DECLSPEC_HOTPATCH OpenThread( DWORD access, BOOL inherit, DWORD id
     OBJECT_ATTRIBUTES attr;
     CLIENT_ID cid;
 
-    attr.Length = sizeof(attr);
-    attr.RootDirectory = 0;
-    attr.Attributes = inherit ? OBJ_INHERIT : 0;
-    attr.ObjectName = NULL;
-    attr.SecurityDescriptor = NULL;
-    attr.SecurityQualityOfService = NULL;
-
+    InitializeObjectAttributes( &attr, NULL, inherit ? OBJ_INHERIT : 0, 0, NULL );
     cid.UniqueProcess = 0;
     cid.UniqueThread = ULongToHandle( id );
 
@@ -372,6 +366,15 @@ static void CALLBACK call_user_apc( ULONG_PTR arg1, ULONG_PTR arg2, ULONG_PTR ar
 DWORD WINAPI DECLSPEC_HOTPATCH QueueUserAPC( PAPCFUNC func, HANDLE thread, ULONG_PTR data )
 {
     return set_ntstatus( NtQueueApcThread( thread, call_user_apc, (ULONG_PTR)func, data, 0 ));
+}
+
+
+/***********************************************************************
+ *	     QueueUserAPC2   (kernelbase.@)
+ */
+DWORD WINAPI DECLSPEC_HOTPATCH QueueUserAPC2( PAPCFUNC func, HANDLE thread, ULONG_PTR data, QUEUE_USER_APC_FLAGS flags )
+{
+    return set_ntstatus( NtQueueApcThreadEx2( thread, NULL, flags, call_user_apc, (ULONG_PTR)func, data, 0 ));
 }
 
 
@@ -627,6 +630,10 @@ BOOL WINAPI DECLSPEC_HOTPATCH SetThreadInformation( HANDLE thread, THREAD_INFORM
 DWORD WINAPI DECLSPEC_HOTPATCH SuspendThread( HANDLE thread )
 {
     DWORD ret;
+
+    /* NT in Win9x mode returns 0 for current thread. */
+    if ((GetVersion() & 0x80000000) && GetThreadId( thread ) == GetCurrentThreadId())
+        return 0;
 
     if (!set_ntstatus( NtSuspendThread( thread, &ret ))) ret = ~0U;
     return ret;

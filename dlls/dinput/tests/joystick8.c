@@ -45,7 +45,7 @@
 #define WIDL_using_Windows_Devices_Haptics
 #define WIDL_using_Windows_Gaming_Input
 #include "windows.gaming.input.h"
-#undef Size
+#include "gameinput.h"
 
 #include "initguid.h"
 
@@ -2660,7 +2660,13 @@ static void test_simple_joystick( DWORD version )
     hr = IDirectInputDevice8_Unacquire( device );
     ok( hr == DI_OK, "Unacquire returned: %#lx\n", hr );
 
-    dataformat.dwNumObjs = 4;
+
+    dataformat.dwNumObjs = 1;
+    dataformat.dwDataSize = 8;
+    objdataformat[0].pguid = NULL;
+    objdataformat[0].dwOfs = 0;
+    objdataformat[0].dwType = DIDFT_ABSAXIS | DIDFT_MAKEINSTANCE( 6 );
+    objdataformat[0].dwFlags = 0;
     hr = IDirectInputDevice8_SetDataFormat( device, &dataformat );
     ok( hr == DI_OK, "SetDataFormat returned: %#lx\n", hr );
     hr = IDirectInputDevice8_Acquire( device );
@@ -2674,6 +2680,70 @@ static void test_simple_joystick( DWORD version )
         res = WaitForSingleObject( event, 100 );
     }
     todo_wine
+    ok( res == WAIT_OBJECT_0, "WaitForSingleObject failed\n" );
+    ResetEvent( event );
+
+    send_hid_input( file, &injected_input[3], sizeof(*injected_input) );
+    res = WaitForSingleObject( event, 5000 );
+    ok( res == WAIT_OBJECT_0, "WaitForSingleObject failed\n" );
+    ResetEvent( event );
+
+    memset( buffer, 0xcd, sizeof(buffer) );
+    hr = IDirectInputDevice8_GetDeviceState( device, dataformat.dwDataSize, buffer );
+    ok( hr == DI_OK, "GetDeviceState returned: %#lx\n", hr );
+    hr = IDirectInputDevice8_Unacquire( device );
+    ok( hr == DI_OK, "Unacquire returned: %#lx\n", hr );
+    ok( ((UINT *)buffer)[0] != 0, "got %#x\n", ((UINT *)buffer)[0] );
+    ok( ((UINT *)buffer)[1] == 0, "got %#x\n", ((UINT *)buffer)[1] );
+    ok( ((UINT *)buffer)[2] == 0xcdcdcdcd, "got %#x\n", ((UINT *)buffer)[2] );
+
+
+    dataformat.dwDataSize = 128;
+    hr = IDirectInputDevice8_SetDataFormat( device, &dataformat );
+    ok( hr == DI_OK, "SetDataFormat returned: %#lx\n", hr );
+    hr = IDirectInputDevice8_Acquire( device );
+    ok( hr == DI_OK, "Unacquire returned: %#lx\n", hr );
+
+    send_hid_input( file, &injected_input[4], sizeof(*injected_input) );
+    res = WaitForSingleObject( event, 100 );
+    if (res == WAIT_TIMEOUT) /* Acquire is asynchronous */
+    {
+        send_hid_input( file, &injected_input[4], sizeof(*injected_input) );
+        res = WaitForSingleObject( event, 100 );
+    }
+    ok( res == WAIT_OBJECT_0, "WaitForSingleObject failed\n" );
+    ResetEvent( event );
+
+    send_hid_input( file, &injected_input[3], sizeof(*injected_input) );
+    res = WaitForSingleObject( event, 5000 );
+    ok( res == WAIT_OBJECT_0, "WaitForSingleObject failed\n" );
+    ResetEvent( event );
+
+    memset( buffer, 0xcd, sizeof(buffer) );
+    hr = IDirectInputDevice8_GetDeviceState( device, dataformat.dwDataSize, buffer );
+    ok( hr == DI_OK, "GetDeviceState returned: %#lx\n", hr );
+    hr = IDirectInputDevice8_Unacquire( device );
+    ok( hr == DI_OK, "Unacquire returned: %#lx\n", hr );
+    ok( ((UINT *)buffer)[0] != 0, "got %#x\n", ((UINT *)buffer)[0] );
+    ok( ((UINT *)buffer)[1] != 0, "got %#x\n", ((UINT *)buffer)[1] );
+    ok( ((UINT *)buffer)[2] != 0, "got %#x\n", ((UINT *)buffer)[2] );
+
+    objdataformat[0].dwType = DIDFT_AXIS | DIDFT_MAKEINSTANCE( 0 );
+
+
+    dataformat.dwNumObjs = 4;
+    hr = IDirectInputDevice8_SetDataFormat( device, &dataformat );
+    ok( hr == DI_OK, "SetDataFormat returned: %#lx\n", hr );
+    hr = IDirectInputDevice8_Acquire( device );
+    ok( hr == DI_OK, "Unacquire returned: %#lx\n", hr );
+
+    send_hid_input( file, &injected_input[4], sizeof(*injected_input) );
+    res = WaitForSingleObject( event, 100 );
+    if (res == WAIT_TIMEOUT) /* Acquire is asynchronous */
+    {
+        send_hid_input( file, &injected_input[4], sizeof(*injected_input) );
+        res = WaitForSingleObject( event, 100 );
+    }
     ok( res == WAIT_OBJECT_0, "WaitForSingleObject failed\n" );
     ResetEvent( event );
 
@@ -5104,7 +5174,6 @@ static void test_windows_gaming_input(void)
     ok( hr == S_OK, "get_Gamepads returned %#lx\n", hr );
     hr = IVectorView_Gamepad_get_Size( gamepads_view, &size );
     ok( hr == S_OK, "get_Size returned %#lx\n", hr );
-    todo_wine /* but Wine currently intentionally does */
     ok( size == 0, "got size %u\n", size );
     IVectorView_Gamepad_Release( gamepads_view );
     IGamepadStatics_Release( gamepad_statics );
@@ -5146,16 +5215,12 @@ static void test_windows_gaming_input(void)
     ok( hr == S_OK, "QueryInterface returned %#lx\n", hr );
 
     hr = IRawGameController2_get_DisplayName( raw_controller2, &str );
-    todo_wine
     ok( hr == S_OK, "get_DisplayName returned %#lx\n", hr );
-    if (hr == S_OK)
-    {
-        buffer = pWindowsGetStringRawBuffer( str, &length );
-        todo_wine
-        ok( !wcscmp( buffer, L"HID-compliant game controller" ),
-            "get_DisplayName returned %s\n", debugstr_wn( buffer, length ) );
-        pWindowsDeleteString( str );
-    }
+    buffer = pWindowsGetStringRawBuffer( str, &length );
+    todo_wine
+    ok( !wcscmp( buffer, L"HID-compliant game controller" ),
+        "get_DisplayName returned %s\n", debugstr_wn( buffer, length ) );
+    pWindowsDeleteString( str );
 
     hr = IRawGameController2_get_NonRoamableId( raw_controller2, &str );
     todo_wine
@@ -5250,6 +5315,23 @@ static void test_windows_gaming_input(void)
 done:
     hid_device_stop( &desc, 1 );
     cleanup_registry_keys();
+}
+
+static void test_game_input(void)
+{
+    HMODULE gameinput = LoadLibraryW( L"gameinput.dll" );
+    HRESULT (WINAPI *pGameInputCreate)( v0_IGameInput **out );
+    v0_IGameInput *gi0;
+
+    if (!gameinput || !(pGameInputCreate = (void *)GetProcAddress( gameinput, "GameInputCreate" )))
+    {
+        win_skip( "GameInputCreate not found, skipping tests.\n" );
+        return;
+    }
+
+    gi0 = (void *)0xdeadbeef;
+    todo_wine ok_hr( S_OK, pGameInputCreate( &gi0 ) );
+    if (gi0 != (void *)0xdeadbeef) ok_ret( 0, v0_IGameInput_Release( gi0 ) );
 }
 
 static HANDLE rawinput_device_added, rawinput_device_removed, rawinput_event;
@@ -5931,6 +6013,7 @@ START_TEST( joystick8 )
         test_driving_wheel_axes();
         test_rawinput( argv );
         test_windows_gaming_input();
+        test_game_input();
     }
 
 done:

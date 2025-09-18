@@ -29,6 +29,7 @@
 #define WIN32_NO_STATUS
 #include "ntgdi_private.h"
 #include "ntuser_private.h"
+#include "wine/opengl_driver.h"
 #include "wine/server.h"
 #include "wine/debug.h"
 
@@ -1146,19 +1147,16 @@ static void make_dc_dirty( struct dce *dce )
  * rectangle. In addition, pWnd->parent DCEs may need to be updated if
  * DCX_CLIPCHILDREN flag is set.
  */
-void invalidate_dce( WND *win, const RECT *extra_rect )
+void invalidate_dce( WND *win, const RECT *old_rect )
 {
     UINT context;
-    RECT window_rect;
     struct dce *dce;
 
     if (!win->parent) return;
 
-    context = set_thread_dpi_awareness_context( get_window_dpi_awareness_context( win->obj.handle ));
-    get_window_rect( win->obj.handle, &window_rect, get_thread_dpi() );
+    context = set_thread_dpi_awareness_context( get_window_dpi_awareness_context( win->handle ) );
 
-    TRACE("%p parent %p %s (%s)\n",
-          win->obj.handle, win->parent, wine_dbgstr_rect(&window_rect), wine_dbgstr_rect(extra_rect) );
+    TRACE( "%p parent %p, old_rect %s\n", win->handle, win->parent, wine_dbgstr_rect( old_rect ) );
 
     /* walk all DCEs and fixup non-empty entries */
 
@@ -1173,7 +1171,7 @@ void invalidate_dce( WND *win, const RECT *extra_rect )
             continue;  /* child window positions don't bother us */
 
         /* if DCE window is a child of hwnd, it has to be invalidated */
-        if (dce->hwnd == win->obj.handle || is_child( win->obj.handle, dce->hwnd ))
+        if (dce->hwnd == win->handle || is_child( win->handle, dce->hwnd ))
         {
             make_dc_dirty( dce );
             continue;
@@ -1182,11 +1180,26 @@ void invalidate_dce( WND *win, const RECT *extra_rect )
         /* otherwise check if the window rectangle intersects this DCE window */
         if (win->parent == dce->hwnd || is_child( win->parent, dce->hwnd ))
         {
-            RECT dce_rect, tmp;
-            get_window_rect( dce->hwnd, &dce_rect, get_thread_dpi() );
-            if (intersect_rect( &tmp, &dce_rect, &window_rect ) ||
-                (extra_rect && intersect_rect( &tmp, &dce_rect, extra_rect )))
-                make_dc_dirty( dce );
+            RECT tmp, new_window_rect, old_window_rect;
+            struct window_rects rects;
+
+            /* get the parent client-relative old/new window rects */
+            get_window_rects( win->handle, COORDS_PARENT, &rects, get_thread_dpi() );
+            old_window_rect = old_rect ? *old_rect : rects.window;
+            new_window_rect = rects.window;
+
+            /* get the DCE window rect in client-relative coordinates */
+            get_window_rects( dce->hwnd, COORDS_CLIENT, &rects, get_thread_dpi() );
+            if (win->parent != dce->hwnd)
+            {
+                /* map the window rects from parent client-relative to DCE window client-relative coordinates */
+                map_window_points( win->parent, dce->hwnd, (POINT *)&new_window_rect, 2, get_thread_dpi() );
+                map_window_points( win->parent, dce->hwnd, (POINT *)&old_window_rect, 2, get_thread_dpi() );
+            }
+
+            /* check if any of the window rects intersects with the DCE window rect */
+            if (intersect_rect( &tmp, &rects.window, &old_window_rect )) make_dc_dirty( dce );
+            else if (intersect_rect( &tmp, &rects.window, &new_window_rect )) make_dc_dirty( dce );
         }
     }
     set_thread_dpi_awareness_context( context );
@@ -1229,12 +1242,12 @@ HDC WINAPI NtUserGetDCEx( HWND hwnd, HRGN clip_rgn, DWORD flags )
     BOOL update_vis_rgn = TRUE;
     struct dce *dce;
     HWND parent;
-    LONG window_style = get_window_long( hwnd, GWL_STYLE );
+    DWORD window_style = get_window_long( hwnd, GWL_STYLE );
 
     if (!hwnd) hwnd = get_desktop_window();
     else hwnd = get_full_window_handle( hwnd );
 
-    TRACE( "hwnd %p, clip_rgn %p, flags %08x\n", hwnd, clip_rgn, (int)flags );
+    TRACE( "hwnd %p, clip_rgn %p, flags %08x\n", hwnd, clip_rgn, flags );
 
     if (!is_window(hwnd)) return 0;
 
@@ -1268,7 +1281,7 @@ HDC WINAPI NtUserGetDCEx( HWND hwnd, HRGN clip_rgn, DWORD flags )
 
     if( flags & DCX_PARENTCLIP )
     {
-        LONG parent_style = get_window_long( parent, GWL_STYLE );
+        DWORD parent_style = get_window_long( parent, GWL_STYLE );
         if( (window_style & WS_VISIBLE) && (parent_style & WS_VISIBLE) )
         {
             flags &= ~DCX_CLIPCHILDREN;
@@ -1360,7 +1373,7 @@ HDC WINAPI NtUserGetDCEx( HWND hwnd, HRGN clip_rgn, DWORD flags )
 
     if (update_vis_rgn) update_visible_region( dce );
 
-    TRACE( "(%p,%p,0x%x): returning %p%s\n", hwnd, clip_rgn, (int)flags, dce->hdc,
+    TRACE( "(%p,%p,0x%x): returning %p%s\n", hwnd, clip_rgn, flags, dce->hdc,
            update_vis_rgn ? " (updated)" : "" );
     return dce->hdc;
 }
@@ -1612,22 +1625,20 @@ static BOOL send_erase( HWND hwnd, UINT flags, HRGN client_rgn,
  *
  * Move the window bits when a window is resized, or moved within a parent window.
  */
-void move_window_bits( HWND hwnd, const RECT *visible_rect, const RECT *old_visible_rect,
-                       const RECT *window_rect, const RECT *valid_rects )
+void move_window_bits( HWND hwnd, const struct window_rects *rects, const RECT *valid_rects )
 {
-    RECT dst = valid_rects[0];
-    RECT src = valid_rects[1];
+    RECT dst = valid_rects[0], src = valid_rects[1];
 
-    if (src.left - old_visible_rect->left != dst.left - visible_rect->left ||
-        src.top - old_visible_rect->top != dst.top - visible_rect->top)
+    if (src.left - rects->visible.left != dst.left - rects->visible.left ||
+        src.top - rects->visible.top != dst.top - rects->visible.top)
     {
         UINT flags = UPDATE_NOCHILDREN | UPDATE_CLIPCHILDREN;
         HRGN rgn = get_update_region( hwnd, &flags, NULL );
         HDC hdc = NtUserGetDCEx( hwnd, rgn, DCX_CACHE | DCX_WINDOW | DCX_EXCLUDERGN );
 
         TRACE( "copying %s -> %s\n", wine_dbgstr_rect( &src ), wine_dbgstr_rect( &dst ));
-        OffsetRect( &src, -window_rect->left, -window_rect->top );
-        OffsetRect( &dst, -window_rect->left, -window_rect->top );
+        OffsetRect( &src, -rects->window.left, -rects->window.top );
+        OffsetRect( &dst, -rects->window.left, -rects->window.top );
 
         NtGdiStretchBlt( hdc, dst.left, dst.top, dst.right - dst.left, dst.bottom - dst.top,
                          hdc, src.left, src.top, src.right - src.left, src.bottom - src.top, SRCCOPY, 0 );
@@ -1846,6 +1857,20 @@ BOOL WINAPI NtUserValidateRect( HWND hwnd, const RECT *rect )
 }
 
 /***********************************************************************
+ *           NtUserValidateRgn (win32u.@)
+ */
+BOOL WINAPI NtUserValidateRgn( HWND hwnd, HRGN hrgn )
+{
+    if (!hwnd)
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_WINDOW_HANDLE );
+        return FALSE;
+    }
+
+    return NtUserRedrawWindow( hwnd, NULL, hrgn, RDW_VALIDATE );
+}
+
+/***********************************************************************
  *           NtUserGetUpdateRgn (win32u.@)
  */
 INT WINAPI NtUserGetUpdateRgn( HWND hwnd, HRGN hrgn, BOOL erase )
@@ -2056,10 +2081,13 @@ INT WINAPI NtUserScrollWindowEx( HWND hwnd, INT dx, INT dy, const RECT *rect,
     rdw_flags = (flags & SW_ERASE) && (flags & SW_INVALIDATE) ?
         RDW_INVALIDATE | RDW_ERASE  : RDW_INVALIDATE;
 
-    if (!is_window_drawable( hwnd, TRUE )) return ERROR;
     hwnd = get_full_window_handle( hwnd );
 
-    get_client_rect( hwnd, &rc, get_thread_dpi() );
+    if (!is_window_drawable( hwnd, TRUE ))
+        SetRectEmpty( &rc );
+    else
+        get_client_rect( hwnd, &rc, get_thread_dpi() );
+
     if (clip_rect) intersect_rect( &cliprc, &rc, clip_rect );
     else cliprc = rc;
 
@@ -2145,7 +2173,7 @@ INT WINAPI NtUserScrollWindowEx( HWND hwnd, INT dx, INT dy, const RECT *rect,
 
     if (flags & SW_SCROLLCHILDREN)
     {
-        HWND *list = list_window_children( 0, hwnd, NULL, 0 );
+        HWND *list = list_window_children( hwnd );
         if (list)
         {
             RECT r, dummy;
@@ -2173,7 +2201,7 @@ INT WINAPI NtUserScrollWindowEx( HWND hwnd, INT dx, INT dy, const RECT *rect,
         NtGdiDeleteObjectApp( winupd_rgn );
     }
 
-    if (move_caret) set_caret_pos( new_caret_pos.x, new_caret_pos.y );
+    if (move_caret) NtUserSetCaretPos( new_caret_pos.x, new_caret_pos.y );
     if (caret_hwnd) NtUserShowCaret( caret_hwnd );
     if (own_rgn && update_rgn) NtGdiDeleteObjectApp( update_rgn );
 

@@ -38,6 +38,7 @@ struct preproc_buffer
 {
     void *lexer_buffer;
     struct vkd3d_shader_location location;
+    bool eof;
 };
 
 struct preproc_file
@@ -60,6 +61,7 @@ struct preproc_expansion
 {
     struct preproc_buffer buffer;
     const struct preproc_text *text;
+    struct preproc_text *arg_values;
     /* Back-pointer to the macro, if this expansion a macro body. This is
      * necessary so that argument tokens can be correctly replaced. */
     struct preproc_macro *macro;
@@ -72,7 +74,6 @@ struct preproc_macro
 
     char **arg_names;
     size_t arg_count;
-    struct preproc_text *arg_values;
 
     struct preproc_text body;
 };
@@ -117,6 +118,7 @@ struct preproc_ctx
             STATE_ARGS,
         } state;
         unsigned int paren_depth;
+        struct preproc_text *arg_values;
     } text_func, directive_func;
 
     int current_directive;
@@ -124,7 +126,6 @@ struct preproc_ctx
     int lookahead_token;
 
     bool last_was_newline;
-    bool last_was_eof;
     bool last_was_defined;
 
     bool error;

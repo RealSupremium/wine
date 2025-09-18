@@ -46,6 +46,14 @@ static CRITICAL_SECTION driver_section = { &critsect_debug, -1, 0, 0, 0, 0 };
 typedef HDC (CDECL *driver_entry_point)( const WCHAR *device,
         const DEVMODEW *devmode, const WCHAR *output );
 
+static const char *debugstr_xform( const XFORM *xform )
+{
+    if (!xform) return "(null)";
+    return wine_dbg_sprintf( "matrix {%.8e %.8e} {%.8e %.8e} offset {%.8e %.8e}",
+                             xform->eM11, xform->eM12, xform->eM21, xform->eM22,
+                             xform->eDx, xform->eDy );
+}
+
 struct graphics_driver
 {
     struct list         entry;
@@ -937,6 +945,9 @@ INT WINAPI GetGraphicsMode( HDC hdc )
 INT WINAPI SetGraphicsMode( HDC hdc, INT mode )
 {
     DWORD ret;
+
+    TRACE( "dc %p mode %#x\n", hdc, mode );
+
     return NtGdiGetAndSetDCDword( hdc, NtGdiSetGraphicsMode, mode, &ret ) ? ret : 0;
 }
 
@@ -956,6 +967,8 @@ INT WINAPI SetArcDirection( HDC hdc, INT dir )
 {
     DC_ATTR *dc_attr;
     INT ret;
+
+    TRACE( "dc %p dir %#x\n", hdc, dir );
 
     if (dir != AD_COUNTERCLOCKWISE && dir != AD_CLOCKWISE)
     {
@@ -1129,7 +1142,8 @@ BOOL WINAPI SetBrushOrgEx( HDC hdc, INT x, INT y, POINT *oldorg )
  */
 BOOL WINAPI FixBrushOrgEx( HDC hdc, INT x, INT y, POINT *oldorg )
 {
-    return SetBrushOrgEx( hdc, x, y, oldorg );
+    /* From Windows 2000 this is a NOP returning FALSE */
+    return FALSE;
 }
 
 /***********************************************************************
@@ -1309,6 +1323,8 @@ BOOL WINAPI ModifyWorldTransform( HDC hdc, const XFORM *xform, DWORD mode )
 {
     DC_ATTR *dc_attr;
 
+    TRACE( "dc %p xform %s mode %#lx\n", hdc, debugstr_xform( xform ), mode );
+
     if (!(dc_attr = get_dc_attr( hdc ))) return FALSE;
     if (dc_attr->emf && !EMFDC_ModifyWorldTransform( dc_attr, xform, mode )) return FALSE;
     return NtGdiModifyWorldTransform( hdc, xform, mode );
@@ -1320,6 +1336,8 @@ BOOL WINAPI ModifyWorldTransform( HDC hdc, const XFORM *xform, DWORD mode )
 BOOL WINAPI SetWorldTransform( HDC hdc, const XFORM *xform )
 {
     DC_ATTR *dc_attr;
+
+    TRACE( "dc %p xform %s\n", hdc, debugstr_xform( xform ) );
 
     if (!(dc_attr = get_dc_attr( hdc ))) return FALSE;
     if (dc_attr->emf && !EMFDC_SetWorldTransform( dc_attr, xform )) return FALSE;
@@ -1422,17 +1440,6 @@ INT WINAPI SetROP2( HDC hdc, INT mode )
     return ret;
 }
 
-/***********************************************************************
- *           GetMiterLimit  (GDI32.@)
- */
-BOOL WINAPI GetMiterLimit( HDC hdc, FLOAT *limit )
-{
-    DC_ATTR *dc_attr;
-    if (!(dc_attr = get_dc_attr( hdc ))) return FALSE;
-    if (limit) *limit = dc_attr->miter_limit;
-    return TRUE;
-}
-
 /*******************************************************************
  *           SetMiterLimit  (GDI32.@)
  */
@@ -1442,9 +1449,7 @@ BOOL WINAPI SetMiterLimit( HDC hdc, FLOAT limit, FLOAT *old_limit )
     if (!(dc_attr = get_dc_attr( hdc ))) return FALSE;
     if (dc_attr->emf && !EMFDC_SetMiterLimit( dc_attr, limit )) return 0;
     if (limit < 1.0f) return FALSE;
-    if (old_limit) *old_limit = dc_attr->miter_limit;
-    dc_attr->miter_limit = limit;
-    return TRUE;
+    return NtGdiSetMiterLimit( hdc, *(DWORD *)&limit, old_limit );
 }
 
 /***********************************************************************
@@ -2372,15 +2377,10 @@ BOOL WINAPI ScaleWindowExtEx( HDC hdc, INT x_num, INT x_denom,
     return NtGdiScaleWindowExtEx( hdc, x_num, x_denom, y_num, y_denom, size );
 }
 
-static UINT WINAPI realize_palette( HDC hdc )
-{
-    return NtUserRealizePalette( hdc );
-}
-
 /* Pointers to USER implementation of SelectPalette/RealizePalette */
 /* they will be patched by USER on startup */
 HPALETTE (WINAPI *pfnSelectPalette)( HDC hdc, HPALETTE hpal, WORD bkgnd ) = NtUserSelectPalette;
-UINT (WINAPI *pfnRealizePalette)( HDC hdc ) = realize_palette;
+UINT (WINAPI *pfnRealizePalette)( HDC hdc ) = NtUserRealizePalette;
 
 /***********************************************************************
  *           SelectPalette    (GDI32.@)
@@ -2423,8 +2423,7 @@ BOOL WINAPI GdiSetPixelFormat( HDC hdc, INT format, const PIXELFORMATDESCRIPTOR 
  */
 BOOL WINAPI CancelDC(HDC hdc)
 {
-    FIXME( "stub\n" );
-    return TRUE;
+    return NtGdiCancelDC( hdc );
 }
 
 /***********************************************************************
