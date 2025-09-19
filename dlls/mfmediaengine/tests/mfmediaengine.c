@@ -177,6 +177,17 @@ static void check_r10g10b10a2_diff_(int line, const D3D11_MAPPED_SUBRESOURCE *ma
     ok_(__FILE__, line)(a == 3, "got alpha %u at (%u, %u)\n", a, x, y);
 }
 
+#define check_bgr_diff(a, b, c, d, e, f, g) check_bgr_diff_(__LINE__, a, b, c, d, e, f, g)
+static void check_bgr_diff_(int line, const D3D11_MAPPED_SUBRESOURCE *map_desc,
+        UINT x, UINT y, int r, int g, int b, UINT max_diff)
+{
+    UINT got = ((UINT *)map_desc->pData)[x + map_desc->RowPitch / 4u * y];
+    UINT diff = abs(b - (int)(got & 0xff))
+            + abs(g - (int)((got >> 8) & 0xff))
+            + abs(r - (int)((got >> 16) & 0xff));
+    ok_(__FILE__, line)(diff <= max_diff, "got diff %u at (%u, %u)\n", diff, x, y);
+}
+
 static void init_functions(void)
 {
     HMODULE mod;
@@ -1298,6 +1309,8 @@ static void test_TransferVideoFrame(void)
     BSTR url;
     LONGLONG pts;
 
+    static const MFARGB border = {0x3f, 0x7f, 0x1f, 0xff};
+
     stream = load_resource(L"i420-64x64.avi", L"video/avi");
 
     notify = create_transfer_notify();
@@ -1382,6 +1395,88 @@ static void test_TransferVideoFrame(void)
     ok(map_desc.RowPitch == desc.Width * 4, "got RowPitch %u\n", map_desc.RowPitch);
     res = check_rgb32_data(L"rgb32frame.bmp", map_desc.pData, map_desc.RowPitch * desc.Height, &dst_rect);
     ok(res == 0, "Unexpected %lu%% diff\n", res);
+    ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
+
+    ID3D11Texture2D_Release(texture);
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 32;
+    desc.Height = 32;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8X8_UNORM;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    desc.SampleDesc.Count = 1;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &texture);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    SetRect(&dst_rect, 0, 0, desc.Width, desc.Height);
+    hr = IMFMediaEngineEx_TransferVideoFrame(notify->media_engine, (IUnknown *)texture, NULL, &dst_rect, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)rb_texture,
+            0, 0, 0, 0, (ID3D11Resource *)texture, 0, NULL);
+
+    memset(&map_desc, 0, sizeof(map_desc));
+    hr = ID3D11DeviceContext_Map(context, (ID3D11Resource *)rb_texture, 0, D3D11_MAP_READ, 0, &map_desc);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    /* scaled down */
+    check_bgr_diff(&map_desc, 16, 2, 0xff, 0xff, 0xff, 6);
+    check_bgr_diff(&map_desc, 16, 7, 0xff, 0xff, 0, 8);
+    check_bgr_diff(&map_desc, 16, 11, 0x1, 0xff, 0xff, 6);
+    check_bgr_diff(&map_desc, 16, 16, 0x0, 0xff, 0x1, 6);
+    check_bgr_diff(&map_desc, 16, 20, 0xff, 0, 0xfe, 4);
+    check_bgr_diff(&map_desc, 16, 25, 0xfe, 0, 0, 1);
+    check_bgr_diff(&map_desc, 16, 29, 0x0, 0, 0xff, 2);
+    ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
+
+    ID3D11Texture2D_Release(texture);
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 80;
+    desc.Height = 96;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8X8_UNORM;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    desc.SampleDesc.Count = 1;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &texture);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ID3D11Texture2D_Release(rb_texture);
+    ID3D11Texture2D_GetDesc(texture, &desc);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags = 0;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &rb_texture);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    SetRect(&dst_rect, 0, 0, desc.Width, desc.Height);
+    hr = IMFMediaEngineEx_TransferVideoFrame(notify->media_engine, (IUnknown *)texture, NULL, &dst_rect, &border);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)rb_texture,
+            0, 0, 0, 0, (ID3D11Resource *)texture, 0, NULL);
+
+    memset(&map_desc, 0, sizeof(map_desc));
+    hr = ID3D11DeviceContext_Map(context, (ID3D11Resource *)rb_texture, 0, D3D11_MAP_READ, 0, &map_desc);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    /* letterbox with border colour above/below */
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 7, 0x1f, 0x7f, 0x3f, 0);
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 14, 0xff, 0xff, 0xff, 6);
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 25, 0xff, 0xff, 0, 8);
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 37, 0x1, 0xff, 0xff, 6);
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 48, 0x0, 0xff, 0x1, 6);
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 59, 0xff, 0, 0xfe, 4);
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 71, 0xfe, 0, 0, 1);
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 82, 0x0, 0, 0xff, 2);
+    todo_wine
+    check_bgr_diff(&map_desc, 40, 88, 0x1f, 0x7f, 0x3f, 0);
     ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
 
     ID3D11DeviceContext_Release(context);
