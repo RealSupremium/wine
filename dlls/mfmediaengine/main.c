@@ -2495,6 +2495,9 @@ static HRESULT get_d3d11_resource_from_sample(IMFSample *sample, ID3D11Texture2D
     return hr;
 }
 
+static HRESULT media_engine_render_d3d11(struct media_engine *engine, ID3D11Texture2D *texture,
+        const MFVideoNormalizedRect *src_rect, const RECT *dst_rect, const MFARGB *color);
+
 static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Texture2D *dst_texture,
         const MFVideoNormalizedRect *src_rect, const RECT *dst_rect, const MFARGB *color)
 {
@@ -2522,7 +2525,7 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
     hr = get_d3d11_resource_from_sample(sample, &src_texture, &subresource);
     IMFSample_Release(sample);
     if (FAILED(hr))
-        return hr;
+        return media_engine_render_d3d11(engine, dst_texture, src_rect, dst_rect, color);
 
     ID3D11Texture2D_GetDesc(src_texture, &src_desc);
     ID3D11Texture2D_GetDesc(dst_texture, &dst_desc);
@@ -2538,7 +2541,7 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
             dst_rect->top + src_box.bottom - src_box.top > dst_desc.Height)
     {
         ID3D11Texture2D_Release(src_texture);
-        return MF_E_UNEXPECTED;
+        return media_engine_render_d3d11(engine, dst_texture, src_rect, dst_rect, color);
     }
 
     if (FAILED(hr = media_engine_lock_d3d_device(engine, &device)))
@@ -2722,8 +2725,7 @@ static HRESULT WINAPI media_engine_TransferVideoFrame(IMFMediaEngineEx *iface, I
 
     if (SUCCEEDED(IUnknown_QueryInterface(surface, &IID_ID3D11Texture2D, (void **)&texture)))
     {
-        if (!engine->device_manager || FAILED(hr = media_engine_transfer_d3d11(engine, texture, src_rect, dst_rect, color)))
-            hr = media_engine_render_d3d11(engine, texture, src_rect, dst_rect, color);
+        hr = media_engine_transfer_d3d11(engine, texture, src_rect, dst_rect, color);
         ID3D11Texture2D_Release(texture);
     }
     else
