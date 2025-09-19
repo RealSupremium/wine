@@ -1459,23 +1459,14 @@ static void test_TransferVideoFrame(void)
     hr = ID3D11DeviceContext_Map(context, (ID3D11Resource *)rb_texture, 0, D3D11_MAP_READ, 0, &map_desc);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     /* letterbox with border colour above/below */
-    todo_wine
     check_bgr_diff(&map_desc, 40, 7, 0x1f, 0x7f, 0x3f, 0);
-    todo_wine
     check_bgr_diff(&map_desc, 40, 14, 0xff, 0xff, 0xff, 6);
-    todo_wine
     check_bgr_diff(&map_desc, 40, 25, 0xff, 0xff, 0, 8);
-    todo_wine
     check_bgr_diff(&map_desc, 40, 37, 0x1, 0xff, 0xff, 6);
-    todo_wine
     check_bgr_diff(&map_desc, 40, 48, 0x0, 0xff, 0x1, 6);
-    todo_wine
     check_bgr_diff(&map_desc, 40, 59, 0xff, 0, 0xfe, 4);
-    todo_wine
     check_bgr_diff(&map_desc, 40, 71, 0xfe, 0, 0, 1);
-    todo_wine
     check_bgr_diff(&map_desc, 40, 82, 0x0, 0, 0xff, 2);
-    todo_wine
     check_bgr_diff(&map_desc, 40, 88, 0x1f, 0x7f, 0x3f, 0);
     ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
 

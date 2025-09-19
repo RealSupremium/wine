@@ -2495,6 +2495,17 @@ static HRESULT get_d3d11_resource_from_sample(IMFSample *sample, ID3D11Texture2D
     return hr;
 }
 
+static BOOL transfer_needs_render_pipeline(const D3D11_TEXTURE2D_DESC *dst_desc,
+        const D3D11_BOX *src_box, const RECT *dst_rect)
+{
+    if (dst_rect->right && dst_rect->bottom
+            && (dst_rect->right - dst_rect->left != src_box->right - src_box->left
+            || dst_rect->bottom - dst_rect->top != src_box->bottom - src_box->top))
+        return TRUE;
+
+    return FALSE;
+}
+
 static HRESULT media_engine_render_d3d11(struct media_engine *engine, ID3D11Texture2D *texture,
         const MFVideoNormalizedRect *src_rect, const RECT *dst_rect, const MFARGB *color);
 
@@ -2513,10 +2524,16 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
     UINT subresource;
     HRESULT hr;
 
+    ID3D11Texture2D_GetDesc(dst_texture, &dst_desc);
+
     if (!src_rect)
         src_rect = &src_rect_default;
     if (!dst_rect)
+    {
         dst_rect = &dst_rect_default;
+        dst_rect_default.right = dst_desc.Width;
+        dst_rect_default.bottom = dst_desc.Height;
+    }
     if (!color)
         color = &color_default;
 
@@ -2528,17 +2545,15 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
         return media_engine_render_d3d11(engine, dst_texture, src_rect, dst_rect, color);
 
     ID3D11Texture2D_GetDesc(src_texture, &src_desc);
-    ID3D11Texture2D_GetDesc(dst_texture, &dst_desc);
 
-    src_box.left = src_rect->left * src_desc.Width;
-    src_box.top = src_rect->top * src_desc.Height;
+    src_box.left = src_rect->left * src_desc.Width + 0.5f;
+    src_box.top = src_rect->top * src_desc.Height + 0.5f;
     src_box.front = 0;
-    src_box.right = src_rect->right * src_desc.Width;
-    src_box.bottom = src_rect->bottom * src_desc.Height;
+    src_box.right = src_rect->right * src_desc.Width + 0.5f;
+    src_box.bottom = src_rect->bottom * src_desc.Height + 0.5f;
     src_box.back = 1;
 
-    if (dst_rect->left + src_box.right - src_box.left > dst_desc.Width ||
-            dst_rect->top + src_box.bottom - src_box.top > dst_desc.Height)
+    if (transfer_needs_render_pipeline(&dst_desc, &src_box, dst_rect))
     {
         ID3D11Texture2D_Release(src_texture);
         return media_engine_render_d3d11(engine, dst_texture, src_rect, dst_rect, color);
