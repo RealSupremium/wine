@@ -1371,11 +1371,16 @@ static BOOL flush_memory_dc( struct wgl_context *context, HDC hdc, BOOL write, v
 
                 free( temp_image );
             }
-            else
+            else if (info->bmiHeader.biBitCount == 24 || info->bmiHeader.biBitCount == 32)
             {
                 /* Normal case: 24 bpp or 32 bpp bitmap. */
-                if (write) funcs->p_glDrawPixels( width, height, GL_BGRA, GL_UNSIGNED_BYTE, bits.ptr );
-                else funcs->p_glReadPixels( 0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, bits.ptr );
+                UINT format = (info->bmiHeader.biBitCount == 24 ? GL_BGR : GL_BGRA);
+                if (write) funcs->p_glDrawPixels( width, height, format, GL_UNSIGNED_BYTE, bits.ptr );
+                else funcs->p_glReadPixels( 0, 0, width, height, format, GL_UNSIGNED_BYTE, bits.ptr );
+            }
+            else
+            {
+                WARN( "Unsupported bpp: %d", info->bmiHeader.biBitCount );
             }
         }
         GDI_ReleaseObj( dc->hBitmap );
