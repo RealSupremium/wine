@@ -2481,17 +2481,85 @@ UINT WINAPI MsiMessageBoxExW( HWND hWnd, const WCHAR *lpText, const WCHAR *lpCap
 UINT WINAPI MsiProvideAssemblyA( const char *szAssemblyName, const char *szAppContext, DWORD dwInstallMode,
                                  DWORD dwAssemblyInfo, char *lpPathBuf, DWORD *pcchPathBuf )
 {
-    FIXME( "%s, %s, %#lx, %#lx, %p, %p\n", debugstr_a(szAssemblyName), debugstr_a(szAppContext), dwInstallMode,
+    WCHAR *wAssemblyName = NULL, *wAppContext = NULL, *bufW = NULL;
+    UINT r = ERROR_OUTOFMEMORY;
+    DWORD lenW = 0;
+    int len;
+
+    TRACE( "%s, %s, %#lx, %#lx, %p, %p\n", debugstr_a(szAssemblyName), debugstr_a(szAppContext), dwInstallMode,
            dwAssemblyInfo, lpPathBuf, pcchPathBuf );
-    return ERROR_CALL_NOT_IMPLEMENTED;
+
+    if (szAssemblyName && !(wAssemblyName = strdupAtoW( szAssemblyName ))) goto done;
+    if (szAppContext && !(wAppContext = strdupAtoW( szAppContext ))) goto done;
+
+    r = MsiProvideAssemblyW(wAssemblyName, wAppContext, dwInstallMode, dwAssemblyInfo, NULL, &lenW);
+    if (r != ERROR_SUCCESS)
+        goto done;
+
+    if (!(bufW = malloc( ++lenW * sizeof(WCHAR) )))
+    {
+        r = ERROR_OUTOFMEMORY;
+        goto done;
+    }
+
+    r = MsiProvideAssemblyW(wAssemblyName, wAppContext, dwInstallMode, dwAssemblyInfo, bufW, &lenW);
+
+    len = WideCharToMultiByte( CP_ACP, 0, bufW, -1, NULL, 0, NULL, NULL );
+    if (lpPathBuf)
+    {
+        if (len > *pcchPathBuf)
+            r = ERROR_MORE_DATA;
+        else
+            WideCharToMultiByte( CP_ACP, 0, bufW, -1, lpPathBuf, *pcchPathBuf, NULL, NULL );
+    }
+
+    *pcchPathBuf = len - 1;
+
+done:
+    free( wAssemblyName );
+    free( wAppContext );
+    free( bufW );
+
+    return r;
 }
 
 UINT WINAPI MsiProvideAssemblyW( const WCHAR *szAssemblyName, const WCHAR *szAppContext, DWORD dwInstallMode,
                                  DWORD dwAssemblyInfo, WCHAR *lpPathBuf, DWORD *pcchPathBuf )
 {
-    FIXME( "%s, %s, %#lx, %#lx, %p, %p\n", debugstr_w(szAssemblyName), debugstr_w(szAppContext), dwInstallMode,
+    UINT rc;
+    BOOL win32;
+    WCHAR product[MAX_FEATURE_CHARS+1];
+    WCHAR feature[MAX_FEATURE_CHARS+1];
+    WCHAR component[MAX_FEATURE_CHARS+1];
+
+    TRACE( "%s, %s, %#lx, %#lx, %p, %p\n", debugstr_w(szAssemblyName), debugstr_w(szAppContext), dwInstallMode,
            dwAssemblyInfo, lpPathBuf, pcchPathBuf );
-    return ERROR_CALL_NOT_IMPLEMENTED;
+
+    win32 = (dwAssemblyInfo == MSIASSEMBLYINFO_WIN32ASSEMBLY);
+
+    rc = msi_lookup_published_assembly(MSIINSTALLCONTEXT_USERMANAGED, szAssemblyName, szAppContext,
+                                        win32, product, feature, component);
+
+    if (rc != ERROR_SUCCESS) {
+        rc = msi_lookup_published_assembly(MSIINSTALLCONTEXT_MACHINE, szAssemblyName, szAppContext,
+                                            win32, product, feature, component);
+    }
+
+    if (rc != ERROR_SUCCESS) {
+        rc = msi_lookup_published_assembly(MSIINSTALLCONTEXT_USERUNMANAGED, szAssemblyName, szAppContext,
+                                            win32, product, feature, component);
+    }
+
+    if (rc != ERROR_SUCCESS)
+        return rc;
+
+    if (dwInstallMode == INSTALLMODE_NODETECTION_ANY) {
+        FIXME("INSTALLMODE_NODETECTION_ANY currently behave the same way "
+              "as INSTALLMODE_NODETECTION\n");
+        dwInstallMode = INSTALLMODE_NODETECTION;
+    }
+
+    return MsiProvideComponentW(product, feature, component, dwInstallMode, lpPathBuf, pcchPathBuf);
 }
 
 UINT WINAPI MsiProvideComponentFromDescriptorA( LPCSTR szDescriptor,
