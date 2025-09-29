@@ -1391,8 +1391,11 @@ static BOOL guid_from_string(LPCWSTR s, GUID *id)
 
     if (!s || s[0] != '{')
     {
-        memset(id, 0, sizeof(*id));
-        if (!s) return TRUE;
+        if (!s)
+        {
+            memset(id, 0, sizeof(*id));
+            return TRUE;
+        }
         return FALSE;
     }
 
