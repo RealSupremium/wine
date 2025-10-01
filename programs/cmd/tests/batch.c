@@ -112,7 +112,7 @@ static BOOL run_cmd(const char *res_name, const char *cmd_data, DWORD cmd_size)
     char *command;
     STARTUPINFOA si = {sizeof(si)};
     PROCESS_INFORMATION pi;
-    HANDLE file,fileerr;
+    HANDLE file,fileerr,filenul;
     DWORD size;
     BOOL bres;
 
@@ -143,9 +143,16 @@ static BOOL run_cmd(const char *res_name, const char *cmd_data, DWORD cmd_size)
     if(fileerr == INVALID_HANDLE_VALUE)
         return FALSE;
 
+    filenul = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_WRITE|FILE_SHARE_READ, &sa, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, NULL);
+    ok(filenul != INVALID_HANDLE_VALUE, "CreateFile stdin failed\n");
+    if(filenul == INVALID_HANDLE_VALUE)
+        return FALSE;
+
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = file;
     si.hStdError = fileerr;
+    si.hStdInput = filenul;
     bres = CreateProcessA(NULL, command, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
     ok(bres, "CreateProcess failed: %lu\n", GetLastError());
     if(!bres) {
@@ -158,6 +165,7 @@ static BOOL run_cmd(const char *res_name, const char *cmd_data, DWORD cmd_size)
     CloseHandle(pi.hProcess);
     CloseHandle(file);
     CloseHandle(fileerr);
+    CloseHandle(filenul);
     DeleteFileA(command);
     return TRUE;
 }

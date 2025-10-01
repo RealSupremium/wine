@@ -538,7 +538,7 @@ FAILURE 1
 --- success/failure for COPY command
 FAILURE 1
 SUCCESS 0
-FAILURE 1
+@todo_wine@SUCCESS 0
 FAILURE 1
 FAILURE 1
 --- success/failure for MOVE command
@@ -639,7 +639,7 @@ SUCCESS 0
 FAILURE 1
 FAILURE 1
 --- success/failure for LABEL command
-FAILURE 1
+@todo_wine@SUCCESS 0
 --- success/failure for PATH command
 SUCCESS 0
 SUCCESS 0
@@ -683,18 +683,18 @@ FAILURE 1
 SUCCESS 666
 SUCCESS 666
 --- success/failure for CHOICE command
-FAILURE 1
-FAILURE 1
+@todo_wine@FAILURE 255
+@todo_wine@FAILURE 255
 FAILURE 2
-FAILURE 1
+@todo_wine@FAILURE 255
 --- success/failure for MORE command
-SUCCESS 0
-SUCCESS 0
+@todo_wine@FAILURE 1
+@todo_wine@FAILURE 1
 foo@space@
 
 SUCCESS 0
 --- success/failure for PAUSE command
-FAILURE 1
+@todo_wine@SUCCESS 666
 ---
 --------- success/failure when invoking cmd /c --------------
 a
@@ -1708,10 +1708,10 @@ a
 a b c
 ------------ Testing del ------------
 deleting 'file'
-errorlevel is 0, good
+0
 successfully deleted 'file'
 attempting to delete 'file', even though it is not present
-errorlevel is 0, good
+@todo_wine@0
 ------------ Testing del /a ------------
 not-r.test not found after delete, good
 r.test found before delete, good
@@ -1986,33 +1986,33 @@ file correctly deleted
 --- a batch file can alter itself
 bar
 ---------- Testing copy
-Passed: Did not find file1 in COPY output
+line file1 errorlevel 1 expected 1
 Passed: Found expected dummy.file
-Passed: Did not find file1 in COPY output
+line file1 errorlevel 1 expected 1
 Passed: Found expected dir1\file1
-Passed: Did not find file1 in COPY output
+line file1 errorlevel 1 expected 1
 Passed: Found expected dir1\file1
-Passed: Did not find file1 in COPY output
+line file1 errorlevel 1 expected 1
 Passed: Found expected dir1\file99
-Passed: Did not find file1 in COPY output
+line file1 errorlevel 1 expected 1
 Passed: Found expected file1
 Passed: Did not find dir2
 Passed: Did not find dir2\file1
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
 Passed: Found expected dir1\file1
 Passed: Found expected dir1\file2
 Passed: Found expected dir1\file3
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
 Passed: Found expected dir1\file1
 Passed: Found expected dir1\file2
 Passed: Found expected dir1\file3
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
 Passed: Found expected file1
 Passed: Found expected file2
 Passed: Found expected file3
@@ -2020,42 +2020,42 @@ Passed: Did not find dir2
 Passed: Did not find dir2\file1
 Passed: Did not find dir2\file2
 Passed: Did not find dir2\file3
-Passed: Did not find file2 in COPY output
+line file2 errorlevel 1 expected 1
 Passed: Found expected testfile
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
 Passed: Found expected testfile
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
 Passed: Found expected testfile
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
-Passed: Found expected fred in COPY output
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
+line fred errorlevel 0 expected 0
 Passed: Found expected testfile
-Passed: Found expected fred in COPY output
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
+line fred errorlevel 0 expected 0
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
 Passed: Found expected testfile
-Passed: Found expected fred in COPY output
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
+line fred errorlevel 0 expected 0
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
 Passed: Found expected dir1\fred
-Passed: Found expected fred in COPY output
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
+line fred errorlevel 0 expected 0
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
 Passed: Found expected dir1\fred
-Passed: Found expected fred in COPY output
-Passed: Found expected file1 in COPY output
-Passed: Found expected file2 in COPY output
-Passed: Found expected file3 in COPY output
+line fred errorlevel 0 expected 0
+line file1 errorlevel 0 expected 0
+line file2 errorlevel 0 expected 0
+line file3 errorlevel 0 expected 0
 Passed: Found expected fred
-Passed: Found expected fred in COPY output
-Passed: Found expected file1 in COPY output
+line fred errorlevel 0 expected 0
+line file1 errorlevel 0 expected 0
 Passed: Found expected fred
 Passed: file size check on file1 [5]@or_broken@Skipping file size check on NT4
 Passed: file size check on file2 [8]@or_broken@Skipping file size check on NT4
