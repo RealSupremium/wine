@@ -78,6 +78,14 @@ enum tagPROPVAR_COMPARE_FLAGS
 
 typedef int PROPVAR_COMPARE_FLAGS;
 
+enum tagPSTIME_FLAGS
+{
+    PSTF_UTC   = 0x00000000,
+    PSTF_LOCAL = 0x00000001,
+};
+
+typedef int PSTIME_FLAGS;
+
 PSSTDAPI PropVariantChangeType(PROPVARIANT *ppropvarDest, REFPROPVARIANT propvarSrc,
                                      PROPVAR_CHANGE_FLAGS flags, VARTYPE vt);
 PSSTDAPI InitPropVariantFromGUIDAsString(REFGUID guid, PROPVARIANT *ppropvar);
@@ -86,7 +94,6 @@ PSSTDAPI InitVariantFromGUIDAsString(REFGUID guid, VARIANT *pvar);
 PSSTDAPI InitPropVariantFromBuffer(const VOID *pv, UINT cb, PROPVARIANT *ppropvar);
 PSSTDAPI InitPropVariantFromCLSID(REFCLSID clsid, PROPVARIANT *ppropvar);
 PSSTDAPI InitVariantFromBuffer(const VOID *pv, UINT cb, VARIANT *pvar);
-PSSTDAPI PropVariantToGUID(const PROPVARIANT *ppropvar, GUID *guid);
 PSSTDAPI VariantToGUID(const VARIANT *pvar, GUID *guid);
 PSSTDAPI_(INT) PropVariantCompareEx(REFPROPVARIANT propvar1, REFPROPVARIANT propvar2,
                                 PROPVAR_COMPARE_UNIT uint, PROPVAR_COMPARE_FLAGS flags);
@@ -94,14 +101,18 @@ PSSTDAPI InitPropVariantFromFileTime(const FILETIME *pftIn, PROPVARIANT *ppropva
 PSSTDAPI InitPropVariantFromStringVector(PCWSTR *strs, ULONG count, PROPVARIANT *ppropvar);
 
 PSSTDAPI PropVariantToDouble(REFPROPVARIANT propvarIn, double *ret);
+PSSTDAPI PropVariantToFileTime(REFPROPVARIANT propvar, PSTIME_FLAGS flags, FILETIME *out);
+PSSTDAPI PropVariantToGUID(const PROPVARIANT *ppropvar, GUID *guid);
 PSSTDAPI PropVariantToInt16(REFPROPVARIANT propvarIn, SHORT *ret);
 PSSTDAPI PropVariantToInt32(REFPROPVARIANT propvarIn, LONG *ret);
 PSSTDAPI PropVariantToInt64(REFPROPVARIANT propvarIn, LONGLONG *ret);
 PSSTDAPI PropVariantToUInt16(REFPROPVARIANT propvarIn, USHORT *ret);
 PSSTDAPI PropVariantToUInt32(REFPROPVARIANT propvarIn, ULONG *ret);
+PSSTDAPI PropVariantToUInt32Vector(REFPROPVARIANT propvar, ULONG *buffer, ULONG size, ULONG *count);
 PSSTDAPI_(ULONG) PropVariantToUInt32WithDefault(REFPROPVARIANT propvarIn, ULONG uLDefault);
 PSSTDAPI PropVariantToUInt64(REFPROPVARIANT propvarIn, ULONGLONG *ret);
 PSSTDAPI PropVariantToBoolean(REFPROPVARIANT propvarIn, BOOL *ret);
+PSSTDAPI PropVariantToBSTR(REFPROPVARIANT propvar, BSTR *bstr);
 PSSTDAPI PropVariantToBuffer(REFPROPVARIANT propvarIn, void *ret, UINT cb);
 PSSTDAPI PropVariantToString(REFPROPVARIANT propvarIn, PWSTR ret, UINT cch);
 PSSTDAPI_(PCWSTR) PropVariantToStringWithDefault(REFPROPVARIANT propvarIn, LPCWSTR pszDefault);
@@ -112,6 +123,8 @@ PSSTDAPI PropVariantToStringAlloc(REFPROPVARIANT propvarIn, WCHAR **ret);
 
 PSSTDAPI PropVariantToVariant(const PROPVARIANT *propvar, VARIANT *var);
 PSSTDAPI VariantToPropVariant(const VARIANT* var, PROPVARIANT* propvar);
+
+PSSTDAPI PropVariantGetStringElem(const PROPVARIANT *propvar, ULONG idx, WCHAR **ret);
 
 #ifdef __cplusplus
 

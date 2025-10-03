@@ -87,7 +87,7 @@ void PerfDataRefresh(void)
     LPBYTE                            SysHandleInfoData;
     SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION *SysProcessorTimeInfo;
     double                            CurrentKernelTime;
-
+    ULONG nprocs = NtCurrentTeb()->Peb->NumberOfProcessors;
 
     /* Get new system time */
     status = NtQuerySystemInformation(SystemTimeOfDayInformation, &SysTimeInfo, sizeof(SysTimeInfo), 0);
@@ -105,10 +105,9 @@ void PerfDataRefresh(void)
         return;
 
     /* Get processor time information */
-    SysProcessorTimeInfo = HeapAlloc(GetProcessHeap(), 0,
-            sizeof(*SysProcessorTimeInfo) * SystemBasicInfo.NumberOfProcessors);
+    SysProcessorTimeInfo = HeapAlloc(GetProcessHeap(), 0, sizeof(*SysProcessorTimeInfo) * nprocs);
     status = NtQuerySystemInformation(SystemProcessorPerformanceInformation, SysProcessorTimeInfo,
-            sizeof(*SysProcessorTimeInfo) * SystemBasicInfo.NumberOfProcessors, &ulSize);
+            sizeof(*SysProcessorTimeInfo) * nprocs, &ulSize);
     if (status != NO_ERROR) {
         HeapFree(GetProcessHeap(), 0, SysProcessorTimeInfo);
         return;
@@ -174,7 +173,7 @@ void PerfDataRefresh(void)
     memcpy(&SystemHandleInfo, SysHandleInfoData, sizeof(SYSTEM_HANDLE_INFORMATION));
     HeapFree(GetProcessHeap(), 0, SysHandleInfoData);
     
-    for (CurrentKernelTime=0, Idx=0; Idx<SystemBasicInfo.NumberOfProcessors; Idx++) {
+    for (CurrentKernelTime=0, Idx=0; Idx<nprocs; Idx++) {
         CurrentKernelTime += Li2Double(SystemProcessorTimeInfo[Idx].KernelTime);
         CurrentKernelTime += Li2Double(SystemProcessorTimeInfo[Idx].Reserved1[0]);
         CurrentKernelTime += Li2Double(SystemProcessorTimeInfo[Idx].Reserved1[1]);
@@ -192,8 +191,8 @@ void PerfDataRefresh(void)
         dbKernelTime = dbKernelTime / dbSystemTime;
         
         /*  CurrentCpuUsage% = 100 - (CurrentCpuIdle * 100) / NumberOfProcessors */
-        dbIdleTime = 100.0 - dbIdleTime * 100.0 / (double)SystemBasicInfo.NumberOfProcessors; /* + 0.5; */
-        dbKernelTime = 100.0 - dbKernelTime * 100.0 / (double)SystemBasicInfo.NumberOfProcessors; /* + 0.5; */
+        dbIdleTime = 100.0 - dbIdleTime * 100.0 / (double)nprocs; /* + 0.5; */
+        dbKernelTime = 100.0 - dbKernelTime * 100.0 / (double)nprocs; /* + 0.5; */
     }
 
     /* Store new CPU's idle and system time */
@@ -249,7 +248,7 @@ void PerfDataRefresh(void)
             double    CurTime = Li2Double(pSPI->KernelTime) + Li2Double(pSPI->UserTime);
             double    OldTime = Li2Double(pPDOld->KernelTime) + Li2Double(pPDOld->UserTime);
             double    CpuTime = (CurTime - OldTime) / dbSystemTime;
-            CpuTime = CpuTime * 100.0 / (double)SystemBasicInfo.NumberOfProcessors; /* + 0.5; */
+            CpuTime = CpuTime * 100.0 / (double)nprocs; /* + 0.5; */
             pPerfData[Idx].CPUUsage = (ULONG)CpuTime;
         }
 
@@ -322,7 +321,6 @@ ULONG PerfDataGetProcessorSystemUsage(void)
 
 BOOL PerfDataGetImageName(ULONG Index, LPWSTR lpImageName, int nMaxCount)
 {
-    static const WCHAR proc32W[] = {' ','*','3','2',0};
     BOOL    bSuccessful;
 
     EnterCriticalSection(&PerfDataCriticalSection);
@@ -330,8 +328,8 @@ BOOL PerfDataGetImageName(ULONG Index, LPWSTR lpImageName, int nMaxCount)
     if (Index < ProcessCount) {
         lstrcpynW(lpImageName, pPerfData[Index].ImageName, nMaxCount);
         if (pPerfData[Index].Wow64Process &&
-            nMaxCount - lstrlenW(lpImageName) > 4 /* =lstrlenW(proc32W) */)
-            lstrcatW(lpImageName, proc32W);
+            nMaxCount - lstrlenW(lpImageName) > 4 /* =lstrlenW(L" *32") */)
+            lstrcatW(lpImageName, L" *32");
         bSuccessful = TRUE;
     } else {
         bSuccessful = FALSE;

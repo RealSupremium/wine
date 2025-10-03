@@ -57,6 +57,9 @@ HRESULT DP_MSG_ForwardPlayerCreation( IDirectPlayImpl *This, DPID dpidServer, WC
 HRESULT DP_MSG_SendCreatePlayer( IDirectPlayImpl *This, DPID toId, DPID id, DWORD flags,
                                  DPNAME *name, void *playerData, DWORD playerDataSize,
                                  DPID systemPlayerId );
+HRESULT DP_MSG_SendAddPlayerToGroup( IDirectPlayImpl *This, DPID toId, DPID playerId,
+                                     DPID groupId );
+HRESULT DP_MSG_SendPingReply( IDirectPlayImpl *This, DPID toId, DPID fromId, DWORD tickCount );
 HRESULT DP_MSG_SendAddForwardAck( IDirectPlayImpl *This, DPID id );
 
 void DP_MSG_ReplyReceived( IDirectPlayImpl *This, WORD wCommandId,
@@ -71,7 +74,7 @@ void DP_MSG_ToSelf( IDirectPlayImpl *This, DPID dpidSelf );
 #define DPMSG_DEFAULT_WAIT_TIME DPMSG_WAIT_30_SECS
 
 /* Message types etc. */
-#include "pshpack1.h"
+#pragma pack(push,1)
 
 typedef struct
 {
@@ -102,12 +105,14 @@ typedef struct
 #define DPMSGCMD_SYSTEMMESSAGE        10
 #define DPMSGCMD_DELETEPLAYER         11
 #define DPMSGCMD_DELETEGROUP          12
+#define DPMSGCMD_ADDPLAYERTOGROUP     13
 
-#define DPMSGCMD_ENUMGROUPS           17
+#define DPMSGCMD_GROUPDATACHANGED     17
 
 #define DPMSGCMD_FORWARDADDPLAYER     19
 
-#define DPMSGCMD_PLAYERCHAT           22
+#define DPMSGCMD_PING                 22
+#define DPMSGCMD_PINGREPLY            23
 
 #define DPMSGCMD_FORWARDADDPLAYERNACK 36
 
@@ -229,6 +234,25 @@ typedef struct tagDPMSG_NEWPLAYERIDREPLY
 } DPMSG_NEWPLAYERIDREPLY, *LPDPMSG_NEWPLAYERIDREPLY;
 typedef const DPMSG_NEWPLAYERIDREPLY* LPCDPMSG_NEWPLAYERIDREPLY;
 
+typedef struct
+{
+  DPMSG_SENDENVELOPE envelope;
+  DPID toId;
+  DPID playerId;
+  DPID groupId;
+  DWORD createOffset;
+  DWORD passwordOffset;
+} DPSP_MSG_ADDPLAYERTOGROUP;
+
+typedef struct
+{
+  DPMSG_SENDENVELOPE envelope;
+  DPID toId;
+  DPID groupId;
+  DWORD dataSize;
+  DWORD dataOffset;
+} DPSP_MSG_GROUPDATACHANGED;
+
 typedef struct tagDPMSG_FORWARDADDPLAYER
 {
   DPMSG_SENDENVELOPE envelope;
@@ -271,6 +295,13 @@ typedef struct
 typedef struct
 {
   DPMSG_SENDENVELOPE envelope;
+  DPID fromId;
+  DWORD tickCount;
+} DPSP_MSG_PING;
+
+typedef struct
+{
+  DPMSG_SENDENVELOPE envelope;
   HRESULT error;
 } DPSP_MSG_ADDFORWARDREPLY;
 
@@ -302,6 +333,6 @@ typedef struct
   DPID id;
 } DPSP_MSG_ADDFORWARDACK;
 
-#include "poppack.h"
+#pragma pack(pop)
 
 #endif

@@ -4733,6 +4733,7 @@ BOOL WINAPI UrlIsA(const char *url, URLIS Urlis)
         return scheme_is_opaque( base.nScheme );
 
     case URLIS_FILEURL:
+        if (strlen(url) < 5) return FALSE;
         return (CompareStringA(LOCALE_INVARIANT, NORM_IGNORECASE, url, 5, "file:", 5) == CSTR_EQUAL);
 
     case URLIS_DIRECTORY:
@@ -5060,13 +5061,14 @@ HRESULT WINAPI UrlCombineW(const WCHAR *baseW, const WCHAR *relativeW, WCHAR *co
                 process_case = 1;
                 break;
             }
-            if (relativeW[0] == '/' && relativeW[1] == '/')
+            if ((relativeW[0] == '/' || relativeW[0] == '\\') &&
+                    (relativeW[1] == '/' || relativeW[1] == '\\'))
             {
                 /* Relative has location and the rest. */
                 process_case = 3;
                 break;
             }
-            if (*relativeW == '/')
+            if (*relativeW == '/' || *relativeW == '\\')
             {
                 /* Relative is root to location. */
                 process_case = 4;

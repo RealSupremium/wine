@@ -31,11 +31,38 @@ static DWORD path_len;
 static char shortpath[MAX_PATH];
 static DWORD shortpath_len;
 
+static BOOL parse_hexadecimal(const char *p, char *dest)
+{
+    unsigned char c;
+    if (*p++ != '@')  return FALSE;
+    if (*p++ != '\\') return FALSE;
+    if (*p++ != 'x')  return FALSE;
+
+    if (*p >= '0' && *p <= '9') c = *p - '0';
+    else if (*p >= 'a' && *p <= 'f') c = *p - 'a' + 10;
+    else if (*p >= 'A' && *p <= 'F') c = *p - 'A' + 10;
+    else return FALSE;
+    p++;
+
+    c <<= 4;
+
+    if (*p >= '0' && *p <= '9') c += *p - '0';
+    else if (*p >= 'a' && *p <= 'f') c += *p - 'a' + 10;
+    else if (*p >= 'A' && *p <= 'F') c += *p - 'A' + 10;
+    else return FALSE;
+    p++;
+
+    if (*p != '@') return FALSE;
+    *dest = (char)c;
+    return TRUE;
+}
+
 /* Convert to DOS line endings, and substitute escaped whitespace chars with real ones */
 static const char* convert_input_data(const char *data, DWORD size, DWORD *new_size)
 {
     static const char escaped_space[] = {'@','s','p','a','c','e','@'};
     static const char escaped_tab[]   = {'@','t','a','b','@'};
+    static const char escaped_hexadecimal[] = {'@','\\','x','.','.','@'};
     DWORD i, eol_count = 0;
     char *ptr, *new_data;
 
@@ -60,6 +87,10 @@ static const char* convert_input_data(const char *data, DWORD size, DWORD *new_s
                         && !memcmp(data + i, escaped_tab, sizeof(escaped_tab))) {
                     *ptr++ = '\t';
                     i += sizeof(escaped_tab) - 1;
+                } else if (data + i + sizeof(escaped_hexadecimal) - 1 < data + size
+                        && parse_hexadecimal(data + i, ptr)) {
+                    ptr++;
+                    i += sizeof(escaped_hexadecimal) - 1;
                 } else {
                     *ptr++ = data[i];
                 }
@@ -482,24 +513,6 @@ static int cmd_available(void)
     return FALSE;
 }
 
-void create_nul_test_file(void)
-{
-    HANDLE file;
-    DWORD size;
-    BOOL bres;
-    char contents[] = "a b c\nd e\0f\ng h i";
-
-    file = CreateFileA("nul_test_file", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL, NULL);
-    ok(file != INVALID_HANDLE_VALUE, "CreateFile failed\n");
-    if(file == INVALID_HANDLE_VALUE)
-        return;
-
-    bres = WriteFile(file, contents, ARRAYSIZE(contents), &size, NULL);
-    ok(bres, "Could not write to file: %lu\n", GetLastError());
-    CloseHandle(file);
-}
-
 START_TEST(batch)
 {
     int argc;
@@ -524,13 +537,9 @@ START_TEST(batch)
     }
     shortpath_len = GetShortPathNameA(path, shortpath, ARRAY_SIZE(shortpath));
 
-    create_nul_test_file();
-
     argc = winetest_get_mainargs(&argv);
     if(argc > 2)
         run_from_file(argv[2]);
     else
         EnumResourceNamesA(NULL, "TESTCMD", test_enum_proc, 0);
-
-    DeleteFileA("nul_test_file");
 }

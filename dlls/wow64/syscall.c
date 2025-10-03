@@ -92,6 +92,7 @@ struct user_apc_frame
 SYSTEM_DLL_INIT_BLOCK *pLdrSystemDllInitBlock = NULL;
 
 static WOW64INFO *wow64info;
+static WORD ss32_sel;
 
 /* cpu backend dll functions */
 /* the function prototypes most likely differ from Windows */
@@ -124,7 +125,7 @@ BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, void *reserved )
     return TRUE;
 }
 
-void __cdecl __wine_spec_unimplemented_stub( const char *module, const char *function )
+void __cdecl DECLSPEC_NORETURN __wine_spec_unimplemented_stub( const char *module, const char *function )
 {
     EXCEPTION_RECORD record;
 
@@ -138,6 +139,13 @@ void __cdecl __wine_spec_unimplemented_stub( const char *module, const char *fun
     for (;;) RtlRaiseException( &record );
 }
 
+static void DECLSPEC_NORETURN stub_syscall( const char *name )
+{
+    __wine_spec_unimplemented_stub( "ntdll", name );
+}
+
+#define SYSCALL_STUB(name) NTSTATUS WINAPI wow64_ ## name( UINT *args ) { stub_syscall( #name ); }
+ALL_SYSCALL_STUBS
 
 static EXCEPTION_RECORD *exception_record_32to64( const EXCEPTION_RECORD32 *rec32 )
 {
@@ -203,7 +211,7 @@ static void __attribute__((used)) call_user_exception_dispatcher( EXCEPTION_RECO
             } *stack;
             I386_CONTEXT ctx = { CONTEXT_I386_ALL };
             CONTEXT_EX *context_ex, *src_ex = NULL;
-            ULONG flags, context_length;
+            ULONG esp, flags, context_length;
 
             C_ASSERT( offsetof(struct exc_stack_layout32, context) == 0x58 );
 
@@ -231,7 +239,8 @@ static void __attribute__((used)) call_user_exception_dispatcher( EXCEPTION_RECO
 
             RtlGetExtendedContextLength( flags, &context_length );
 
-            stack = (struct exc_stack_layout32 *)ULongToPtr( (ctx.Esp - offsetof(struct exc_stack_layout32, context) - context_length) & ~3 );
+            esp = ctx.SegSs != ss32_sel ? NtCurrentTeb32()->SystemReserved1[0] : ctx.Esp;
+            stack = (struct exc_stack_layout32 *)ULongToPtr( (esp - offsetof(struct exc_stack_layout32, context) - context_length) & ~3 );
             stack->rec_ptr     = PtrToUlong( &stack->rec );
             stack->context_ptr = PtrToUlong( &stack->context );
             stack->rec         = *rec;
@@ -489,24 +498,39 @@ NTSTATUS WINAPI wow64_NtClose( UINT *args )
 
 
 /**********************************************************************
- *           wow64_NtContinue
+ *           wow64_NtContinueEx
  */
-NTSTATUS WINAPI wow64_NtContinue( UINT *args )
+NTSTATUS WINAPI wow64_NtContinueEx( UINT *args )
 {
     void *context = get_ptr( &args );
-    BOOLEAN alertable = get_ulong( &args );
+    KCONTINUE_ARGUMENT *cont_args = get_ptr( &args );
 
     NTSTATUS status = get_context_return_value( context );
     struct user_apc_frame *frame = NtCurrentTeb()->TlsSlots[WOW64_TLS_APCLIST];
+    BOOL alertable;
 
     pBTCpuSetContext( GetCurrentThread(), GetCurrentProcess(), NULL, context );
 
     while (frame && frame->wow_context != context) frame = frame->prev_frame;
     NtCurrentTeb()->TlsSlots[WOW64_TLS_APCLIST] = frame ? frame->prev_frame : NULL;
-    if (frame) NtContinue( frame->context, alertable );
+    if (frame) NtContinueEx( frame->context, cont_args );
+
+    if ((UINT_PTR)cont_args > 0xff)
+        alertable = cont_args->ContinueFlags & KCONTINUE_FLAG_TEST_ALERT;
+    else
+        alertable = !!cont_args;
 
     if (alertable) NtTestAlert();
     return status;
+}
+
+
+/**********************************************************************
+ *           wow64_NtContinue
+ */
+NTSTATUS WINAPI wow64_NtContinue( UINT *args )
+{
+    return wow64_NtContinueEx( args );
 }
 
 
@@ -856,6 +880,13 @@ static DWORD WINAPI process_init( RTL_RUN_ONCE *once, void *param, void **contex
     *p__wine_unix_call_dispatcher = PtrToUlong( p__wine_get_unix_opcode() );
 
     if (wow64info->CpuFlags & WOW64_CPUFLAGS_SOFTWARE) create_cross_process_work_list( wow64info );
+
+    if (current_machine == IMAGE_FILE_MACHINE_I386)
+    {
+        I386_CONTEXT ctx = { CONTEXT_I386_CONTROL };
+        RtlWow64GetThreadContext( GetCurrentThread(), &ctx );
+        ss32_sel = ctx.SegSs;
+    }
 
     init_file_redirects();
     return TRUE;
@@ -1306,7 +1337,7 @@ __ASM_GLOBAL_FUNC( Wow64PrepareForException,
                    "je 1f\n\t"                   /* already in 64-bit mode? */
                    /* copy arguments to 64-bit stack */
                    "mov %rsp,%rsi\n\t"
-                   "mov 0x98(%rdx),%rcx\n\t"     /* context->Rsp */
+                   "leaq 0x5c0(%rdx),%rcx\n\t"   /* cf. KiUserExceptionDispatcher */
                    "sub %rsi,%rcx\n\t"           /* stack size */
                    "sub %rcx,%r14\n\t"           /* reserve same size on 64-bit stack */
                    "and $~0x0f,%r14\n\t"

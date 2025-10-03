@@ -32,6 +32,10 @@
 #include <wsnwlink.h>
 #include <mswsock.h>
 #include <mstcpip.h>
+#include <bthsdpdef.h>
+#include <bluetoothapis.h>
+#include <bthdef.h>
+#include <ws2bth.h>
 #include <stdio.h>
 #include "wine/test.h"
 
@@ -3379,8 +3383,7 @@ static void test_WSASocket(void)
     {
         SetLastError( 0xdeadbeef );
         sock = WSASocketA( tests[i].family, tests[i].type, tests[i].protocol, NULL, 0, 0 );
-        todo_wine_if (i == 7)
-            ok(WSAGetLastError() == tests[i].error, "Test %u: got wrong error %u\n", i, WSAGetLastError());
+        ok(WSAGetLastError() == tests[i].error, "Test %u: got wrong error %u\n", i, WSAGetLastError());
         if (tests[i].error)
         {
             ok(sock == INVALID_SOCKET, "Test %u: expected failure\n", i);
@@ -3712,6 +3715,51 @@ static void test_WSASocket(void)
           closesocket(sock);
         }
     }
+
+    /* Bluetooth RFCOMM socket tests */
+    SetLastError(0xdeadbeef);
+    sock = WSASocketA(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM, NULL, 0, 0);
+    if (sock == INVALID_SOCKET)
+    {
+        err = WSAGetLastError();
+        ok(err == WSAEAFNOSUPPORT || err == WSAEPROTONOSUPPORT, "got error %d\n", err);
+        skip("Bluetooth is not supported\n");
+    }
+    else
+    {
+        WSAPROTOCOL_INFOA info;
+        closesocket(sock);
+
+        sock = WSASocketA(0, SOCK_STREAM, BTHPROTO_RFCOMM, NULL, 0, 0 );
+        ok(sock != INVALID_SOCKET, "Failed to create socket: %d\n", WSAGetLastError());
+
+        size = sizeof(socktype);
+        socktype = 0xdead;
+        err = getsockopt(sock, SOL_SOCKET, SO_TYPE, (char *) &socktype, &size);
+        ok(!err,"getsockopt failed with %d\n", WSAGetLastError());
+        ok(socktype == SOCK_STREAM, "Wrong socket type, expected %d received %d\n",
+           SOCK_STREAM, socktype);
+
+        size = sizeof(WSAPROTOCOL_INFOA);
+        err = getsockopt(sock, SOL_SOCKET, SO_PROTOCOL_INFOA, (char *) &info, &size);
+        ok(!err,"getsockopt failed with %d\n", WSAGetLastError());
+        ok(info.iProtocol == BTHPROTO_RFCOMM, "expected protocol %d, received %d\n",
+           BTHPROTO_RFCOMM, info.iProtocol);
+        ok(info.iAddressFamily == AF_BTH, "expected family %d, received %d\n",
+           AF_IPX, info.iProtocol);
+        ok(info.iSocketType == SOCK_STREAM, "expected type %d, received %d\n",
+           SOCK_DGRAM, info.iSocketType);
+        closesocket(sock);
+
+        /* SOCK_DGRAM is not supported by Bluetooth */
+        SetLastError(0xdeadbeef);
+        ok(WSASocketA(AF_BTH, SOCK_DGRAM, BTHPROTO_RFCOMM, NULL, 0, 0) == INVALID_SOCKET,
+           "WSASocketA should have failed\n");
+        err = WSAGetLastError();
+        ok(err == WSAEAFNOSUPPORT, "Expected 10047, received %d\n", err);
+
+        closesocket(sock);
+    }
 }
 
 static void test_WSADuplicateSocket(void)
@@ -4012,8 +4060,11 @@ static void test_WSAConnectByName(void)
     ret = WSAConnectByNameA(s, "winehq.org", "https", NULL, NULL, NULL, NULL, NULL, NULL);
     err = WSAGetLastError();
     ok(!ret, "WSAConnectByNameA should have failed\n");
-    ok(err == WSAEINVAL || err == WSAEFAULT, "expected error %u (WSAEINVAL) or %u (WSAEFAULT), got %u\n",
-       WSAEINVAL, WSAEFAULT, err); /* WSAEFAULT win10 >= 1809 */
+    ok(err == WSAEINVAL ||
+       err == WSAEFAULT ||   /* win10 >= 1809 */
+       err == WSAEOPNOTSUPP, /* win7, win8, win10 <= 1507 */
+       "expected error %u (WSAEINVAL) or %u (WSAEFAULT) or %u (WSAEOPNOTSUPP), got %u\n",
+       WSAEINVAL, WSAEFAULT, WSAEOPNOTSUPP, err);
     closesocket(s);
 
     /* Passing non-null as the reserved parameter */
@@ -8062,6 +8113,7 @@ static void test_write_watch(void)
     ok( count == 9 || !count /* Win 11 */, "wrong count %Iu\n", count );
     ok( !base[0], "data set\n" );
 
+    base[0x1000] = 1;
     send(src, "test message", sizeof("test message"), 0);
 
     ret = GetOverlappedResult( (HANDLE)dest, &ov, &bytesReturned, TRUE );
@@ -8071,9 +8123,18 @@ static void test_write_watch(void)
     ok( !memcmp( base + 0x4000, "message", 8 ), "wrong data %s\n", base + 0x4000 );
 
     count = 64;
+    ret = pGetWriteWatch( 0, base, size, results, &count, &pagesize );
+    ok( !ret, " GetWriteWatch failed %lu\n", GetLastError() );
+    todo_wine_if( count == 3 ) ok( count == 1, "wrong count %Iu\n", count );
+    todo_wine_if( count == 3 ) ok( results[0] == base + 0x1000, "got page %Iu.\n", ((char *)results[0] - base) / 0x1000 );
+
+    base[0x2000] = 1;
+    count = 64;
     ret = pGetWriteWatch( WRITE_WATCH_FLAG_RESET, base, size, results, &count, &pagesize );
     ok( !ret, "GetWriteWatch failed %lu\n", GetLastError() );
-    ok( count == 0, "wrong count %Iu\n", count );
+    todo_wine_if( count == 4 ) ok( count == 2, "wrong count %Iu\n", count );
+    todo_wine_if( count == 4 ) ok( results[0] == base + 0x1000, "got page %Iu.\n", ((char *)results[0] - base) / 0x1000 );
+    todo_wine_if( count == 4 ) ok( results[1] == base + 0x2000, "got page %Iu.\n", ((char *)results[1] - base) / 0x1000 );
 
     memset( base, 0, size );
     count = 64;
@@ -8104,7 +8165,7 @@ static void test_write_watch(void)
     count = 64;
     ret = pGetWriteWatch( WRITE_WATCH_FLAG_RESET, base, size, results, &count, &pagesize );
     ok( !ret, "GetWriteWatch failed %lu\n", GetLastError() );
-    ok( count == 0, "wrong count %Iu\n", count );
+    todo_wine_if( count == 2 ) ok( count == 0, "wrong count %Iu\n", count );
 
     memset( base, 0, size );
     count = 64;
@@ -8133,7 +8194,7 @@ static void test_write_watch(void)
         count = 64;
         ret = pGetWriteWatch( WRITE_WATCH_FLAG_RESET, base, size, results, &count, &pagesize );
         ok( !ret, "GetWriteWatch failed %lu\n", GetLastError() );
-        ok( count == 0, "wrong count %Iu\n", count );
+        todo_wine_if( count == 1 ) ok( count == 0, "wrong count %Iu\n", count );
     }
     WSACloseEvent( event );
     closesocket( dest );
@@ -12756,6 +12817,45 @@ static void test_bind(void)
     free(adapters);
 }
 
+static void test_bind_bluetooth(void)
+{
+    SOCKADDR_BTH addr = {0};
+    SOCKET sock, sock2;
+    INT err, ret;
+
+    sock = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
+    err = WSAGetLastError();
+    if (sock == INVALID_SOCKET)
+    {
+        ok(err == WSAEAFNOSUPPORT || err == WSAEPROTONOSUPPORT, "got error %d\n", err);
+        skip("Bluetooth is not supported\n");
+        return;
+    }
+
+    addr.addressFamily = AF_BTH;
+    addr.btAddr = 0;
+    addr.port = 200;
+    ret = bind(sock, (struct sockaddr *)&addr, sizeof(addr));
+    err = WSAGetLastError();
+    ok(ret == -1, "expected bind to fail\n");
+    ok(err == WSAEADDRNOTAVAIL || err == WSAENETDOWN, "got error %d\n", err);
+
+    addr.port = 20;
+    ret = bind(sock, (struct sockaddr *)&addr, sizeof(addr));
+    err = WSAGetLastError();
+    ok(!ret || err == WSAENETDOWN, "got error %d\n", err);
+
+    sock2 = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
+    ok(sock2 != INVALID_SOCKET, "got error %d\n", WSAGetLastError());
+    addr.port = BT_PORT_ANY;
+    ret = bind(sock2, (struct sockaddr *)&addr, sizeof(addr));
+    err = WSAGetLastError();
+    ok(!ret || err == WSAENETDOWN, "got error %d\n", err);
+
+    closesocket(sock);
+    closesocket(sock2);
+}
+
 /* Test calling methods on a socket which is currently connecting. */
 static void test_connecting_socket(void)
 {
@@ -13996,6 +14096,83 @@ static void test_icmp(void)
     closesocket(s);
 }
 
+struct ipv6_pseudo_header
+{
+    struct in6_addr src;
+    struct in6_addr dst;
+    UINT32 next_len; /* incapsulated packet length in network byte order */
+    BYTE zero[3];
+    BYTE next_header;
+};
+
+static void test_icmpv6(void)
+{
+    static const unsigned int ping_data = 0xdeadbeef;
+
+    BYTE send_buf[sizeof(struct icmp_hdr) + sizeof(ping_data)];
+    struct ipv6_pseudo_header *ip_h;
+    UINT16 recv_checksum, checksum;
+    struct icmp_hdr *icmp_h;
+    unsigned int reply_data;
+    struct sockaddr_in6 sa;
+    BYTE chksum_buf[256];
+    BYTE recv_buf[256];
+    SOCKET s;
+    int ret;
+
+    s = WSASocketA(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6, NULL, 0, 0);
+    if (s == INVALID_SOCKET)
+    {
+        ret = WSAGetLastError();
+        ok(ret == WSAEACCES, "Expected 10013, received %d\n", ret);
+        skip("SOCK_RAW is not supported\n");
+        return;
+    }
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sin6_family = AF_INET6;
+    ret = inet_pton( AF_INET6, "::1", &sa.sin6_addr);
+    ok(ret, "got error %u.\n", WSAGetLastError());
+
+    icmp_h = (struct icmp_hdr *)send_buf;
+    icmp_h->type = ICMP6_ECHO_REQUEST;
+    icmp_h->code = 0;
+    icmp_h->checksum = 0;
+    icmp_h->un.echo.id = 0xbeaf; /* will be overwritten for linux ping socks */
+    icmp_h->un.echo.sequence = 2;
+    *(unsigned int *)(icmp_h + 1) = ping_data;
+    icmp_h->checksum = 0;
+
+    ret = sendto(s, (char *)send_buf, sizeof(send_buf), 0, (struct sockaddr*)&sa, sizeof(sa));
+    ok(ret != SOCKET_ERROR, "got error %d.\n", WSAGetLastError());
+    memset(recv_buf, 0xcc, sizeof(recv_buf));
+    ret = recv(s, (char *)recv_buf, sizeof(recv_buf), 0);
+    ok(ret == sizeof(send_buf), "got %d\n", ret);
+
+    icmp_h = (struct icmp_hdr *)recv_buf;
+    reply_data = *(unsigned int *)(icmp_h + 1);
+
+    ok(icmp_h->type == ICMP6_ECHO_REPLY, "got type %#x.\n", icmp_h->type);
+    ok(!icmp_h->code, "got code %#x.\n", icmp_h->code);
+    ok(icmp_h->un.echo.id == 0xbeaf, "got echo id %#x.\n", icmp_h->un.echo.id);
+    ok(icmp_h->un.echo.sequence == 2, "got echo sequence %#x.\n", icmp_h->un.echo.sequence);
+
+    recv_checksum = icmp_h->checksum;
+    ip_h = (struct ipv6_pseudo_header *)chksum_buf;
+    memset(ip_h, 0, sizeof(*ip_h));
+    ip_h->dst = sa.sin6_addr;
+    ip_h->src = sa.sin6_addr;
+    ip_h->next_len = htonl(sizeof(send_buf));
+    ip_h->next_header = IPPROTO_ICMPV6;
+    icmp_h->checksum = 0;
+    memcpy(ip_h + 1, icmp_h, sizeof(send_buf));
+    checksum = chksum((BYTE *)ip_h, sizeof(*ip_h) + sizeof(send_buf));
+    ok(recv_checksum == checksum, "got checksum %#x, expected %#x.\n", recv_checksum, checksum);
+    ok(reply_data == ping_data, "got reply_data %#x.\n", reply_data);
+
+    closesocket(s);
+}
+
 static void test_connect_time(void)
 {
     struct sockaddr_in addr = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
@@ -14373,6 +14550,53 @@ static void test_send_buffering(void)
     closesocket(client);
 }
 
+static void test_valid_handle(void)
+{
+    HANDLE duplicated, invalid;
+    SOCKET client, server;
+    char buffer[1];
+    WSABUF wsabuf;
+    DWORD size;
+    int ret;
+
+    /* Unlike WSAGetOverlappedResult(), duplicated handles are allowed. */
+
+    tcp_socketpair(&client, &server);
+    ret = DuplicateHandle(GetCurrentProcess(), (HANDLE)client,
+            GetCurrentProcess(), &duplicated, 0, FALSE, DUPLICATE_SAME_ACCESS);
+    ok(ret, "got error %lu\n", GetLastError());
+    invalid = CreateEventA(NULL, TRUE, TRUE, NULL);
+
+    ret = send((SOCKET)duplicated, buffer, 1, 0);
+    ok(ret == 1, "got %d\n", ret);
+
+    ret = sendto((SOCKET)duplicated, buffer, 1, 0, NULL, 0);
+    ok(ret == 1, "got %d\n", ret);
+
+    wsabuf.buf = buffer;
+    wsabuf.len = 1;
+
+    ret = WSASend((SOCKET)duplicated, &wsabuf, 1, NULL, 0, NULL, NULL);
+    ok(ret == -1, "got %d\n", ret);
+    ok(WSAGetLastError() == WSAEFAULT, "got error %u\n", WSAGetLastError());
+
+    ret = WSASend((SOCKET)duplicated, &wsabuf, 1, &size, 0, NULL, NULL);
+    ok(!ret, "got %d\n", ret);
+
+    ret = WSASend((SOCKET)invalid, &wsabuf, 1, NULL, 0, NULL, NULL);
+    ok(ret == -1, "got %d\n", ret);
+    ok(WSAGetLastError() == WSAENOTSOCK, "got error %u\n", WSAGetLastError());
+
+    ret = WSASend(INVALID_SOCKET, &wsabuf, 1, NULL, 0, NULL, NULL);
+    ok(ret == -1, "got %d\n", ret);
+    ok(WSAGetLastError() == WSAENOTSOCK, "got error %u\n", WSAGetLastError());
+
+    CloseHandle(invalid);
+    CloseHandle(duplicated);
+    closesocket(client);
+    closesocket(server);
+}
+
 START_TEST( sock )
 {
     int i;
@@ -14445,6 +14669,7 @@ START_TEST( sock )
     test_connect_completion_port();
     test_shutdown_completion_port();
     test_bind();
+    test_bind_bluetooth();
     test_connecting_socket();
     test_WSAGetOverlappedResult();
     test_nonblocking_async_recv();
@@ -14453,10 +14678,12 @@ START_TEST( sock )
     test_timeout();
     test_tcp_reset();
     test_icmp();
+    test_icmpv6();
     test_connect_udp();
     test_tcp_sendto_recvfrom();
     test_broadcast();
     test_send_buffering();
+    test_valid_handle();
 
     /* There is apparently an obscure interaction between this test and
      * test_WSAGetOverlappedResult().

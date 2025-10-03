@@ -99,6 +99,7 @@
 # @ stub CreateScaledCompatibleBitmap
 # @ stub CreateSessionMappedDIBSection
 @ stdcall CreateSolidBrush(long)
+@ stdcall D3DKMTCheckOcclusion(ptr) win32u.NtGdiDdDDICheckOcclusion
 @ stdcall D3DKMTCheckVidPnExclusiveOwnership(ptr) win32u.NtGdiDdDDICheckVidPnExclusiveOwnership
 @ stdcall D3DKMTCloseAdapter(ptr) win32u.NtGdiDdDDICloseAdapter
 @ stdcall D3DKMTCreateAllocation(ptr) win32u.NtGdiDdDDICreateAllocation
@@ -125,6 +126,7 @@
 @ stdcall D3DKMTOpenKeyedMutex(ptr) win32u.NtGdiDdDDIOpenKeyedMutex
 @ stdcall D3DKMTOpenKeyedMutex2(ptr) win32u.NtGdiDdDDIOpenKeyedMutex2
 @ stdcall D3DKMTOpenKeyedMutexFromNtHandle(ptr) win32u.NtGdiDdDDIOpenKeyedMutexFromNtHandle
+@ stdcall D3DKMTOpenNtHandleFromName(ptr) win32u.NtGdiDdDDIOpenNtHandleFromName
 @ stdcall D3DKMTOpenResource(ptr) win32u.NtGdiDdDDIOpenResource
 @ stdcall D3DKMTOpenResource2(ptr) win32u.NtGdiDdDDIOpenResource2
 @ stdcall D3DKMTOpenResourceFromNtHandle(ptr) win32u.NtGdiDdDDIOpenResourceFromNtHandle
@@ -405,7 +407,7 @@
 @ stdcall GetMetaFileBitsEx(long long ptr)
 @ stdcall GetMetaFileW(wstr)
 @ stdcall GetMetaRgn(long long)
-@ stdcall GetMiterLimit(long ptr)
+@ stdcall GetMiterLimit(long ptr) NtGdiGetMiterLimit
 @ stdcall GetNearestColor(long long) NtGdiGetNearestColor
 @ stdcall GetNearestPaletteIndex(long long) NtGdiGetNearestPaletteIndex
 # @ stub GetNumberOfPhysicalMonitors

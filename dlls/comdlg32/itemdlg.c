@@ -1454,7 +1454,7 @@ static void ctrl_container_reparent(FileDialogImpl *This, HWND parent)
         SetWindowLongW(This->cctrls_hwnd, GWL_STYLE, wndstyle);
 
         SetParent(This->cctrls_hwnd, parent);
-        ShowWindow(This->cctrls_hwnd, TRUE);
+        ShowWindow(This->cctrls_hwnd, SW_SHOW);
 
         /* Set the fonts to match the dialog font. */
         font = (HFONT)SendMessageW(parent, WM_GETFONT, 0, 0);
@@ -1469,7 +1469,7 @@ static void ctrl_container_reparent(FileDialogImpl *This, HWND parent)
     }
     else
     {
-        ShowWindow(This->cctrls_hwnd, FALSE);
+        ShowWindow(This->cctrls_hwnd, SW_HIDE);
 
         wndstyle = GetWindowLongW(This->cctrls_hwnd, GWL_STYLE);
         wndstyle &= ~(WS_CHILD);
@@ -2549,6 +2549,26 @@ static HRESULT WINAPI IFileDialog2_fnSetFileTypes(IFileDialog2 *iface, UINT cFil
     {
         This->filterspecs[i].pszName = StrDupW(rgFilterSpec[i].pszName);
         This->filterspecs[i].pszSpec = StrDupW(rgFilterSpec[i].pszSpec);
+
+        if (This->filterspecs[i].pszName != NULL && This->filterspecs[i].pszSpec != NULL)
+        {
+            DWORD name_len = lstrlenW(This->filterspecs[i].pszName);
+
+            if (name_len == 0 || This->filterspecs[i].pszName[name_len - 1] != L')')
+            {
+                DWORD spec_len = lstrlenW(This->filterspecs[i].pszSpec);
+
+                DWORD total_len = name_len + spec_len + 4;
+
+                WCHAR* pszName = LocalAlloc(LMEM_FIXED, total_len * sizeof(WCHAR));
+                if (pszName != NULL)
+                {
+                    swprintf(pszName, total_len, L"%s (%s)", This->filterspecs[i].pszName, This->filterspecs[i].pszSpec);
+                    LocalFree((void *)This->filterspecs[i].pszName);
+                    This->filterspecs[i].pszName = pszName;
+                }
+            }
+        }
     }
     This->filterspec_count = cFileTypes;
 

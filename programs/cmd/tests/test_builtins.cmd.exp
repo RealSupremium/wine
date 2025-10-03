@@ -127,6 +127,7 @@ word
 @tab@word
 @space@@tab@word
 @tab@word
+3
 ------------ Testing mixed echo modes ------------
 @echo on
 if 1==1 echo foo
@@ -142,6 +143,15 @@ foo
 bar
 foo2
 bar2
+------------ Testing call and echo modes ------------
+ECHO_IS_ON
+ECHO_IS_OFF
+ECHO_IS_ON
+ECHO_IS_OFF
+ECHO_IS_ON
+ECHO_IS_OFF
+
+@pwd@>rem itsme@space@@space@
 ------------ Testing parameterization ------------
 'a', 'b', 'c'
 '"a b c"', '', ''
@@ -204,6 +214,9 @@ food2
 food21
 foo7@space@@space@@or_broken@not supported@space@
 foo@or_broken@not supported
+--- right-to-left redirection
+good
+foo
 --- redirect at beginning of line
 foo
 foo1
@@ -482,6 +495,16 @@ FAILURE 1
 FAILURE 1
 SUCCESS 0
 FAILURE 1024
+SUCCESS 0
+SUCCESS 0
+FAILURE 666
+FAILURE 2
+FAILURE 666
+FAILURE 666
+FAILURE 1
+FAILURE 666
+FAILURE 666
+FAILURE 1
 foo@space@
 SUCCESS 0
 foo@space@
@@ -535,6 +558,7 @@ FAILURE 1
 SUCCESS 0
 FAILURE 1
 FAILURE 1
+SUCCESS 0
 --- success/failure for change drive command
 SUCCESS 666
 FAILURE 1
@@ -665,14 +689,49 @@ FAILURE 2
 FAILURE 1
 --- success/failure for MORE command
 SUCCESS 0
-SUCCESS 0
 foo@space@
 
 SUCCESS 0
---- success/failure for PAUSE command
+@todo_wine@SUCCESS 0
+@todo_wine@--- success/failure for PAUSE command
 FAILURE 1
 ---
------------- Testing 'set' ------------
+--------- success/failure when invoking cmd /c --------------
+a
+SUCCESS 0
+FAILURE 1
+FAILURE 1
+FAILURE 457
+SUCCESS 0
+FAILURE 459
+FAILURE 460
+FAILURE 461
+FAILURE 267
+FAILURE 1
+FAILURE 1
+--------- success/failure when invoking cmd /k --------------
+a
+@todo_wine@ERRORLEVEL 0
+SUCCESS 0
+@todo_wine@ERRORLEVEL 1
+SUCCESS 0
+@todo_wine@ERRORLEVEL 1
+SUCCESS 0
+FAILURE 457
+@todo_wine@ERRORLEVEL 458
+SUCCESS 0
+@todo_wine@ERRORLEVEL 459
+SUCCESS 0
+@todo_wine@ERRORLEVEL 460
+SUCCESS 0
+@todo_wine@ERRORLEVEL 461
+SUCCESS 0
+@todo_wine@ERRORLEVEL 0
+SUCCESS 0
+@todo_wine@ERRORLEVEL 9009
+SUCCESS 0
+@todo_wine@FAILURE 1
+@todo_wine@------------ Testing 'set' ------------
 1
 0
 WINE_FOOBAR not defined
@@ -760,6 +819,23 @@ e@or_broken@qwerty
 ''@or_broken@'qwerty'
 r@or_broken@qwerty
 ty
+'y'
+''
+''
+'qwerty'
+''
+'qw'
+'WINE_VAR:~2a'
+'WINE_VAR:~2a,2'
+'WINE_VAR:~a,2'
+'WINE_VAR:~2,2a'
+'WINE_VAR:~-'
+------------ Testing variable partial replacement ------------
+azertyazERTY
+ertyERTY
+=_QWERTY
+QWERTY
+@drive@@path@dummydir
 mmydir
 ------------ Testing variable substitution ------------
 --- in FOR variables
@@ -918,6 +994,10 @@ foobay
 
 
 ---7
+---8
+passed
+---9
+passed
 ------------ Testing NUL ------------
 bar
 bar
@@ -957,6 +1037,7 @@ with closing bracket
 255 two lines
 before both blocks
 255 nested
+0 unmatched
 --- case sensitivity with and without /i option
 if seems to default to case sensitivity
 if /i seems to work
@@ -1084,6 +1165,9 @@ exist subdir with /. ok
 exist subdir with / ok
 exist subdir with / and quotes ok
 exist empty string works
+ok
+ok
+ok
 ------ for numbers
 negative numbers handled
 negative numbers handled
@@ -1580,6 +1664,7 @@ foo bar baz
 c:\
 ------ skip option
 c
+c
 no output
 no output
 c
@@ -1735,6 +1820,49 @@ bar\baz removed
 @pwd@
 @drive@@path@foobar
 @pwd@
+------------ Testing dir /o ------------
+---
+a1.ab
+a2.ac
+a1.aa
+a1.ac
+a2.aa
+---
+a1.ab
+a2.ac
+a1.aa
+a1.ac
+a2.aa
+---
+a2.ac
+a1.ab
+a2.aa
+a1.ac
+a1.aa
+---
+a1.ab
+a2.ac
+a1.aa
+a1.ac
+a2.aa
+---
+a2.ac
+a1.ab
+a2.aa
+a1.ac
+a1.aa
+---
+a2.ac
+a1.ab
+a1.ac
+a2.aa
+a1.aa
+---
+a2.ac
+a1.ab
+a2.aa
+a1.ac
+a1.aa
 ------------ Testing attrib ------------
 A@spaces@@drive@@path@foobar\foo@or_broken@A       I@spaces@@drive@@path@foobar\foo
 A@spaces@@drive@@path@foobar\foo@or_broken@A       I@spaces@@drive@@path@foobar\foo
@@ -1858,19 +1986,33 @@ file correctly deleted
 --- a batch file can alter itself
 bar
 ---------- Testing copy
+Passed: Did not find file1 in COPY output
 Passed: Found expected dummy.file
+Passed: Did not find file1 in COPY output
 Passed: Found expected dir1\file1
+Passed: Did not find file1 in COPY output
 Passed: Found expected dir1\file1
+Passed: Did not find file1 in COPY output
 Passed: Found expected dir1\file99
+Passed: Did not find file1 in COPY output
 Passed: Found expected file1
 Passed: Did not find dir2
 Passed: Did not find dir2\file1
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
 Passed: Found expected dir1\file1
 Passed: Found expected dir1\file2
 Passed: Found expected dir1\file3
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
 Passed: Found expected dir1\file1
 Passed: Found expected dir1\file2
 Passed: Found expected dir1\file3
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
 Passed: Found expected file1
 Passed: Found expected file2
 Passed: Found expected file3
@@ -1878,14 +2020,42 @@ Passed: Did not find dir2
 Passed: Did not find dir2\file1
 Passed: Did not find dir2\file2
 Passed: Did not find dir2\file3
+Passed: Did not find file2 in COPY output
 Passed: Found expected testfile
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
 Passed: Found expected testfile
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
 Passed: Found expected testfile
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
+Passed: Found expected fred in COPY output
 Passed: Found expected testfile
+Passed: Found expected fred in COPY output
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
 Passed: Found expected testfile
+Passed: Found expected fred in COPY output
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
 Passed: Found expected dir1\fred
+Passed: Found expected fred in COPY output
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
 Passed: Found expected dir1\fred
+Passed: Found expected fred in COPY output
+Passed: Found expected file1 in COPY output
+Passed: Found expected file2 in COPY output
+Passed: Found expected file3 in COPY output
 Passed: Found expected fred
+Passed: Found expected fred in COPY output
+Passed: Found expected file1 in COPY output
 Passed: Found expected fred
 Passed: file size check on file1 [5]@or_broken@Skipping file size check on NT4
 Passed: file size check on file2 [8]@or_broken@Skipping file size check on NT4
@@ -2002,8 +2172,13 @@ goto with a following space worked
 goto with following amphersands worked
 goto with redirections worked
 Ignoring double colons worked
+dest7 1
+dest8 1
 label with mixed whitespace and no echo worked
 Correctly ignored trailing information
+desteof1 666
+desteof2 666
+---
 Begin:
 ..First sub
 ..First sub
@@ -2044,6 +2219,19 @@ Normal+tab+garbage
 Success
 @todo_wine@Success
 ---- Testing nasty bits ----
+------------ Testing updated code page execution ------------
+Success
+------------ Testing alteration while executing ------
+BB@space@
+---
+BB@space@
+---
+A2@space@
+BB@space@
+---
+A2@space@
+BB@space@
+---
 ------------ Testing combined CALLs/GOTOs ------------
 world
 cheball

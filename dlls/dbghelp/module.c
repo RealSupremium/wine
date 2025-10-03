@@ -24,6 +24,8 @@
 #include <string.h>
 #include <assert.h>
 
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
 #include "dbghelp_private.h"
 #include "image_private.h"
 #include "psapi.h"
@@ -82,33 +84,8 @@ static const WCHAR* get_filename(const WCHAR* name, const WCHAR* endptr)
 static BOOL is_wine_loader(const WCHAR *module)
 {
     const WCHAR *filename = get_filename(module, NULL);
-    const char *ptr;
-    BOOL ret = FALSE;
-    WCHAR *buffer;
-    DWORD len;
 
-    if ((ptr = getenv("WINELOADER")))
-    {
-        ptr = file_nameA(ptr);
-        len = 2 + MultiByteToWideChar( CP_UNIXCP, 0, ptr, -1, NULL, 0 );
-        buffer = heap_alloc( len * sizeof(WCHAR) );
-        MultiByteToWideChar( CP_UNIXCP, 0, ptr, -1, buffer, len );
-    }
-    else
-    {
-        buffer = heap_alloc( sizeof(L"wine") + 2 * sizeof(WCHAR) );
-        lstrcpyW( buffer, L"wine" );
-    }
-
-    if (!wcscmp( filename, buffer ))
-        ret = TRUE;
-
-    lstrcatW( buffer, L"64" );
-    if (!wcscmp( filename, buffer ))
-        ret = TRUE;
-
-    heap_free( buffer );
-    return ret;
+    return !wcscmp( filename, L"wine" );
 }
 
 static void module_fill_module(const WCHAR* in, WCHAR* out, size_t size)
@@ -133,40 +110,9 @@ void module_set_module(struct module* module, const WCHAR* name)
     module_fill_module(name, module->modulename, ARRAY_SIZE(module->modulename));
 }
 
-/* Returned string must be freed by caller */
-WCHAR *get_wine_loader_name(struct process *pcs)
+const WCHAR *get_wine_loader_name(struct process *pcs)
 {
-    const WCHAR *name;
-    WCHAR* altname;
-    unsigned len;
-
-    name = process_getenv(pcs, L"WINELOADER");
-    if (!name) name = pcs->is_host_64bit ? L"wine64" : L"wine";
-    len = lstrlenW(name);
-
-    /* WINELOADER isn't properly updated in Wow64 process calling inside Windows env block
-     * (it's updated in ELF env block though)
-     * So do the adaptation ourselves.
-     */
-    altname = HeapAlloc(GetProcessHeap(), 0, (len + 2 + 1) * sizeof(WCHAR));
-    if (altname)
-    {
-        memcpy(altname, name, len * sizeof(WCHAR));
-        if (pcs->is_host_64bit && len >= 2 && memcmp(name + len - 2, L"64", 2 * sizeof(WCHAR)) != 0)
-        {
-            lstrcpyW(altname + len, L"64");
-            /* in multi-arch wow configuration, wine64 doesn't exist */
-            if (GetFileAttributesW(altname) == INVALID_FILE_ATTRIBUTES)
-                altname[len] = L'\0';
-        }
-        else if (!pcs->is_host_64bit && len >= 2 && !memcmp(name + len - 2, L"64", 2 * sizeof(WCHAR)))
-            altname[len - 2] = '\0';
-        else
-            altname[len] = '\0';
-    }
-
-    TRACE("returning %s\n", debugstr_w(altname));
-    return altname;
+    return process_getenv(pcs, L"WINELOADER");
 }
 
 static const char*      get_module_type(struct module* module)
@@ -251,14 +197,13 @@ struct module* module_new(struct process* pcs, const WCHAR* name,
         module->cpu = dbghelp_current_cpu;
     module->debug_format_bitmask = 0;
 
-    vector_init(&module->vsymt, sizeof(struct symt*), 128);
-    vector_init(&module->vcustom_symt, sizeof(struct symt*), 16);
+    vector_init(&module->vsymt, sizeof(symref_t), 0);
+    vector_init(&module->vcustom_symt, sizeof(symref_t), 0);
     /* FIXME: this seems a bit too high (on a per module basis)
      * need some statistics about this
      */
     hash_table_init(&module->pool, &module->ht_symbols, 4096);
     hash_table_init(&module->pool, &module->ht_types,   4096);
-    vector_init(&module->vtypes, sizeof(struct symt*),  32);
 
     module->sources_used      = 0;
     module->sources_alloc     = 0;
@@ -525,6 +470,7 @@ static BOOL image_check_debug_link_gnu_id(const WCHAR* file, struct image_file_m
 {
     struct image_section_map buildid_sect;
     DWORD read_bytes;
+    GUID guid;
     HANDLE handle;
     WCHAR *path;
     WORD magic;
@@ -543,6 +489,9 @@ static BOOL image_check_debug_link_gnu_id(const WCHAR* file, struct image_file_m
         ret = elf_map_handle(handle, fmap);
     CloseHandle(handle);
 
+    if (ret && pe_has_buildid_debug(fmap, &guid))
+        return TRUE;
+
     if (ret && image_find_section(fmap, ".note.gnu.build-id", &buildid_sect))
     {
         const UINT32* note;
@@ -555,12 +504,13 @@ static BOOL image_check_debug_link_gnu_id(const WCHAR* file, struct image_file_m
             {
                 if (note[1] == idlen && !memcmp(note + 3 + ((note[0] + 3) >> 2), id, idlen))
                     return TRUE;
-                WARN("mismatch in buildid information for %s\n", debugstr_w(file));
             }
         }
         image_unmap_section(&buildid_sect);
         image_unmap_file(fmap);
     }
+    if (ret)
+        WARN("mismatch in buildid information for %s\n", debugstr_w(file));
     return FALSE;
 }
 
@@ -662,69 +612,75 @@ static WCHAR* append_hex(WCHAR* dst, const BYTE* id, const BYTE* end)
     return dst;
 }
 
-/******************************************************************
- *		image_locate_build_id_target
- *
- * Try to find the .so file containing the debug info out of the build-id note information
- */
-static struct image_file_map* image_locate_build_id_target(const BYTE* id, unsigned idlen)
+static BOOL image_locate_build_id_target_in_dir(struct image_file_map *fmap_link, const BYTE* id, unsigned idlen, const WCHAR *from)
 {
-    struct image_file_map* fmap_link = NULL;
-    DWORD sz;
-    WCHAR* p;
-    WCHAR* z;
+    size_t from_len = wcslen(from);
+    BOOL found = FALSE;
+    WCHAR *p, *z;
 
-    fmap_link = HeapAlloc(GetProcessHeap(), 0, sizeof(*fmap_link));
-    if (!fmap_link) return NULL;
-
-    p = malloc(sizeof(L"/usr/lib/debug/.build-id/") +
-               (idlen * 2 + 1) * sizeof(WCHAR) + sizeof(L".debug"));
-    if (!p) goto fail;
-    wcscpy(p, L"/usr/lib/debug/.build-id/");
-    z = p + wcslen(p);
-    if (idlen)
+    if ((p = malloc((from_len + idlen * 2 + 1) * sizeof(WCHAR) + sizeof(L".debug"))))
     {
+        memcpy(p, from, from_len * sizeof(WCHAR));
+        z = p + from_len;
         z = append_hex(z, id, id + 1);
         if (idlen > 1)
         {
             *z++ = L'/';
             z = append_hex(z, id + 1, id + idlen);
         }
-    }
-    wcscpy(z, L".debug");
-    TRACE("checking %s\n", debugstr_w(p));
+        wcscpy(z, L".debug");
+        TRACE("checking %s\n", debugstr_w(p));
+        found = image_check_debug_link_gnu_id(p, fmap_link, id, idlen);
 
-    if (image_check_debug_link_gnu_id(p, fmap_link, id, idlen))
-    {
         free(p);
-        return fmap_link;
     }
+    return found;
+}
+
+/******************************************************************
+ *		image_locate_build_id_target
+ *
+ * Try to find an image file containing the debug info out of the build-id
+ * note information.
+ */
+static struct image_file_map* image_locate_build_id_target(const BYTE* id, unsigned idlen)
+{
+    struct image_file_map* fmap_link;
+    DWORD sz;
+
+    if (!idlen) return NULL;
+
+    if (!(fmap_link = HeapAlloc(GetProcessHeap(), 0, sizeof(*fmap_link))))
+        return NULL;
+    if (image_locate_build_id_target_in_dir(fmap_link, id, idlen, L"/usr/lib/debug/.build-id/"))
+        return fmap_link;
+    if (image_locate_build_id_target_in_dir(fmap_link, id, idlen, L"/usr/lib/.build-id/"))
+        return fmap_link;
 
     sz = GetEnvironmentVariableW(L"WINEHOMEDIR", NULL, 0);
     if (sz)
     {
-        z = realloc(p, sz * sizeof(WCHAR) +
-                    sizeof(L"\\.cache\\debuginfod_client\\") +
-                    idlen * 2 * sizeof(WCHAR) + sizeof(L"\\debuginfo") + 500);
-        if (!z) goto fail;
-        p = z;
-        GetEnvironmentVariableW(L"WINEHOMEDIR", p, sz);
-        z = p + sz - 1;
-        wcscpy(z, L"\\.cache\\debuginfod_client\\");
-        z += wcslen(z);
-        z = append_hex(z, id, id + idlen);
-        wcscpy(z, L"\\debuginfo");
-        TRACE("checking %ls\n", p);
-        if (image_check_debug_link_gnu_id(p, fmap_link, id, idlen))
+        WCHAR *p, *z;
+        p = malloc(sz * sizeof(WCHAR) +
+                   sizeof(L"\\.cache\\debuginfod_client\\") +
+                   idlen * 2 * sizeof(WCHAR) + sizeof(L"\\debuginfo") + 500);
+        if (p && GetEnvironmentVariableW(L"WINEHOMEDIR", p, sz) == sz - 1)
         {
+            BOOL found;
+
+            wcscpy(p + sz - 1, L"\\.cache\\debuginfod_client\\");
+            z = p + wcslen(p);
+            z = append_hex(z, id, id + idlen);
+            wcscpy(z, L"\\debuginfo");
+            TRACE("checking %ls\n", p);
+            found = image_check_debug_link_gnu_id(p, fmap_link, id, idlen);
             free(p);
-            return fmap_link;
+            if (found) return fmap_link;
         }
     }
 
     TRACE("not found\n");
-fail:
-    free(p);
+
     HeapFree(GetProcessHeap(), 0, fmap_link);
     return NULL;
 }
@@ -836,7 +792,18 @@ BOOL image_check_alternate(struct image_file_map* fmap, const struct module* mod
     struct image_file_map* fmap_link = NULL;
 
     /* if present, add the .gnu_debuglink file as an alternate to current one */
-    if (image_find_section(fmap, ".note.gnu.build-id", &buildid_sect))
+    if (fmap->modtype == DMT_PE)
+    {
+        GUID guid;
+
+        if (pe_has_buildid_debug(fmap, &guid))
+        {
+            /* reorder bytes to match little endian order */
+            fmap_link = image_locate_build_id_target((const BYTE*)&guid, sizeof(guid));
+        }
+    }
+    /* if present, add the .note.gnu.build-id as an alternate to current one */
+    if (!fmap_link && image_find_section(fmap, ".note.gnu.build-id", &buildid_sect))
     {
         const UINT32* note;
 
@@ -879,6 +846,7 @@ BOOL image_check_alternate(struct image_file_map* fmap, const struct module* mod
     return FALSE;
 }
 
+#ifndef _WIN64
 /***********************************************************************
  *			SymLoadModule (DBGHELP.@)
  */
@@ -888,6 +856,7 @@ DWORD WINAPI SymLoadModule(HANDLE hProcess, HANDLE hFile, PCSTR ImageName,
     return SymLoadModuleEx(hProcess, hFile, ImageName, ModuleName, BaseOfDll,
                            SizeOfDll, NULL, 0);
 }
+#endif
 
 /***********************************************************************
  *			SymLoadModuleEx (DBGHELP.@)
@@ -1056,9 +1025,8 @@ DWORD64 WINAPI SymLoadModule64(HANDLE hProcess, HANDLE hFile, PCSTR ImageName,
  */
 BOOL module_remove(struct process* pcs, struct module* module)
 {
-    struct module_format*modfmt;
+    struct module_format_vtable_iterator iter = {};
     struct module**     p;
-    unsigned            i;
 
     TRACE("%s (%p)\n", debugstr_w(module->modulename), module);
 
@@ -1070,20 +1038,20 @@ BOOL module_remove(struct process* pcs, struct module* module)
             locsym = &symt_get_function_from_inlined((struct symt_function*)locsym)->symt;
         if (symt_check_tag(locsym, SymTagFunction))
         {
-            locsym = ((struct symt_function*)locsym)->container;
-            if (symt_check_tag(locsym, SymTagCompiland) &&
-                module == ((struct symt_compiland*)locsym)->container->module)
+            struct symt_compiland *compiland = (struct symt_compiland*)SYMT_SYMREF_TO_PTR(((struct symt_function*)locsym)->container);
+            if (symt_check_tag(&compiland->symt, SymTagCompiland))
             {
-                pcs->localscope_pc = 0;
-                pcs->localscope_symt = NULL;
+                if (module == ((struct symt_module*)SYMT_SYMREF_TO_PTR(compiland->container))->module)
+                {
+                    pcs->localscope_pc = 0;
+                    pcs->localscope_symt = NULL;
+                }
             }
         }
     }
-    for (i = 0; i < DFI_LAST; i++)
-    {
-        if ((modfmt = module->format_info[i]) && modfmt->remove)
-            modfmt->remove(pcs, module->format_info[i]);
-    }
+    while (module_format_vtable_iterator_next(module, &iter, MODULE_FORMAT_VTABLE_INDEX(remove)))
+        iter.modfmt->vtable->remove(iter.modfmt);
+
     hash_table_destroy(&module->ht_symbols);
     hash_table_destroy(&module->ht_types);
     HeapFree(GetProcessHeap(), 0, module->sources);
@@ -1105,6 +1073,7 @@ BOOL module_remove(struct process* pcs, struct module* module)
     return FALSE;
 }
 
+#ifndef _WIN64
 /******************************************************************
  *		SymUnloadModule (DBGHELP.@)
  *
@@ -1113,6 +1082,7 @@ BOOL WINAPI SymUnloadModule(HANDLE hProcess, DWORD BaseOfDll)
 {
     return SymUnloadModule64(hProcess, BaseOfDll);
 }
+#endif
 
 /******************************************************************
  *		SymUnloadModule64 (DBGHELP.@)
@@ -1131,6 +1101,7 @@ BOOL WINAPI SymUnloadModule64(HANDLE hProcess, DWORD64 BaseOfDll)
     return TRUE;
 }
 
+#ifndef _WIN64
 /******************************************************************
  *		SymEnumerateModules (DBGHELP.@)
  *
@@ -1161,6 +1132,7 @@ BOOL  WINAPI SymEnumerateModules(HANDLE hProcess,
 
     return SymEnumerateModulesW64(hProcess, enum_modW64_32, &x);
 }
+#endif
 
 /******************************************************************
  *		SymEnumerateModules64 (DBGHELP.@)
@@ -1250,6 +1222,7 @@ BOOL  WINAPI EnumerateLoadedModules64(HANDLE hProcess,
     return EnumerateLoadedModulesW64(hProcess, enum_load_modW64_64, &x);
 }
 
+#ifndef _WIN64
 /******************************************************************
  *		EnumerateLoadedModules (DBGHELP.@)
  *
@@ -1280,6 +1253,7 @@ BOOL  WINAPI EnumerateLoadedModules(HANDLE hProcess,
 
     return EnumerateLoadedModulesW64(hProcess, enum_load_modW64_32, &x);
 }
+#endif
 
 static unsigned int load_and_grow_modules(HANDLE process, HMODULE** hmods, unsigned start, unsigned* alloc, DWORD filter)
 {
@@ -1306,6 +1280,7 @@ BOOL  WINAPI EnumerateLoadedModulesW64(HANDLE process,
                                        PENUMLOADED_MODULES_CALLBACKW64 enum_cb,
                                        PVOID user)
 {
+    OBJECT_BASIC_INFORMATION obi;
     HMODULE*            hmods;
     unsigned            alloc = 256, count, count32, i;
     USHORT              pcs_machine, native_machine;
@@ -1316,8 +1291,21 @@ BOOL  WINAPI EnumerateLoadedModulesW64(HANDLE process,
     WCHAR*              wowdir = NULL;
     size_t              sysdir_len = 0, wowdir_len = 0;
 
+    if (process != GetCurrentProcess() &&
+        RtlIsCurrentProcess( process ) &&
+        !NtQueryObject(process, ObjectBasicInformation, &obi, sizeof(obi), NULL) &&
+        obi.GrantedAccess & PROCESS_VM_READ)
+    {
+        TRACE("same process.\n");
+        process = GetCurrentProcess();
+    }
+
     /* process might not be a handle to a live process */
-    if (!IsWow64Process2(process, &pcs_machine, &native_machine)) return FALSE;
+    if (!IsWow64Process2(process, &pcs_machine, &native_machine))
+    {
+        SetLastError(STATUS_INVALID_CID);
+        return FALSE;
+    }
     with_32bit_modules = sizeof(void*) > sizeof(int) &&
         pcs_machine != IMAGE_FILE_MACHINE_UNKNOWN &&
         (dbghelp_options & SYMOPT_INCLUDE_32BIT_MODULES);
@@ -1401,6 +1389,7 @@ static void dbghelp_str_WtoA(const WCHAR *src, char *dst, int dst_len)
     dst[dst_len - 1] = 0;
 }
 
+#ifndef _WIN64
 /******************************************************************
  *		SymGetModuleInfo (DBGHELP.@)
  *
@@ -1461,6 +1450,7 @@ BOOL  WINAPI SymGetModuleInfoW(HANDLE hProcess, DWORD dwAddr,
 
     return TRUE;
 }
+#endif
 
 /******************************************************************
  *		SymGetModuleInfo64 (DBGHELP.@)
@@ -1556,6 +1546,7 @@ BOOL  WINAPI SymGetModuleInfoW64(HANDLE hProcess, DWORD64 dwAddr,
     return TRUE;
 }
 
+#ifndef _WIN64
 /***********************************************************************
  *		SymGetModuleBase (DBGHELP.@)
  */
@@ -1563,6 +1554,7 @@ DWORD WINAPI SymGetModuleBase(HANDLE hProcess, DWORD dwAddr)
 {
     return (DWORD)SymGetModuleBase64(hProcess, dwAddr);
 }
+#endif
 
 /***********************************************************************
  *		SymGetModuleBase64 (DBGHELP.@)
@@ -1594,10 +1586,33 @@ void module_reset_debug_info(struct module* module)
     hash_table_destroy(&module->ht_types);
     module->ht_types.num_buckets = 0;
     module->ht_types.buckets = NULL;
-    module->vtypes.num_elts = 0;
     hash_table_destroy(&module->ht_symbols);
     module->sources_used = module->sources_alloc = 0;
     module->sources = NULL;
+}
+
+static BOOL WINAPI process_invade_cb(PCWSTR name, ULONG64 base, ULONG size, PVOID user)
+{
+    HANDLE      hProcess = user;
+
+    /* Note: this follows native behavior:
+     * If a PE module has been unloaded from debuggee, it's not immediately removed
+     * from module list in dbghelp.
+     * Removal may eventually happen when loading a another module with SymLoadModule:
+     * if the module to be loaded overlaps an existing one, SymLoadModule will
+     * automatically unload the eldest one.
+     */
+    SymLoadModuleExW(hProcess, 0, name, NULL, base, size, NULL, 0);
+    return TRUE;
+}
+
+BOOL module_refresh_list(struct process *pcs)
+{
+    BOOL ret;
+
+    ret = pcs->loader->synchronize_module_list(pcs);
+    ret = EnumerateLoadedModulesW64(pcs->handle, process_invade_cb, pcs->handle) && ret;
+    return ret;
 }
 
 /******************************************************************
@@ -1605,15 +1620,15 @@ void module_reset_debug_info(struct module* module)
  */
 BOOL WINAPI SymRefreshModuleList(HANDLE hProcess)
 {
-    struct process*     pcs;
+    struct process *pcs;
 
     TRACE("(%p)\n", hProcess);
 
     if (!(pcs = process_find_by_handle(hProcess))) return FALSE;
-
-    return pcs->loader->synchronize_module_list(pcs);
+    return module_refresh_list(pcs);
 }
 
+#ifndef _WIN64
 /***********************************************************************
  *		SymFunctionTableAccess (DBGHELP.@)
  */
@@ -1621,6 +1636,7 @@ PVOID WINAPI SymFunctionTableAccess(HANDLE hProcess, DWORD AddrBase)
 {
     return SymFunctionTableAccess64(hProcess, AddrBase);
 }
+#endif
 
 /***********************************************************************
  *		SymFunctionTableAccess64 (DBGHELP.@)

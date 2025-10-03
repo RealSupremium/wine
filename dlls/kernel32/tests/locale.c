@@ -2841,6 +2841,24 @@ static void test_lcmapstring_unicode(lcmapstring_wrapper func_ptr, const char *f
     ok(!ret, "%s func_ptr should fail with srclen = 0\n", func_name);
     ok(GetLastError() == ERROR_INVALID_PARAMETER,
        "%s unexpected error code %ld\n", func_name, GetLastError());
+
+    /* test for characters which don't get mapped to their
+       halfwidth counterparts on LCMAP_HALFWIDTH */
+    for (i = 0x2190; i <= 0x21ff; ++i)
+        buf[i - 0x2190] = buf2[i - 0x2190] = i;
+
+    buf[0x70] = buf2[0x70] = 0x25cb;
+    ret = func_ptr(LCMAP_HALFWIDTH, buf, 0x71, buf2, 0x71);
+    ok(ret == 0x71, "%s ret %#x, expected value 0x71\n", func_name, ret);
+    ok(!memcmp(buf, buf2, sizeof(WCHAR) * 0x71), "in- and output must be equal\n");
+
+    /* test the other way around */
+    for (i = 0xffe9; i <= 0xffee; ++i)
+        buf[i - 0xffe9] = buf2[i - 0xffe9] = i;
+
+    ret = func_ptr(LCMAP_FULLWIDTH, buf, 0x6, buf2, 0x6);
+    ok(ret == 0x6, "%s ret %#x, expected value 0x6\n", func_name, ret);
+    ok(!memcmp(buf, buf2, sizeof(WCHAR) * 0x6), "in- and output must be equal\n");
 }
 
 static INT LCMapStringW_wrapper(DWORD flags, LPCWSTR src, INT srclen, LPWSTR dst, INT dstlen)
@@ -2970,8 +2988,8 @@ static void test_LocaleNameToLCID(void)
     buffer[0] = 0;
     SetLastError(0xdeadbeef);
     lcid = LocaleNameToLCID(LOCALE_NAME_SYSTEM_DEFAULT, 0);
-    ok(lcid == GetSystemDefaultLCID(),
-       "Expected lcid == %08lx, got %08lx, error %ld\n", GetSystemDefaultLCID(), lcid, GetLastError());
+    expect = GetSystemDefaultLCID();
+    ok(lcid == expect, "Expected lcid == %08lx, got %08lx, error %ld\n", expect, lcid, GetLastError());
     ret = pLCIDToLocaleName(lcid, buffer, LOCALE_NAME_MAX_LENGTH, 0);
     ok(ret > 0, "Expected ret > 0, got %d, error %ld\n", ret, GetLastError());
     trace("%08lx, %s\n", lcid, wine_dbgstr_w(buffer));
@@ -4156,6 +4174,7 @@ static void test_FoldStringW(void)
       { 0x11c50, 0, 9, TRUE /*win10*/ },  /* Bhaiksuki */
       { 0x11d50, 0, 9, TRUE /*win10*/ },  /* Masaram Gondi */
       { 0x11da0, 0, 9, TRUE /*win10*/ },  /* Gunjala Gondi */
+      { 0x11de0, 0, 9, TRUE /*win10*/ },  /* Tolong Siki */
       { 0x11f50, 0, 9, TRUE /*win10*/ },  /* Kawi */
       { 0x16130, 0, 9, TRUE /*win10*/ },  /* Gurung Khema */
       { 0x16a60, 0, 9, TRUE /*win10*/ },  /* Mro */
@@ -5371,6 +5390,9 @@ static void test_GetStringTypeW(void)
                   0x206a, 0x206b, 0x206c, 0x206d, 0x206e, 0x206f, 0xfeff,
                   0xfff9, 0xfffa, 0xfffb};
     static const WCHAR space_special[] = {0x09, 0x0d, 0x85};
+    static const WCHAR alpha_thai[] = {0xe31, 0xe34, 0xe35, 0xe36, 0xe37, 0xe38, 0xe39, 0xe3a,
+                                       0xe47, 0xe48, 0xe49, 0xe4a, 0xe4b, 0xe4c, 0xe4d, 0xe4e,
+                                       0x1885, 0x1886};
 
     WORD types[20];
     WCHAR ch[2];
@@ -5448,6 +5470,12 @@ static void test_GetStringTypeW(void)
     for (i = 0; i < 3; i++)
         ok(types[i] & C1_SPACE || broken(types[i] == C1_CNTRL) || broken(types[i] == 0), "incorrect types returned for %x -> (%x does not have %x)\n",space_special[i], types[i], C1_SPACE );
 
+    /* alpha is set for certain Thai and Mongolian */
+    memset(types, 0, sizeof(types));
+    GetStringTypeW(CT_CTYPE1, alpha_thai, 18, types);
+    for (i = 0; i < 18; i++)
+        ok(types[i] == (C1_ALPHA|C1_DEFINED), "incorrect types returned for %x -> (%x does not have %x)\n",alpha_thai[i], types[i], (C1_ALPHA|C1_DEFINED));
+
     /* surrogate pairs */
     ch[0] = 0xd800;
     memset(types, 0, sizeof(types));
@@ -5482,6 +5510,15 @@ static void test_GetStringTypeW(void)
         else
             ok(!(types[0] & C3_KASHIDA), "%#x: type %#x\n", ch[0], types[0]);
     }
+}
+
+/* Up to Windows 10 1607 */
+static int is_codepoint_2066_broken(void)
+{
+    WCHAR buf[10];
+    int len = ARRAY_SIZE(buf);
+    pRtlNormalizeString( 13, L"\x2066", 1, buf, &len );
+    return buf[0] != 0;
 }
 
 static void test_IdnToNameprepUnicode(void)
@@ -5597,7 +5634,10 @@ static void test_IdnToNameprepUnicode(void)
             status = pRtlNormalizeString( 13, test_data[i].in, test_data[i].in_len, buf, &len );
             ok( status == test_data[i].status || broken(status == test_data[i].broken_status),
                 "%ld: failed %lx\n", i, status );
-            if (!status) ok( !wcsnicmp(test_data[i].out, buf, len), "%ld: buf = %s\n", i, wine_dbgstr_wn(buf, len));
+            if (!status)
+                ok( !wcsnicmp(test_data[i].out, buf, len) ||
+                    broken(buf[1] == L'\x2066' && is_codepoint_2066_broken()),
+                    "%ld: buf = %s\n", i, wine_dbgstr_wn(buf, len));
         }
     }
 }
@@ -7389,7 +7429,7 @@ static void test_NormalizeString(void)
             memset(dst, 0xcc, sizeof(dst));
             dstlen = pNormalizeString( norm_forms[i], ptest->str, lstrlenW(ptest->str), dst, dstlen );
             ok(dstlen == lstrlenW( ptest->expected[i] ), "%s:%d: Copied length differed: was %d, should be %d\n",
-               wine_dbgstr_w(ptest->str), i, dstlen, lstrlenW( dst ));
+               wine_dbgstr_w(ptest->str), i, dstlen, lstrlenW( ptest->expected[i] ));
             str_cmp = wcsncmp( ptest->expected[i], dst, dstlen );
             ok( str_cmp == 0, "%s:%d: string incorrect got %s expect %s\n", wine_dbgstr_w(ptest->str), i,
                 wine_dbgstr_w(dst), wine_dbgstr_w(ptest->expected[i]) );

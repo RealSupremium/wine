@@ -45,7 +45,7 @@ struct async
     struct timeout_user *timeout;
     unsigned int         timeout_status;  /* status to report upon timeout */
     struct event        *event;
-    async_data_t         data;            /* data for async I/O call */
+    struct async_data    data;            /* data for async I/O call */
     struct iosb         *iosb;            /* I/O status block */
     obj_handle_t         wait_handle;     /* pre-allocated wait handle */
     unsigned int         initial_status;  /* status returned from initial request */
@@ -81,6 +81,7 @@ static const struct object_ops async_ops =
     async_satisfied,           /* satisfied */
     no_signal,                 /* signal */
     no_get_fd,                 /* get_fd */
+    default_get_sync,          /* get_sync */
     default_map_access,        /* map_access */
     default_get_sd,            /* get_sd */
     default_set_sd,            /* set_sd */
@@ -180,7 +181,7 @@ void async_terminate( struct async *async, unsigned int status )
 
     if (!async->direct_result)
     {
-        apc_call_t data;
+        union apc_call data;
 
         memset( &data, 0, sizeof(data) );
         data.type            = APC_ASYNC_IO;
@@ -248,7 +249,7 @@ void queue_async( struct async_queue *queue, struct async *async )
 }
 
 /* create an async on a given queue of a fd */
-struct async *create_async( struct fd *fd, struct thread *thread, const async_data_t *data, struct iosb *iosb )
+struct async *create_async( struct fd *fd, struct thread *thread, const struct async_data *data, struct iosb *iosb )
 {
     struct event *event = NULL;
     struct async *async;
@@ -515,9 +516,10 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
         {
             if (async->data.apc)
             {
-                apc_call_t data;
+                union apc_call data;
                 memset( &data, 0, sizeof(data) );
                 data.type         = APC_USER;
+                data.user.flags   = 0;
                 data.user.func    = async->data.apc;
                 data.user.args[0] = async->data.apc_context;
                 data.user.args[1] = async->data.iosb;
@@ -701,6 +703,7 @@ static const struct object_ops iosb_ops =
     NULL,                     /* satisfied */
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
+    default_get_sync,         /* get_sync */
     default_map_access,       /* map_access */
     default_get_sd,           /* get_sd */
     default_set_sd,           /* set_sd */
@@ -753,7 +756,7 @@ static struct iosb *create_iosb( const void *in_data, data_size_t in_size, data_
 
 /* create an async associated with iosb for async-based requests
  * returned async must be passed to async_handoff */
-struct async *create_request_async( struct fd *fd, unsigned int comp_flags, const async_data_t *data, int is_system )
+struct async *create_request_async( struct fd *fd, unsigned int comp_flags, const struct async_data *data, int is_system )
 {
     struct async *async;
     struct iosb *iosb;

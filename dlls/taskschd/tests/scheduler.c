@@ -1319,19 +1319,20 @@ static void test_daily_trigger(ITrigger *trigger)
     static const struct
     {
         const WCHAR *str;
+        const WCHAR *end;
         HRESULT      hr;
     }
     start_test[] =
     {
-        {L"2004-01-01T00:00:00", S_OK},
-        {L"2004-01-01T00:00:00Z", S_OK},
-        {L"2004-01-01T00:00:00+01:00", S_OK},
-        {L"2004.01.01T00.00.00", S_OK},
-        {L"9999-99-99T99:99:99", S_OK},
-        {L"invalid", S_OK},
+        {L"2004-01-01T00:00:00", L"2004-01-02T00:00:00", S_OK},
+        {L"2004-01-01T00:00:00Z", L"2004-01-02T00:00:00Z", S_OK},
+        {L"2004-01-01T00:00:00+01:00", L"2004-01-02T00:00:00+01:00", S_OK},
+        {L"2004.01.01T00.00.00", L"2004.01.02T00.00.00", S_OK},
+        {L"9999-99-99T99:99:99", L"9999-99-99T99:99:99", S_OK},
+        {L"invalid", L"invalid", S_OK},
     };
     IDailyTrigger *daily_trigger;
-    BSTR start_boundary;
+    BSTR start_boundary, end_boundary;
     VARIANT_BOOL enabled;
     short interval;
     HRESULT hr;
@@ -1366,10 +1367,18 @@ static void test_daily_trigger(ITrigger *trigger)
     hr = IDailyTrigger_get_StartBoundary(daily_trigger, NULL);
     ok(hr == E_POINTER, "get_StartBoundary failed: %08lx\n", hr);
 
+    hr = IDailyTrigger_get_EndBoundary(daily_trigger, NULL);
+    ok(hr == E_POINTER, "get_EndBoundary failed: %08lx\n", hr);
+
     start_boundary = (BSTR)0xdeadbeef;
     hr = IDailyTrigger_get_StartBoundary(daily_trigger, &start_boundary);
     ok(hr == S_OK, "get_StartBoundary failed: %08lx\n", hr);
     ok(start_boundary == NULL, "start_boundary not set\n");
+
+    end_boundary = (BSTR)0xdeadbeef;
+    hr = IDailyTrigger_get_EndBoundary(daily_trigger, &end_boundary);
+    ok(hr == S_OK, "get_EndBoundary failed: %08lx\n", hr);
+    ok(end_boundary == NULL, "end_boundary not set\n");
 
     for (i = 0; i < ARRAY_SIZE(start_test); i++)
     {
@@ -1387,11 +1396,28 @@ static void test_daily_trigger(ITrigger *trigger)
             ok(!lstrcmpW(start_boundary, start_test[i].str), "got %s\n", wine_dbgstr_w(start_boundary));
             SysFreeString(start_boundary);
         }
+
+        end_boundary = SysAllocString(start_test[i].end);
+        hr = IDailyTrigger_put_EndBoundary(daily_trigger, end_boundary);
+        ok(hr == start_test[i].hr, "got %08lx expected %08lx\n", hr, start_test[i].hr);
+        SysFreeString(end_boundary);
+        if (hr == S_OK)
+        {
+            end_boundary = NULL;
+            hr = IDailyTrigger_get_EndBoundary(daily_trigger, &end_boundary);
+            ok(hr == S_OK, "got %08lx\n", hr);
+            ok(end_boundary != NULL, "end_boundary not set\n");
+            ok(!lstrcmpW(end_boundary, start_test[i].end), "got %s\n", wine_dbgstr_w(end_boundary));
+            SysFreeString(end_boundary);
+        }
         winetest_pop_context();
     }
 
     hr = IDailyTrigger_put_StartBoundary(daily_trigger, NULL);
     ok(hr == S_OK, "put_StartBoundary failed: %08lx\n", hr);
+
+    hr = IDailyTrigger_put_EndBoundary(daily_trigger, NULL);
+    ok(hr == S_OK, "put_EndBoundary failed: %08lx\n", hr);
 
     hr = IDailyTrigger_get_Enabled(daily_trigger, NULL);
     ok(hr == E_POINTER, "get_Enabled failed: %08lx\n", hr);
@@ -1853,6 +1879,87 @@ static void test_TaskDefinition(void)
     ITaskService_Release(service);
 }
 
+static void test_get_Count_and_Item(void)
+{
+    HRESULT hr;
+    LONG num_tasks;
+    VARIANT v_null, index;
+    ITaskService *service;
+    ITaskFolder *folder, *root;
+    ITaskDefinition *task_def;
+    IRegistrationInfo *reg_info;
+    IActionCollection *actions;
+    IAction *action;
+    IExecAction *exec_action;
+    IRegisteredTask *task1, *ret_task1;
+    IRegisteredTaskCollection *tasks;
+    BSTR ret_task1_name = NULL;
+
+    V_VT(&v_null) = VT_NULL;
+
+    CoCreateInstance(&CLSID_TaskScheduler, NULL, CLSCTX_INPROC_SERVER, &IID_ITaskService, (void**)&service);
+    ITaskService_Connect(service, v_null, v_null, v_null, v_null);
+
+    ITaskService_GetFolder(service, (BSTR)L"\\", &root);
+    ITaskFolder_CreateFolder(root,(BSTR)L"\\Wine", v_null, &folder);
+
+    ITaskService_NewTask(service, 0, &task_def);
+    ITaskDefinition_get_RegistrationInfo(task_def, &reg_info);
+    IRegistrationInfo_put_Author(reg_info, (BSTR)L"Wine Test");
+
+    ITaskDefinition_get_Actions(task_def, &actions);
+    IActionCollection_Create(actions, TASK_ACTION_EXEC, &action);
+    IAction_QueryInterface(action, &IID_IExecAction, (void**)&exec_action);
+    IExecAction_put_Path(exec_action, (BSTR)L"task1.exe");
+
+    ITaskFolder_RegisterTaskDefinition(folder, (BSTR)L"Task1", task_def, TASK_CREATE, v_null, v_null, TASK_LOGON_NONE, v_null, &task1);
+    ITaskFolder_GetTasks(folder, TASK_ENUM_HIDDEN, &tasks);
+
+    /* Test get_Count */
+    hr = IRegisteredTaskCollection_get_Count(tasks, NULL);
+    ok(hr == E_POINTER, "expected E_POINTER, got %#lx\n", hr);
+
+    hr = IRegisteredTaskCollection_get_Count(tasks, &num_tasks);
+    ok(hr == S_OK, "expected S_OK, got %#lx\n", hr);
+    ok(num_tasks == 1, "expected 1 task, got %ld\n", num_tasks);
+
+    /* Test get_Item */
+    VariantInit(&index);
+    index.vt = VT_UI4;
+    index.uiVal = 1;
+
+    hr = IRegisteredTaskCollection_get_Item(tasks, index, NULL);
+    ok(hr == E_POINTER, "expected E_POINTER, got %#lx\n", hr);
+
+    index.uiVal = 0;
+    hr = IRegisteredTaskCollection_get_Item(tasks, index, &ret_task1);
+    ok(hr == E_INVALIDARG, "expected E_INVALIDARG, got %#lx\n", hr);
+
+    index.uiVal = 2;
+    hr = IRegisteredTaskCollection_get_Item(tasks, index, &ret_task1);
+    ok(hr == E_INVALIDARG, "expected E_INVALIDARG, got %#lx\n", hr);
+
+    index.uiVal = 1;
+    hr = IRegisteredTaskCollection_get_Item(tasks, index, &ret_task1);
+    ok(hr == S_OK || broken(hr == E_INVALIDARG) /* Win7 */, "expected S_OK, got %#lx\n", hr);
+
+    if (hr == S_OK)
+    {
+        IRegisteredTask_get_Name(ret_task1, &ret_task1_name);
+        ok(!lstrcmpW(L"Task1", ret_task1_name), "expected name \"Task1\", got %ls\n", ret_task1_name);
+    }
+
+    ITaskFolder_DeleteTask(folder, (BSTR)L"Task1", 0);
+    ITaskFolder_DeleteFolder(root, (BSTR)L"\\Wine", 0);
+    IRegisteredTask_Release(task1);
+    ITaskFolder_Release(folder);
+    ITaskFolder_Release(root);
+    IExecAction_Release(exec_action);
+    IRegistrationInfo_Release(reg_info);
+    ITaskDefinition_Release(task_def);
+    ITaskService_Release(service);
+}
+
 START_TEST(scheduler)
 {
     OleInitialize(NULL);
@@ -1862,6 +1969,7 @@ START_TEST(scheduler)
     test_FolderCollection();
     test_GetTask();
     test_TaskDefinition();
+    test_get_Count_and_Item();
 
     OleUninitialize();
 }

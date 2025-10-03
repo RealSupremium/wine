@@ -60,8 +60,7 @@
 #include "thread.h"
 #include "security.h"
 #include "handle.h"
-#define WANT_REQUEST_HANDLERS
-#include "request.h"
+#include "request_handlers.h"
 
 /* Some versions of glibc don't define this */
 #ifndef SCM_RIGHTS
@@ -93,6 +92,7 @@ static const struct object_ops master_socket_ops =
     NULL,                          /* satisfied */
     no_signal,                     /* signal */
     no_get_fd,                     /* get_fd */
+    default_get_sync,              /* get_sync */
     default_map_access,            /* map_access */
     default_get_sd,                /* get_sd */
     default_set_sd,                /* set_sd */

@@ -38,6 +38,9 @@
 /* Define if FIFO support is enabled. */
 #define FIFO 1
 
+/* System setup enforces 64 bit offsets where 32 bit would be native. */
+/* #undef FORCED_OFF_64 */
+
 /* Define if frame index should be used. */
 #define FRAME_INDEX 1
 
@@ -242,6 +245,12 @@
 /* Define to 1 if you have the <string.h> header file. */
 #define HAVE_STRING_H 1
 
+/* Define to 1 if you have the `strtok_r' function. */
+/* #undef HAVE_STRTOK_R */
+
+/* Define to 1 if you have the `strtok_s' function. */
+#define HAVE_STRTOK_S 1
+
 /* Define to 1 if you have the <sun/audioio.h> header file. */
 /* #undef HAVE_SUN_AUDIOIO_H */
 
@@ -436,7 +445,7 @@
 #define PACKAGE_NAME "mpg123"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "mpg123 1.32.7"
+#define PACKAGE_STRING "mpg123 1.33.0"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "mpg123"
@@ -445,7 +454,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "1.32.7"
+#define PACKAGE_VERSION "1.33.0"
 
 /* Define to only include portable library API (no off_t, no internal I/O). */
 /* #undef PORTABLE_API */
@@ -477,7 +486,7 @@
 /* #undef USE_YASM_FOR_AVX */
 
 /* Version number of package */
-#define VERSION "1.32.7"
+#define VERSION "1.33.0"
 
 /* Define to use Win32 named pipes */
 #define WANT_WIN32_FIFO 1

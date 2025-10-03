@@ -37,7 +37,7 @@
 #define DPWS_GUARANTEED_MAXBUFFERSIZE 1048547
 #define DPWS_GUARANTEED_MAXPLAYERS    64
 
-#include "pshpack1.h"
+#pragma pack(push,1)
 
 typedef struct tagDPSP_MSG_HEADER
 {
@@ -52,7 +52,7 @@ typedef struct
     SOCKADDR_IN udpAddr;
 } DPWS_PLAYERDATA;
 
-#include "poppack.h"
+#pragma pack(pop)
 
 typedef struct tagDPWS_IN_CONNECTION DPWS_IN_CONNECTION;
 typedef void DPWS_COMPLETION_ROUTINE( DPWS_IN_CONNECTION *connection );
@@ -76,8 +76,14 @@ struct tagDPWS_IN_CONNECTION
 
 typedef struct
 {
+    SOCKADDR_IN addr;
+    BOOL        guaranteed;
+} DPWS_CONNECTION_KEY;
+
+typedef struct
+{
     struct rb_entry     entry;
-    SOCKADDR_IN         addr;
+    DPWS_CONNECTION_KEY key;
 
     SOCKET              tcpSock;
     WSAOVERLAPPED       overlapped;
@@ -105,6 +111,12 @@ typedef struct tagDPWS_DATA
     SOCKADDR_IN           tcpAddr;
     WSAEVENT              acceptEvent;
     struct list           inConnections;
+
+    SOCKET                udpSock;
+    SOCKADDR_IN           udpAddr;
+    WSAOVERLAPPED         overlapped;
+    WSABUF                wsaBuffer;
+    char                  buffer[ 65536 ];
 
     CRITICAL_SECTION      sendCs;
     DPWS_PLAYER           nameserver;

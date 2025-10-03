@@ -106,7 +106,7 @@ static IOHIDManagerRef hid_manager;
 static CFRunLoopRef run_loop;
 static struct list event_queue = LIST_INIT(event_queue);
 static struct list device_list = LIST_INIT(device_list);
-static struct iohid_bus_options options;
+static const struct bus_options *options;
 
 struct iohid_device
 {
@@ -275,10 +275,11 @@ static void handle_DeviceMatchingCallback(void *context, IOReturn result, void *
         .serialnumber = {'0','0','0','0',0},
     };
     struct iohid_device *impl;
+    USAGE_AND_PAGE usages;
     CFStringRef str;
 
-    desc.usages.UsagePage = CFNumberToDWORD(IOHIDDeviceGetProperty(IOHIDDevice, CFSTR(kIOHIDPrimaryUsagePageKey)));
-    desc.usages.Usage = CFNumberToDWORD(IOHIDDeviceGetProperty(IOHIDDevice, CFSTR(kIOHIDPrimaryUsageKey)));
+    usages.UsagePage = CFNumberToDWORD(IOHIDDeviceGetProperty(IOHIDDevice, CFSTR(kIOHIDPrimaryUsagePageKey)));
+    usages.Usage = CFNumberToDWORD(IOHIDDeviceGetProperty(IOHIDDevice, CFSTR(kIOHIDPrimaryUsageKey)));
 
     desc.vid = CFNumberToDWORD(IOHIDDeviceGetProperty(IOHIDDevice, CFSTR(kIOHIDVendorIDKey)));
     desc.pid = CFNumberToDWORD(IOHIDDeviceGetProperty(IOHIDDevice, CFSTR(kIOHIDProductIDKey)));
@@ -286,17 +287,22 @@ static void handle_DeviceMatchingCallback(void *context, IOReturn result, void *
     desc.uid = CFNumberToDWORD(IOHIDDeviceGetProperty(IOHIDDevice, CFSTR(kIOHIDLocationIDKey)));
 
     if ((str = IOHIDDeviceGetProperty(IOHIDDevice, CFSTR(kIOHIDTransportKey))))
-        desc.is_bluetooth = !CFStringCompare(str, CFSTR(kIOHIDTransportBluetoothValue), 0) ||
-                            !CFStringCompare(str, CFSTR(kIOHIDTransportBluetoothLowEnergyValue), 0);
+    {
+        if (!CFStringCompare(str, CFSTR(kIOHIDTransportBluetoothValue), 0) ||
+                            !CFStringCompare(str, CFSTR(kIOHIDTransportBluetoothLowEnergyValue), 0))
+            desc.bus_type = BUS_TYPE_BLUETOOTH;
+        else if (!CFStringCompare(str, CFSTR(kIOHIDTransportUSBValue), 0))
+            desc.bus_type = BUS_TYPE_USB;
+    }
 
-    if (desc.usages.UsagePage != HID_USAGE_PAGE_GENERIC ||
-        !(desc.usages.Usage == HID_USAGE_GENERIC_JOYSTICK || desc.usages.Usage == HID_USAGE_GENERIC_GAMEPAD))
+    if (usages.UsagePage != HID_USAGE_PAGE_GENERIC ||
+        !(usages.Usage == HID_USAGE_GENERIC_JOYSTICK || usages.Usage == HID_USAGE_GENERIC_GAMEPAD))
     {
         /* winebus isn't currently meant to handle anything but these, and
          * opening keyboards, mice, or the Touch Bar on older MacBooks triggers
          * a permissions dialog for input monitoring.
          */
-        ERR("Ignoring HID device %p (vid %04x, pid %04x): not a joystick or gamepad\n", IOHIDDevice, desc.vid, desc.pid);
+        WARN("Ignoring HID device %p (vid %04x, pid %04x): not a joystick or gamepad\n", IOHIDDevice, desc.vid, desc.pid);
         return;
     }
 
@@ -351,7 +357,7 @@ NTSTATUS iohid_bus_init(void *args)
 {
     TRACE("args %p\n", args);
 
-    options = *(struct iohid_bus_options *)args;
+    options = args;
 
     if (!(hid_manager = IOHIDManagerCreate(kCFAllocatorDefault, 0L)))
     {

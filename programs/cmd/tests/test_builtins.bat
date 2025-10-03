@@ -35,12 +35,41 @@ rem call :setError 666 & (foobar.IDontExist &&echo SUCCESS !errorlevel!||echo FA
 cd .. && rd /q /s foo
 echo --- success/failure for CALL command
 mkdir foo & cd foo
-echo exit /b %%1 > foobar.bat
+rem generating different condition of child.bat termination (success/failure, errorlevel set or not...)
+echo exit /b %%1 > foobarEB.bat
+echo type NUL > foobarS0.bat
+echo rmdir foobar.dir > foobarSEL.bat
+echo title foo >> foobarSEL.bat
+echo rmdir foobar.dir > foobarF2.bat
+echo type NUL > foobarS0WS.bat
+echo.>> foobarS0WS.bat
+echo goto :EOF > foobarGE.bat
+echo goto :end > foobarGL.bat
+echo :end >> foobarGL.bat
+echo goto :end > foobarGX.bat
+echo rmdir foobar.dir > foobarFGE.bat
+echo goto :EOF >> foobarFGE.bat
+echo rmdir foobar.dir > foobarFGL.bat
+echo goto :end >> foobarFGL.bat
+echo :end >> foobarFGL.bat
+echo rmdir foobar.dir > foobarFGX.bat
+echo goto :end >> foobarFGX.bat
+
 rem call :setError 666 & (call I\dont\exist.exe &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem terminates batch exec on native...
 call :setError 666 & (call Idontexist.exe &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
-call :setError 666 & (call .\foobar.bat 0 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
-call :setError 666 & (call .\foobar.bat 1024 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarEB.bat 0 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarEB.bat 1024 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarS0.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarS0WS.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarSEL.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarF2.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarGE.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarGL.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarGX.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarFGE.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarFGL.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (call .\foobarFGX.bat &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 call :setError 666 & (call cmd.exe /c "echo foo & exit /b 0" &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 call :setError 666 & (call cmd.exe /c "echo foo & exit /b 1025" &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 call :setError 666 & (call rmdir foobar.dir &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
@@ -118,6 +147,7 @@ call :setError 666 & (erase &&echo SUCCESS !errorlevel!||echo FAILURE !errorleve
 call :setError 666 & (erase fileE &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 call :setError 666 & (erase i\dont\exist\at\all.txt &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 call :setError 666 & (erase file* i\dont\exist\at\all.txt &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+call :setError 666 & (erase *.idontexistatall &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 cd .. && rd /q /s foo
 
 echo --- success/failure for change drive command
@@ -302,9 +332,12 @@ call :setError 666 & ((echo A | choice /C:BA) >NUL &&echo SUCCESS !errorlevel!||
 call :setError 666 & (choice /C:BA <NUL >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem syntax errors in command return INVALID_FUNCTION, need to find a test for returning 255
 echo --- success/failure for MORE command
+echo a> filea
 call :setError 666 & (more NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
-call :setError 666 & (more I\dont\exist.txt > NUL 2>&1 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 call :setError 666 & (echo foo | more &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+rem native 'MORE file' outputs to CONOUT$, not stdout!
+call :setError 666 & (more filea I\dont\exist.txt &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+erase filea
 echo --- success/failure for PAUSE command
 call :setError 666 & (pause < NUL > NUL 2>&1 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem TODO: pause is harder to test when fd 1 is a console handle as we don't control output

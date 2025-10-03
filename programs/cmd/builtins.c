@@ -34,9 +34,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(cmd);
 
-extern int defaultColor;
 extern BOOL echo_mode;
-extern BOOL interactive;
 
 struct env_stack *pushd_directories;
 const WCHAR inbuilt[][10] = {
@@ -199,9 +197,8 @@ DIRECTORY_STACK *WCMD_dir_stack_free(DIRECTORY_STACK *dir)
  *                   set to TRUE
  *
  */
-static BOOL WCMD_ask_confirm (const WCHAR *message, BOOL showSureText,
-                              BOOL *optionAll) {
-
+static BOOL WCMD_ask_confirm(const WCHAR *message, BOOL showSureText, BOOL *optionAll)
+{
     UINT msgid;
     WCHAR confirm[MAXSTRING];
     WCHAR options[MAXSTRING];
@@ -209,11 +206,10 @@ static BOOL WCMD_ask_confirm (const WCHAR *message, BOOL showSureText,
     WCHAR Nbuffer[MAXSTRING];
     WCHAR Abuffer[MAXSTRING];
     WCHAR answer[MAX_PATH] = {'\0'};
-    DWORD count = 0;
 
     /* Load the translated valid answers */
     if (showSureText)
-      LoadStringW(hinst, WCMD_CONFIRM, confirm, ARRAY_SIZE(confirm));
+        LoadStringW(hinst, WCMD_CONFIRM, confirm, ARRAY_SIZE(confirm));
     msgid = optionAll ? WCMD_YESNOALL : WCMD_YESNO;
     LoadStringW(hinst, msgid, options, ARRAY_SIZE(options));
     LoadStringW(hinst, WCMD_YES, Ybuffer, ARRAY_SIZE(Ybuffer));
@@ -225,22 +221,23 @@ static BOOL WCMD_ask_confirm (const WCHAR *message, BOOL showSureText,
         *optionAll = FALSE;
     while (1)
     {
-      WCMD_output_asis (message);
-      if (showSureText)
-        WCMD_output_asis (confirm);
-      WCMD_output_asis (options);
-      if (!WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), answer, ARRAY_SIZE(answer), &count) || !count)
-          return FALSE;
-      answer[0] = towupper(answer[0]);
-      if (answer[0] == Ybuffer[0])
-        return TRUE;
-      if (answer[0] == Nbuffer[0])
-        return FALSE;
-      if (optionAll && answer[0] == Abuffer[0])
-      {
-        *optionAll = TRUE;
-        return TRUE;
-      }
+        WCMD_output_asis(message);
+        if (showSureText)
+            WCMD_output_asis(confirm);
+        WCMD_output_asis(options);
+        WCMD_output_flush();
+        if (!WCMD_fgets(answer, ARRAY_SIZE(answer), GetStdHandle(STD_INPUT_HANDLE)) || !*answer)
+            return FALSE;
+        answer[0] = towupper(answer[0]);
+        if (answer[0] == Ybuffer[0])
+            return TRUE;
+        if (answer[0] == Nbuffer[0])
+            return FALSE;
+        if (optionAll && answer[0] == Abuffer[0])
+        {
+            *optionAll = TRUE;
+            return TRUE;
+        }
     }
 }
 
@@ -400,6 +397,7 @@ RETURN_CODE WCMD_choice(WCHAR *args)
         WCMD_output_asis(L"]?");
     }
 
+    WCMD_output_flush();
     while (return_code == NO_ERROR)
     {
         if (opt_timeout == 0)
@@ -543,6 +541,49 @@ end:
 }
 
 /****************************************************************************
+ * WCMD_copy_loop
+ *
+ * Copies from a file
+ *    optionally reading only until EOF (ascii copy)
+ * Returns TRUE on success
+ */
+static BOOL WCMD_copy_loop(HANDLE in, HANDLE out, BOOL ascii)
+{
+    BOOL   ok;
+    DWORD  bytesread, byteswritten;
+    char *eof = NULL;
+
+    /* Loop copying data from source to destination until EOF read */
+    do
+    {
+        char buffer[MAXSTRING];
+
+        ok = ReadFile(in, buffer, MAXSTRING, &bytesread, NULL);
+        if (ok) {
+
+            /* Stop at first EOF */
+            if (ascii) {
+                eof = (char *)memchr((void *)buffer, '\x1a', bytesread);
+                if (eof) bytesread = (eof - buffer);
+            }
+
+            if (bytesread) {
+                ok = WriteFile(out, buffer, bytesread, &byteswritten, NULL);
+                if (!ok || byteswritten != bytesread) {
+                    WINE_ERR("Unexpected failure writing, rc=%ld\n",
+                             GetLastError());
+                }
+            }
+        } else {
+            WINE_ERR("Unexpected failure reading, rc=%ld\n",
+                     GetLastError());
+        }
+    } while (ok && bytesread > 0 && !eof);
+
+    return ok;
+}
+
+/****************************************************************************
  * WCMD_ManualCopy
  *
  * Copies from a file
@@ -554,10 +595,9 @@ static BOOL WCMD_ManualCopy(WCHAR *srcname, WCHAR *dstname, BOOL ascii, BOOL app
 {
     HANDLE in,out;
     BOOL   ok;
-    DWORD  bytesread, byteswritten;
 
-    WINE_TRACE("Manual Copying %s to %s (append?%d)\n",
-               wine_dbgstr_w(srcname), wine_dbgstr_w(dstname), append);
+    WINE_TRACE("Manual Copying %s to %s (ascii: %u) (append: %u)\n",
+               wine_dbgstr_w(srcname), wine_dbgstr_w(dstname), ascii, append);
 
     in  = CreateFileW(srcname, GENERIC_READ, 0, NULL,
                       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -580,32 +620,7 @@ static BOOL WCMD_ManualCopy(WCHAR *srcname, WCHAR *dstname, BOOL ascii, BOOL app
       SetFilePointer(out, 0, NULL, FILE_END);
     }
 
-    /* Loop copying data from source to destination until EOF read */
-    do
-    {
-      char buffer[MAXSTRING];
-
-      ok = ReadFile(in, buffer, MAXSTRING, &bytesread, NULL);
-      if (ok) {
-
-        /* Stop at first EOF */
-        if (ascii) {
-          char *ptr = (char *)memchr((void *)buffer, '\x1a', bytesread);
-          if (ptr) bytesread = (ptr - buffer);
-        }
-
-        if (bytesread) {
-          ok = WriteFile(out, buffer, bytesread, &byteswritten, NULL);
-          if (!ok || byteswritten != bytesread) {
-            WINE_ERR("Unexpected failure writing to %s, rc=%ld\n",
-                     wine_dbgstr_w(dstname), GetLastError());
-          }
-        }
-      } else {
-        WINE_ERR("Unexpected failure reading from %s, rc=%ld\n",
-                 wine_dbgstr_w(srcname), GetLastError());
-      }
-    } while (ok && bytesread > 0);
+    ok = WCMD_copy_loop(in, out, ascii);
 
     CloseHandle(out);
     CloseHandle(in);
@@ -656,6 +671,7 @@ RETURN_CODE WCMD_copy(WCHAR * args)
   WCHAR   copycmd[4];
   DWORD   len;
   BOOL    dstisdevice = FALSE;
+  unsigned numcopied = 0;
 
   typedef struct _COPY_FILES
   {
@@ -840,7 +856,7 @@ RETURN_CODE WCMD_copy(WCHAR * args)
   else {
     /* By default, we will force the overwrite in batch mode and ask for
      * confirmation in interactive mode. */
-    prompt = interactive;
+    prompt = !context;
     /* If COPYCMD is set, then we force the overwrite with /Y and ask for
      * confirmation with /-Y. If COPYCMD is neither of those, then we use the
      * default behavior. */
@@ -954,6 +970,8 @@ RETURN_CODE WCMD_copy(WCHAR * args)
     WCHAR *filenamepart;
     DWORD  attributes;
     BOOL   srcisdevice = FALSE;
+    BOOL   havewildcards = FALSE;
+    BOOL   displaynames = anyconcats; /* Display names if we are concatenating. */
 
     /* If it was not explicit, we now know whether we are concatenating or not and
        hence whether to copy as binary or ascii                                    */
@@ -965,6 +983,13 @@ RETURN_CODE WCMD_copy(WCHAR * args)
         return errorlevel = ERROR_INVALID_FUNCTION;
     WINE_TRACE("Full src name is '%s'\n", wine_dbgstr_w(srcpath));
 
+    havewildcards = wcspbrk(srcpath, L"*?") ? TRUE : FALSE;
+    /* If we are not already displaying file names due to concatenation, then display them
+       if using wildards. */
+    if (!displaynames) {
+      displaynames = havewildcards;
+    }
+
     /* If parameter is a directory, ensure it ends in \* */
     attributes = GetFileAttributesW(srcpath);
     if (ends_with_backslash( srcpath )) {
@@ -972,17 +997,19 @@ RETURN_CODE WCMD_copy(WCHAR * args)
       /* We need to know where the filename part starts, so append * and
          recalculate the full resulting path                              */
       lstrcatW(thiscopy->name, L"*");
+      displaynames = TRUE;
       if (!WCMD_get_fullpath(thiscopy->name, ARRAY_SIZE(srcpath), srcpath, &filenamepart))
           return errorlevel = ERROR_INVALID_FUNCTION;
       WINE_TRACE("Directory, so full name is now '%s'\n", wine_dbgstr_w(srcpath));
 
-    } else if ((wcspbrk(srcpath, L"*?") == NULL) &&
+    } else if (!havewildcards &&
                (attributes != INVALID_FILE_ATTRIBUTES) &&
                (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
 
       /* We need to know where the filename part starts, so append \* and
          recalculate the full resulting path                              */
       lstrcatW(thiscopy->name, L"\\*");
+      displaynames = TRUE;
       if (!WCMD_get_fullpath(thiscopy->name, ARRAY_SIZE(srcpath), srcpath, &filenamepart))
           return errorlevel = ERROR_INVALID_FUNCTION;
       WINE_TRACE("Directory, so full name is now '%s'\n", wine_dbgstr_w(srcpath));
@@ -995,7 +1022,10 @@ RETURN_CODE WCMD_copy(WCHAR * args)
     if (wcsncmp(srcpath, L"\\\\.\\", lstrlenW(L"\\\\.\\")) == 0) {
       WINE_TRACE("Source is a device\n");
       srcisdevice = TRUE;
-      srcname  = &srcpath[4]; /* After the \\.\ prefix */
+      srcname = &srcpath[4]; /* After the \\.\ prefix */
+      if (!wcsnicmp(srcname, L"CON", 3)) {
+        thiscopy->binarycopy = FALSE;
+      }
     } else {
 
       /* Loop through all source files */
@@ -1064,19 +1094,29 @@ RETURN_CODE WCMD_copy(WCHAR * args)
 
           /* Do the copy as appropriate */
           if (overwrite) {
+            if (displaynames) {
+              WCMD_output_asis(srcpath);
+              WCMD_output_asis(L"\r\n");
+            }
             if (anyconcats && WCMD_IsSameFile(srcpath, outname)) {
-              /* Silently skip if the destination file is also a source file */
-              status = TRUE;
-            } else if (anyconcats && writtenoneconcat) {
-              if (thiscopy->binarycopy) {
-                status = WCMD_ManualCopy(srcpath, outname, FALSE, TRUE);
-              } else {
-                status = WCMD_ManualCopy(srcpath, outname, TRUE, TRUE);
+              /* behavior is as Unix 'touch' (change last-written time only) */
+              HANDLE file = CreateFileW(srcpath, GENERIC_WRITE, FILE_SHARE_WRITE, NULL,
+                                        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+              if (file != INVALID_HANDLE_VALUE)
+              {
+                FILETIME file_time;
+                SYSTEMTIME system_time;
+
+                GetSystemTime(&system_time);
+                SystemTimeToFileTime(&system_time, &file_time);
+                status = SetFileTime(file, NULL, NULL, &file_time);
+                CloseHandle(file);
               }
-            } else if (!thiscopy->binarycopy) {
-              status = WCMD_ManualCopy(srcpath, outname, TRUE, FALSE);
-            } else if (srcisdevice) {
-              status = WCMD_ManualCopy(srcpath, outname, FALSE, FALSE);
+              else status = FALSE;
+            } else if (anyconcats && writtenoneconcat) {
+              status = WCMD_ManualCopy(srcpath, outname, !thiscopy->binarycopy, TRUE);
+            } else if (!thiscopy->binarycopy || srcisdevice) {
+              status = WCMD_ManualCopy(srcpath, outname, !thiscopy->binarycopy, FALSE);
             } else {
               status = CopyFileW(srcpath, outname, FALSE);
             }
@@ -1085,7 +1125,12 @@ RETURN_CODE WCMD_copy(WCHAR * args)
               return_code = ERROR_INVALID_FUNCTION;
             } else {
               WINE_TRACE("Copied successfully\n");
-              if (anyconcats) writtenoneconcat = TRUE;
+              if (anyconcats) {
+                writtenoneconcat = TRUE;
+                numcopied = 1;
+              } else {
+                numcopied++;
+              }
 
               /* Append EOF if ascii destination and we are not going to add more onto the end
                  Note: Testing shows windows has an optimization whereas if you have a binary
@@ -1121,6 +1166,10 @@ RETURN_CODE WCMD_copy(WCHAR * args)
       WCMD_print_error ();
       return_code = ERROR_INVALID_FUNCTION;
     }
+  }
+
+  if (numcopied) {
+    WCMD_output(WCMD_LoadMessage(WCMD_NUMCOPIED), numcopied);
   }
 
   /* Exit out of the routine, freeing any remaining allocated memory */
@@ -1327,6 +1376,7 @@ static BOOL WCMD_delete_one (const WCHAR *thisArg) {
     hff = FindFirstFileW(argCopy, &fd);
     if (hff == INVALID_HANDLE_VALUE) {
       handleParm = FALSE;
+      found = wcschr(argCopy,'*') != NULL || wcschr(argCopy,'?') != NULL;
     } else {
       found = TRUE;
     }
@@ -1518,73 +1568,36 @@ RETURN_CODE WCMD_delete(WCHAR *args)
     return errorlevel;
 }
 
-/*
- * WCMD_strtrim
- *
- * Returns a trimmed version of s with all leading and trailing whitespace removed
- * Pre: s non NULL
- *
- */
-static WCHAR *WCMD_strtrim(const WCHAR *s)
-{
-    DWORD len = lstrlenW(s);
-    const WCHAR *start = s;
-    WCHAR* result;
-
-    result = xalloc((len + 1) * sizeof(WCHAR));
-
-    while (iswspace(*start)) start++;
-    if (*start) {
-        const WCHAR *end = s + len - 1;
-        while (end > start && iswspace(*end)) end--;
-        memcpy(result, start, (end - start + 2) * sizeof(WCHAR));
-        result[end - start + 1] = '\0';
-    } else {
-        result[0] = '\0';
-    }
-
-    return result;
-}
-
 /****************************************************************************
  * WCMD_echo
  *
  * Echo input to the screen (or not). We don't try to emulate the bugs
  * in DOS (try typing "ECHO ON AGAIN" for an example).
  */
-
 RETURN_CODE WCMD_echo(const WCHAR *args)
 {
-  int count;
-  const WCHAR *origcommand = args;
-  WCHAR *trimmed;
+    const WCHAR *toskip = L".:;/(";
+    const WCHAR *skipped = NULL;
+    WCHAR *trimmed;
 
-  if (   args[0]==' ' || args[0]=='\t' || args[0]=='.'
-      || args[0]==':' || args[0]==';'  || args[0]=='/')
-    args++;
+    if (iswspace(args[0]) || (args[0] && (skipped = wcschr(toskip, args[0])))) args++;
 
-  trimmed = WCMD_strtrim(args);
-  if (!trimmed) return NO_ERROR;
+    trimmed = WCMD_skip_leading_spaces((WCHAR *)args);
 
-  count = lstrlenW(trimmed);
-  if (count == 0 && origcommand[0]!='.' && origcommand[0]!=':'
-                 && origcommand[0]!=';' && origcommand[0]!='/') {
-    if (echo_mode) WCMD_output(WCMD_LoadMessage(WCMD_ECHOPROMPT), L"ON");
-    else WCMD_output (WCMD_LoadMessage(WCMD_ECHOPROMPT), L"OFF");
-    free(trimmed);
+    if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE | SORT_STRINGSORT, trimmed, 2, L"ON", 2) == CSTR_EQUAL &&
+        *WCMD_skip_leading_spaces(trimmed + 2) == L'\0')
+        echo_mode = TRUE;
+    else if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE | SORT_STRINGSORT, trimmed, 3, L"OFF", 3) == CSTR_EQUAL &&
+             *WCMD_skip_leading_spaces(trimmed + 3) == L'\0')
+        echo_mode = FALSE;
+    else if (!trimmed[0] && !skipped)
+        WCMD_output(WCMD_LoadMessage(WCMD_ECHOPROMPT), echo_mode ? L"ON" : L"OFF");
+    else
+    {
+        WCMD_output_asis(args);
+        WCMD_output_asis(L"\r\n");
+    }
     return NO_ERROR;
-  }
-
-  if (lstrcmpiW(trimmed, L"ON") == 0)
-    echo_mode = TRUE;
-  else if (lstrcmpiW(trimmed, L"OFF") == 0)
-    echo_mode = FALSE;
-  else {
-    WCMD_output_asis (args);
-    WCMD_output_asis(L"\r\n");
-  }
-  free(trimmed);
-  return NO_ERROR;
 }
 
 /*****************************************************************************
@@ -1709,13 +1722,14 @@ RETURN_CODE WCMD_goto(void)
             return ERROR_INVALID_FUNCTION;
         }
 
+        if (!context->batch_file) return ERROR_INVALID_FUNCTION;
         /* Handle special :EOF label */
         if (lstrcmpiW(L":eof", param1) == 0)
         {
-            context->skip_rest = TRUE;
-            return RETURN_CODE_ABORTED;
+            context->file_position.QuadPart = WCMD_FILE_POSITION_EOF;
+            return RETURN_CODE_GOTO;
         }
-        h = CreateFileW(context->batchfileW, GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+        h = CreateFileW(context->batch_file->path_name, GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
                         NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
         if (h == INVALID_HANDLE_VALUE)
         {
@@ -1731,9 +1745,9 @@ RETURN_CODE WCMD_goto(void)
 
         ret = WCMD_find_label(h, paramStart, &context->file_position);
         CloseHandle(h);
-        if (ret) return RETURN_CODE_ABORTED;
+        if (ret) return RETURN_CODE_GOTO;
         WCMD_output_stderr(WCMD_LoadMessage(WCMD_NOTARGET));
-        context->skip_rest = TRUE;
+        context->file_position.QuadPart = WCMD_FILE_POSITION_EOF;
     }
     return ERROR_INVALID_FUNCTION;
 }
@@ -1895,7 +1909,7 @@ RETURN_CODE WCMD_move(void)
       else {
         /* By default, we will force the overwrite in batch mode and ask for
          * confirmation in interactive mode. */
-        force = !interactive;
+        force = !!context;
         /* If COPYCMD is set, then we force the overwrite with /Y and ask for
          * confirmation with /-Y. If COPYCMD is neither of those, then we use the
          * default behavior. */
@@ -1942,21 +1956,11 @@ RETURN_CODE WCMD_move(void)
 RETURN_CODE WCMD_pause(void)
 {
   RETURN_CODE return_code = NO_ERROR;
-  DWORD oldmode;
-  BOOL have_console;
-  DWORD count;
-  WCHAR key;
-  HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
-
-  have_console = GetConsoleMode(hIn, &oldmode);
-  if (have_console)
-      SetConsoleMode(hIn, 0);
-
   WCMD_output_asis(anykey);
-  if (!WCMD_ReadFile(hIn, &key, 1, &count) || !count)
-      return_code = ERROR_INVALID_FUNCTION;
-  if (have_console)
-    SetConsoleMode(hIn, oldmode);
+  WCMD_output_flush();
+  return_code = WCMD_wait_for_input(GetStdHandle(STD_INPUT_HANDLE));
+  WCMD_output_asis(L"\r\n");
+
   return return_code;
 }
 
@@ -2169,7 +2173,7 @@ RETURN_CODE WCMD_setlocal(WCHAR *args)
   WCHAR *argN = args;
 
   /* setlocal does nothing outside of batch programs */
-  if (!context)
+  if (!WCMD_is_in_context(NULL))
       return NO_ERROR;
   newdelay = delayedsubst;
   while (argN)
@@ -2225,7 +2229,7 @@ RETURN_CODE WCMD_endlocal(void)
   int len, n;
 
   /* setlocal does nothing outside of batch programs */
-  if (!context) return NO_ERROR;
+  if (!WCMD_is_in_context(NULL)) return NO_ERROR;
 
   /* setlocal needs a saved environment from within the same context (batch
      program) as it was saved in                                            */
@@ -2405,28 +2409,30 @@ RETURN_CODE WCMD_setshow_default(const WCHAR *args)
 
 RETURN_CODE WCMD_setshow_date(void)
 {
-  RETURN_CODE return_code = NO_ERROR;
-  WCHAR curdate[64], buffer[64];
-  DWORD count;
+    RETURN_CODE return_code = NO_ERROR;
+    WCHAR curdate[64], buffer[64];
 
-  if (!*param1) {
-    if (GetDateFormatW(LOCALE_USER_DEFAULT, 0, NULL, NULL, curdate, ARRAY_SIZE(curdate))) {
-      WCMD_output (WCMD_LoadMessage(WCMD_CURRENTDATE), curdate);
-      if (wcsstr(quals, L"/T") == NULL) {
-        WCMD_output (WCMD_LoadMessage(WCMD_NEWDATE));
-        if (WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, ARRAY_SIZE(buffer), &count) &&
-            count > 2) {
-          WCMD_output_stderr (WCMD_LoadMessage(WCMD_NYI));
+    if (!*param1)
+    {
+        if (GetDateFormatW(LOCALE_USER_DEFAULT, 0, NULL, NULL, curdate, ARRAY_SIZE(curdate)))
+        {
+            WCMD_output(WCMD_LoadMessage(WCMD_CURRENTDATE), curdate);
+            if (wcsstr(quals, L"/T") == NULL)
+            {
+                WCMD_output(WCMD_LoadMessage(WCMD_NEWDATE));
+                WCMD_output_flush();
+                if (WCMD_fgets(buffer, ARRAY_SIZE(buffer), GetStdHandle(STD_INPUT_HANDLE)))
+                    WCMD_output_stderr(WCMD_LoadMessage(WCMD_NYI));
+            }
         }
-      }
+        else WCMD_print_error();
     }
-    else WCMD_print_error ();
-  }
-  else {
-    return_code = ERROR_INVALID_FUNCTION;
-    WCMD_output_stderr (WCMD_LoadMessage(WCMD_NYI));
-  }
-  return errorlevel = return_code;
+    else
+    {
+        return_code = ERROR_INVALID_FUNCTION;
+        WCMD_output_stderr(WCMD_LoadMessage(WCMD_NYI));
+    }
+    return errorlevel = return_code;
 }
 
 /****************************************************************************
@@ -3026,9 +3032,8 @@ RETURN_CODE WCMD_setshow_env(WCHAR *s)
   /* See if /P supplied, and if so echo the prompt, and read in a reply */
   else if (CompareStringW(LOCALE_USER_DEFAULT,
                           NORM_IGNORECASE | SORT_STRINGSORT,
-                          s, 2, L"/P", -1) == CSTR_EQUAL) {
-    DWORD count;
-
+                          s, 2, L"/P", -1) == CSTR_EQUAL)
+  {
     s += 2;
     while (*s && (*s==' ' || *s=='\t')) s++;
     /* set /P "var=value"jim ignores anything after the last quote */
@@ -3058,9 +3063,8 @@ RETURN_CODE WCMD_setshow_env(WCHAR *s)
       }
 
       /* Read the reply */
-      if (WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), string, ARRAY_SIZE(string), &count) && count > 1) {
-        string[count-1] = '\0'; /* ReadFile output is not null-terminated! */
-        if (string[count-2] == '\r') string[count-2] = '\0'; /* Under Windoze we get CRLF! */
+      if (WCMD_fgets(string, ARRAY_SIZE(string), GetStdHandle(STD_INPUT_HANDLE)) && *string)
+      {
         TRACE("set /p: Setting var '%s' to '%s'\n", wine_dbgstr_w(s),
               wine_dbgstr_w(string));
         if (*string) SetEnvironmentVariableW(s, string);
@@ -3100,7 +3104,7 @@ RETURN_CODE WCMD_setshow_env(WCHAR *s)
       return_code = ERROR_INVALID_FUNCTION;
     }
     /* If we have no context (interactive or cmd.exe /c) print the final result */
-    else if (!context) {
+    else if (!WCMD_is_in_context(NULL)) {
       swprintf(string, ARRAY_SIZE(string), L"%d", result);
       WCMD_output_asis(string);
     }
@@ -3206,30 +3210,32 @@ RETURN_CODE WCMD_setshow_prompt(void)
 
 RETURN_CODE WCMD_setshow_time(void)
 {
-  RETURN_CODE return_code = NO_ERROR;
-  WCHAR curtime[64], buffer[64];
-  DWORD count;
-  SYSTEMTIME st;
+    RETURN_CODE return_code = NO_ERROR;
+    WCHAR curtime[64], buffer[64];
+    SYSTEMTIME st;
 
-  if (!*param1) {
-    GetLocalTime(&st);
-    if (GetTimeFormatW(LOCALE_USER_DEFAULT, 0, &st, NULL, curtime, ARRAY_SIZE(curtime))) {
-      WCMD_output (WCMD_LoadMessage(WCMD_CURRENTTIME), curtime);
-      if (wcsstr(quals, L"/T") == NULL) {
-        WCMD_output (WCMD_LoadMessage(WCMD_NEWTIME));
-        if (WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, ARRAY_SIZE(buffer), &count) &&
-            count > 2) {
-          WCMD_output_stderr (WCMD_LoadMessage(WCMD_NYI));
+    if (!*param1)
+    {
+        GetLocalTime(&st);
+        if (GetTimeFormatW(LOCALE_USER_DEFAULT, 0, &st, NULL, curtime, ARRAY_SIZE(curtime)))
+        {
+            WCMD_output(WCMD_LoadMessage(WCMD_CURRENTTIME), curtime);
+            if (wcsstr(quals, L"/T") == NULL)
+            {
+                WCMD_output(WCMD_LoadMessage(WCMD_NEWTIME));
+                WCMD_output_flush();
+                if (WCMD_fgets(buffer, ARRAY_SIZE(buffer), GetStdHandle(STD_INPUT_HANDLE)))
+                    WCMD_output_stderr(WCMD_LoadMessage(WCMD_NYI));
+            }
         }
-      }
+        else WCMD_print_error();
     }
-    else WCMD_print_error ();
-  }
-  else {
-    return_code = ERROR_INVALID_FUNCTION;
-    WCMD_output_stderr (WCMD_LoadMessage(WCMD_NYI));
-  }
-  return errorlevel = return_code;
+    else
+    {
+        return_code = ERROR_INVALID_FUNCTION;
+        WCMD_output_stderr(WCMD_LoadMessage(WCMD_NYI));
+    }
+    return errorlevel = return_code;
 }
 
 /****************************************************************************
@@ -3430,32 +3436,76 @@ RETURN_CODE WCMD_type(WCHAR *args)
   while (argN) {
     WCHAR *thisArg = WCMD_parameter (args, argno++, &argN, FALSE, FALSE);
 
-    HANDLE h;
-    WCHAR buffer[512];
-    DWORD count;
+    HANDLE hIn, hOut;
+    DWORD console_mode;
 
     if (!argN) break;
 
     WINE_TRACE("type: Processing arg '%s'\n", wine_dbgstr_w(thisArg));
-    h = CreateFileW(thisArg, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) {
+    hIn = CreateFileW(thisArg, GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hIn == INVALID_HANDLE_VALUE) {
       WCMD_print_error ();
       WCMD_output_stderr(WCMD_LoadMessage(WCMD_READFAIL), thisArg);
       return errorlevel = ERROR_INVALID_FUNCTION;
-    } else {
-      if (writeHeaders) {
-        WCMD_output_stderr(L"\n%1\n\n\n", thisArg);
-      }
-      while (WCMD_ReadFile(h, buffer, ARRAY_SIZE(buffer) - 1, &count)) {
-        if (count == 0) break;	/* ReadFile reports success on EOF! */
-        buffer[count] = 0;
-        WCMD_output_asis (buffer);
-      }
-      CloseHandle (h);
     }
+    hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    if (writeHeaders) {
+      WCMD_output_stderr(L"\n%1\n\n\n", thisArg);
+    }
+
+    WCMD_copy_loop(hIn, hOut, GetConsoleMode(hIn, &console_mode) || GetConsoleMode(hOut, &console_mode));
+
+    CloseHandle (hIn);
   }
+
   return errorlevel = return_code;
+}
+
+static RETURN_CODE page_file(HANDLE h, ULONG64 file_length, BOOL close_previous)
+{
+    WCHAR more_string[100];
+    WCHAR page_string[100];
+    WCHAR buffer[MAXSTRING];
+    RETURN_CODE return_code = NO_ERROR;
+    DWORD dummy;
+    BOOL is_output_console = GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &dummy);
+
+    LoadStringW(hinst, WCMD_MORESTR, more_string, ARRAY_SIZE(more_string));
+
+    wsprintfW(page_string, L"-- %s --", more_string);
+
+    if (close_previous)
+    {
+        if (is_output_console)
+        {
+            wsprintfW(page_string, L"-- %s (100%%) --", more_string);
+            WCMD_output_asis(page_string);
+            WCMD_output_flush();
+        }
+        WCMD_wait_for_console_input();
+        if (is_output_console)
+            WCMD_output_asis(L"\r");
+    }
+
+    WCMD_enter_paged_mode(page_string);
+    while (return_code == NO_ERROR && WCMD_fgets(buffer, ARRAY_SIZE(buffer), h))
+    {
+        LARGE_INTEGER lizero = {.QuadPart = 0}, lipos;
+
+        if (file_length && SetFilePointerEx(h, lizero, &lipos, FILE_CURRENT))
+            wsprintfW(page_string, L"-- %s (%2.2d%%) --", more_string,
+                      min(99, (int)(lipos.QuadPart * 100) / file_length));
+
+        WCMD_output_asis(buffer);
+        WCMD_output_asis(L"\r\n");
+
+        return_code = WCMD_ctrlc_status();
+    }
+    WCMD_leave_paged_mode();
+
+    return return_code;
 }
 
 /****************************************************************************
@@ -3463,107 +3513,51 @@ RETURN_CODE WCMD_type(WCHAR *args)
  *
  * Output either a file or stdin to screen in pages
  */
-
 RETURN_CODE WCMD_more(WCHAR *args)
 {
-  int   argno         = 0;
-  WCHAR *argN         = args;
-  WCHAR  moreStr[100];
-  WCHAR  moreStrPage[100];
-  WCHAR  buffer[512];
-  DWORD count;
-  RETURN_CODE return_code = NO_ERROR;
+    int argno = 0;
+    WCHAR *argN;
 
-  /* Prefix the NLS more with '-- ', then load the text */
-  lstrcpyW(moreStr, L"-- ");
-  LoadStringW(hinst, WCMD_MORESTR, &moreStr[3], ARRAY_SIZE(moreStr)-3);
-
-  if (param1[0] == 0x00) {
-
-    /* Wine implements pipes via temporary files, and hence stdin is
-       effectively reading from the file. This means the prompts for
-       more are satisfied by the next line from the input (file). To
-       avoid this, ensure stdin is to the console                    */
-    HANDLE hstdin  = GetStdHandle(STD_INPUT_HANDLE);
-    HANDLE hConIn = CreateFileW(L"CONIN$", GENERIC_READ | GENERIC_WRITE,
-                         FILE_SHARE_READ, NULL, OPEN_EXISTING,
-                         FILE_ATTRIBUTE_NORMAL, 0);
-    WINE_TRACE("No parms - working probably in pipe mode\n");
-    SetStdHandle(STD_INPUT_HANDLE, hConIn);
-
-    /* Warning: No easy way of ending the stream (ctrl+z on windows) so
-       once you get in this bit unless due to a pipe, it's going to end badly...  */
-    wsprintfW(moreStrPage, L"%s --\n", moreStr);
-
-    WCMD_enter_paged_mode(moreStrPage);
-    while (WCMD_ReadFile(hstdin, buffer, ARRAY_SIZE(buffer)-1, &count)) {
-      if (count == 0) break;	/* ReadFile reports success on EOF! */
-      buffer[count] = 0;
-      WCMD_output_asis (buffer);
+    if (param1[0] == 0x00)
+    {
+        WINE_TRACE("No parms - working probably in pipe mode\n");
+        page_file(GetStdHandle(STD_INPUT_HANDLE), 0, FALSE);
+        WCMD_output_asis(L"\r\n");
     }
-    WCMD_leave_paged_mode();
+    else
+    {
+        RETURN_CODE return_code = NO_ERROR;
 
-    /* Restore stdin to what it was */
-    SetStdHandle(STD_INPUT_HANDLE, hstdin);
-    CloseHandle(hConIn);
-    WCMD_output_asis (L"\r\n");
-  } else {
-    BOOL needsPause = FALSE;
+        /* Loop through all args */
+        WINE_TRACE("Parms supplied - working through each file\n");
 
-    /* Loop through all args */
-    WINE_TRACE("Parms supplied - working through each file\n");
-    WCMD_enter_paged_mode(moreStrPage);
+        for (argno = 0; return_code == NO_ERROR; argno++)
+        {
+            LARGE_INTEGER lizero = {.QuadPart = 0}, lifilelen;
+            WCHAR *thisArg = WCMD_parameter(args, argno, &argN, FALSE, FALSE);
+            HANDLE h;
 
-    while (argN) {
-      WCHAR *thisArg = WCMD_parameter (args, argno++, &argN, FALSE, FALSE);
-      HANDLE h;
+            if (!argN) break;
 
-      if (!argN) break;
+            WINE_TRACE("more: Processing arg '%s'\n", wine_dbgstr_w(thisArg));
+            h = CreateFileW(thisArg, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL, NULL);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                WCMD_print_error();
+                WCMD_output_stderr(WCMD_LoadMessage(WCMD_READFAIL), thisArg);
+                break;
+            }
 
-      if (needsPause) {
+            SetFilePointerEx(h, lizero, &lifilelen, FILE_END);
+            SetFilePointerEx(h, lizero, NULL, FILE_BEGIN);
 
-        /* Wait */
-        wsprintfW(moreStrPage, L"%s (%2.2d%%) --\n", moreStr, 100);
-        WCMD_leave_paged_mode();
-        WCMD_output_asis(moreStrPage);
-        WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, ARRAY_SIZE(buffer), &count);
-        WCMD_enter_paged_mode(moreStrPage);
-      }
+            return_code = page_file(h, lifilelen.QuadPart, argno != 0);
 
-
-      WINE_TRACE("more: Processing arg '%s'\n", wine_dbgstr_w(thisArg));
-      h = CreateFileW(thisArg, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL, NULL);
-      if (h == INVALID_HANDLE_VALUE) {
-        WCMD_print_error ();
-        WCMD_output_stderr(WCMD_LoadMessage(WCMD_READFAIL), thisArg);
-      } else {
-        ULONG64 curPos  = 0;
-        ULONG64 fileLen = 0;
-        WIN32_FILE_ATTRIBUTE_DATA   fileInfo;
-
-        /* Get the file size */
-        GetFileAttributesExW(thisArg, GetFileExInfoStandard, (void*)&fileInfo);
-        fileLen = (((ULONG64)fileInfo.nFileSizeHigh) << 32) + fileInfo.nFileSizeLow;
-
-        needsPause = TRUE;
-        while (WCMD_ReadFile(h, buffer, ARRAY_SIZE(buffer)-1, &count)) {
-          if (count == 0) break;	/* ReadFile reports success on EOF! */
-          buffer[count] = 0;
-          curPos += count;
-
-          /* Update % count (would be used in WCMD_output_asis as prompt) */
-          wsprintfW(moreStrPage, L"%s (%2.2d%%) --\n", moreStr, (int) min(99, (curPos * 100)/fileLen));
-
-          WCMD_output_asis (buffer);
+            CloseHandle(h);
         }
-        CloseHandle (h);
-      }
     }
-
-    WCMD_leave_paged_mode();
-  }
-  return errorlevel = return_code;
+    return errorlevel = NO_ERROR;
 }
 
 /****************************************************************************
@@ -3640,50 +3634,49 @@ BOOL WCMD_print_volume_information(const WCHAR *path)
 
 RETURN_CODE WCMD_label(void)
 {
-  DWORD count;
-  WCHAR string[MAX_PATH], curdir[MAX_PATH];
+    WCHAR string[MAX_PATH], curdir[MAX_PATH];
 
-  /* FIXME incomplete implementation:
-   * - no support for /MP qualifier,
-   * - no support for passing label as parameter
-   */
-  if (*quals)
-      return errorlevel = ERROR_INVALID_FUNCTION;
-  if (!*param1) {
-    if (!GetCurrentDirectoryW(ARRAY_SIZE(curdir), curdir)) {
-      WCMD_print_error();
-      return errorlevel = ERROR_INVALID_FUNCTION;
+    /* FIXME incomplete implementation:
+     * - no support for /MP qualifier,
+     * - no support for passing label as parameter
+     */
+    if (*quals)
+        return errorlevel = ERROR_INVALID_FUNCTION;
+    if (!*param1)
+    {
+        if (!GetCurrentDirectoryW(ARRAY_SIZE(curdir), curdir))
+        {
+            WCMD_print_error();
+            return errorlevel = ERROR_INVALID_FUNCTION;
+        }
     }
-  }
-  else if (param1[1] == ':' && !param1[2]) {
-    curdir[0] = param1[0];
-    curdir[1] = param1[1];
-  } else {
-      WCMD_output_stderr(WCMD_LoadMessage(WCMD_SYNTAXERR));
-      return errorlevel = ERROR_INVALID_FUNCTION;
-  }
-  curdir[2] = L'\\';
-  curdir[3] = L'\0';
-  if (!WCMD_print_volume_information(curdir)) {
-    WCMD_print_error();
-    return errorlevel = ERROR_INVALID_FUNCTION;
-  }
+    else if (param1[1] == ':' && !param1[2])
+    {
+        curdir[0] = param1[0];
+        curdir[1] = param1[1];
+    }
+    else
+    {
+        WCMD_output_stderr(WCMD_LoadMessage(WCMD_SYNTAXERR));
+        return errorlevel = ERROR_INVALID_FUNCTION;
+    }
+    curdir[2] = L'\\';
+    curdir[3] = L'\0';
+    if (!WCMD_print_volume_information(curdir))
+    {
+        WCMD_print_error();
+        return errorlevel = ERROR_INVALID_FUNCTION;
+    }
 
-  if (WCMD_ReadFile(GetStdHandle(STD_INPUT_HANDLE), string, ARRAY_SIZE(string), &count) &&
-      count > 1) {
-    string[count-1] = '\0';		/* ReadFile output is not null-terminatrred! */
-    if (string[count-2] == '\r') string[count-2] = '\0'; /* Under Windoze we get CRLF! */
-  }
-  else return errorlevel = ERROR_INVALID_FUNCTION;
-  if (*param1) {
-    if (!SetVolumeLabelW(curdir, string))
+    if (!WCMD_fgets(string, ARRAY_SIZE(string), GetStdHandle(STD_INPUT_HANDLE)) || !string[0])
+        return errorlevel = ERROR_INVALID_FUNCTION;
+    if (*param1 && !SetVolumeLabelW(curdir, string))
     {
         errorlevel = GetLastError();
         WCMD_print_error();
         return errorlevel;
     }
-  }
-  return errorlevel = NO_ERROR;
+    return errorlevel = NO_ERROR;
 }
 
 RETURN_CODE WCMD_volume(void)
@@ -3728,7 +3721,7 @@ RETURN_CODE WCMD_exit(void)
     if (context && lstrcmpiW(quals, L"/B") == 0)
     {
         errorlevel = rc;
-        context -> skip_rest = TRUE;
+        context->file_position.QuadPart = WCMD_FILE_POSITION_EOF;
         return RETURN_CODE_ABORTED;
     }
     ExitProcess(rc);
@@ -3942,11 +3935,7 @@ RETURN_CODE WCMD_color(void)
       screenSize = consoleInfo.dwSize.X * (consoleInfo.dwSize.Y + 1);
 
       /* Convert the color hex digits */
-      if (param1[0] == 0x00) {
-        color = defaultColor;
-      } else {
-        color = wcstoul(param1, NULL, 16);
-      }
+      color = wcstoul(param1, NULL, 16);
 
       /* Fail if fg == bg color */
       if (((color & 0xF0) >> 4) != (color & 0x0F))
