@@ -45,6 +45,8 @@
 #define IMAGE_NT_OPTIONAL_HDR64_MAGIC 0x20b
 #define IMAGE_ROM_OPTIONAL_HDR_MAGIC  0x107
 
+#define LINKER_VERSION_MAJOR 14
+#define LINKER_VERSION_MINOR 29    /*14.29 vs2019 64bit redist*/
 int needs_get_pc_thunk = 0;
 
 static const char builtin_signature[32] = "Wine builtin DLL";
@@ -771,8 +773,8 @@ void output_module( DLLSPEC *spec )
              spec->characteristics );
     output( "\t.short 0x%04x\n",          /* Magic */
              get_ptr_size() == 8 ? IMAGE_NT_OPTIONAL_HDR64_MAGIC : IMAGE_NT_OPTIONAL_HDR32_MAGIC );
-    output( "\t.byte 7\n" );              /* MajorLinkerVersion */
-    output( "\t.byte 10\n" );             /* MinorLinkerVersion */
+    output( "\t.byte %u\n", LINKER_VERSION_MAJOR);              /* MajorLinkerVersion */
+    output( "\t.byte %u\n", LINKER_VERSION_MINOR );             /* MinorLinkerVersion */
     output( "\t.long 0\n" );              /* SizeOfCode */
     output( "\t.long 0\n" );              /* SizeOfInitializedData */
     output( "\t.long 0\n" );              /* SizeOfUninitializedData */
@@ -1191,8 +1193,8 @@ static void output_pe_file( DLLSPEC *spec, const char signature[32] )
     put_word( get_ptr_size() == 8 ?
               IMAGE_NT_OPTIONAL_HDR64_MAGIC :
               IMAGE_NT_OPTIONAL_HDR32_MAGIC );       /* Magic */
-    put_byte(  7 );                                  /* MajorLinkerVersion */
-    put_byte(  10 );                                 /* MinorLinkerVersion */
+    put_byte(  LINKER_VERSION_MAJOR );                                  /* MajorLinkerVersion */
+    put_byte(  LINKER_VERSION_MINOR );                                 /* MinorLinkerVersion */
     put_dword( code_size );                          /* SizeOfCode */
     put_dword( data_size );                          /* SizeOfInitializedData */
     put_dword( 0 );                                  /* SizeOfUninitializedData */
@@ -1439,12 +1441,14 @@ void output_def_file( DLLSPEC *spec, struct exports *exports, int import_only )
 void make_builtin_files( struct strarray files )
 {
     int i, fd;
+    char linker_version[2] = {LINKER_VERSION_MAJOR, LINKER_VERSION_MINOR};
     struct
     {
         unsigned short e_magic;
         unsigned short unused[29];
         unsigned int   e_lfanew;
     } header;
+    unsigned int pos_linker;
 
     for (i = 0; i < files.count; i++)
     {
@@ -1455,6 +1459,10 @@ void make_builtin_files( struct strarray files )
             if (header.e_lfanew < sizeof(header) + sizeof(builtin_signature))
                 fatal_error( "%s: Not enough space (%x) for Wine signature\n", files.str[i], header.e_lfanew );
             write( fd, builtin_signature, sizeof(builtin_signature) );
+
+            pos_linker = header.e_lfanew + 0x1a;
+            lseek( fd, pos_linker, SEEK_SET );
+            write(fd,linker_version, sizeof(linker_version));
 
             if (prefer_native)
             {
