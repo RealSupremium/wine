@@ -7001,7 +7001,6 @@ static void test_associate_wait_completion_packet(void)
 
     if (!pNtAssociateWaitCompletionPacket)
     {
-        todo_wine
         win_skip("NtAssociateWaitCompletionPacket is unavailable.\n");
         return;
     }

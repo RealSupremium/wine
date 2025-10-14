@@ -1870,6 +1870,25 @@ NTSTATUS WINAPI wow64_NtCreateTransaction( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtAssociateWaitCompletionPacket
+ */
+NTSTATUS WINAPI wow64_NtAssociateWaitCompletionPacket( UINT *args )
+{
+    HANDLE packet = get_handle( &args );
+    HANDLE completion = get_handle( &args );
+    HANDLE target = get_handle( &args );
+    void *key_context = get_ptr( &args );
+    void *apc_context = get_ptr( &args );
+    LONG io_status = get_ulong( &args );
+    ULONG_PTR io_status_information = get_ulong( &args );
+    BOOLEAN *already_signaled = get_ptr( &args );
+
+    return NtAssociateWaitCompletionPacket( packet, completion, target, key_context, apc_context,
+                                            io_status, io_status_information, already_signaled );
+}
+
+
+/**********************************************************************
  *           wow64_NtCreateWaitCompletionPacket
  */
 NTSTATUS WINAPI wow64_NtCreateWaitCompletionPacket( UINT *args )

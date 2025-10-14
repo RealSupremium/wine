@@ -3924,6 +3924,20 @@ struct handle_info
 @END
 
 
+/* Associate a wait completion packet */
+@REQ(associate_completion_packet)
+    obj_handle_t  packet;         /* wait completion packet handle */
+    obj_handle_t  completion;     /* completion handle */
+    obj_handle_t  target;         /* target object handle */
+    apc_param_t   ckey;           /* completion key */
+    apc_param_t   cvalue;         /* completion value */
+    apc_param_t   information;    /* IO_STATUS_BLOCK information */
+    unsigned int  status;         /* completion status */
+@REPLY
+    int           already_signaled; /* whether the object is already signaled */
+@END
+
+
 /* check for associated completion and push msg */
 @REQ(add_fd_completion)
     obj_handle_t   handle;        /* async' object */

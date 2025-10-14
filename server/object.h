@@ -117,6 +117,7 @@ struct object
     unsigned int              handle_count;/* handle count */
     const struct object_ops  *ops;
     struct list               wait_queue;
+    struct list               completion_packet_queue;
     struct object_name       *name;
     struct security_descriptor *sd;
     unsigned int              is_permanent:1;

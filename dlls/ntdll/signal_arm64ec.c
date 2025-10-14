@@ -358,6 +358,7 @@ DEFINE_WRAPPED_SYSCALL(NtAllocateVirtualMemoryEx, (HANDLE process, PVOID *ret, S
 DEFINE_SYSCALL(NtApphelpCacheControl, (ULONG class, void *context))
 DEFINE_SYSCALL(NtAreMappedFilesTheSame, (PVOID addr1, PVOID addr2))
 DEFINE_SYSCALL(NtAssignProcessToJobObject, (HANDLE job, HANDLE process))
+DEFINE_SYSCALL(NtAssociateWaitCompletionPacket,(HANDLE packet, HANDLE completion, HANDLE target, void *key_context, void *apc_context, NTSTATUS io_status, ULONG_PTR io_status_information, BOOLEAN *already_signaled))
 DEFINE_SYSCALL(NtCallbackReturn, (void *ret_ptr, ULONG ret_len, NTSTATUS status))
 DEFINE_SYSCALL(NtCancelIoFile, (HANDLE handle, IO_STATUS_BLOCK *io_status))
 DEFINE_SYSCALL(NtCancelIoFileEx, (HANDLE handle, IO_STATUS_BLOCK *io, IO_STATUS_BLOCK *io_status))
