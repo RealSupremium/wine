@@ -201,6 +201,7 @@
 @ stdcall -syscall NtCreateToken(ptr long ptr long ptr ptr ptr ptr ptr ptr ptr ptr ptr)
 @ stdcall -syscall NtCreateTransaction(ptr long ptr ptr long long long long ptr ptr)
 @ stdcall -syscall NtCreateUserProcess(ptr ptr long long ptr ptr long long ptr ptr ptr)
+@ stdcall -syscall NtCreateWaitCompletionPacket(ptr long ptr)
 # @ stub NtCreateWaitablePort
 @ stdcall -arch=i386 NtCurrentTeb()
 @ stdcall -syscall NtDebugActiveProcess(long long)

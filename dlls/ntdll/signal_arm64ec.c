@@ -399,6 +399,7 @@ DEFINE_SYSCALL(NtCreateThreadEx, (HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
 DEFINE_SYSCALL(NtCreateTimer, (HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr, TIMER_TYPE type))
 DEFINE_SYSCALL(NtCreateToken, (HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBUTES *attr, TOKEN_TYPE type, LUID *token_id, LARGE_INTEGER *expire, TOKEN_USER *user, TOKEN_GROUPS *groups, TOKEN_PRIVILEGES *privs, TOKEN_OWNER *owner, TOKEN_PRIMARY_GROUP *group, TOKEN_DEFAULT_DACL *dacl, TOKEN_SOURCE *source))
 DEFINE_SYSCALL(NtCreateTransaction, (HANDLE *handle, ACCESS_MASK mask, OBJECT_ATTRIBUTES *obj_attr, GUID *guid, HANDLE tm, ULONG options, ULONG isol_level, ULONG isol_flags, PLARGE_INTEGER timeout, UNICODE_STRING *description))
+DEFINE_SYSCALL(NtCreateWaitCompletionPacket, (HANDLE *handle, ACCESS_MASK mask, OBJECT_ATTRIBUTES *obj_attr))
 DEFINE_SYSCALL(NtCreateUserProcess, (HANDLE *process_handle_ptr, HANDLE *thread_handle_ptr, ACCESS_MASK process_access, ACCESS_MASK thread_access, OBJECT_ATTRIBUTES *process_attr, OBJECT_ATTRIBUTES *thread_attr, ULONG process_flags, ULONG thread_flags, RTL_USER_PROCESS_PARAMETERS *params, PS_CREATE_INFO *info, PS_ATTRIBUTE_LIST *ps_attr))
 DEFINE_SYSCALL(NtDebugActiveProcess, (HANDLE process, HANDLE debug))
 DEFINE_SYSCALL(NtDebugContinue, (HANDLE handle, CLIENT_ID *client, NTSTATUS status))

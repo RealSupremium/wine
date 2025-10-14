@@ -2412,7 +2412,6 @@ static void test_object_types(void)
             break;
         }
 
-        todo_wine_if(!lstrcmpW(tests[i].name, L"WaitCompletionPacket"))
         ok( broken(!lstrcmpW(tests[i].name, L"WaitCompletionPacket") && j == ARRAY_SIZE(all_types)) /* Win7 doesn't have WaitCompletionPacket */
             || j < ARRAY_SIZE(all_types), "type %s not found\n", debugstr_w(tests[i].name) );
     }

@@ -3625,6 +3625,32 @@ NTSTATUS WINAPI NtCreateTransaction( HANDLE *handle, ACCESS_MASK mask, OBJECT_AT
 }
 
 /***********************************************************************
+ *           NtCreateWaitCompletionPacket (NTDLL.@)
+ */
+NTSTATUS WINAPI NtCreateWaitCompletionPacket( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBUTES *attr )
+{
+    struct object_attributes *objattr;
+    unsigned int ret;
+    data_size_t len;
+
+    TRACE( "%p, %08x, %p\n", handle, (int)access, attr );
+
+    *handle = 0;
+    if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
+
+    SERVER_START_REQ( create_completion_packet )
+    {
+        req->access = access;
+        wine_server_add_data( req, objattr, len );
+        if (!(ret = wine_server_call( req )))
+            *handle = wine_server_ptr_handle( reply->handle );
+    }
+    SERVER_END_REQ;
+    free( objattr );
+    return ret;
+}
+
+/***********************************************************************
  *           NtCommitTransaction (NTDLL.@)
  */
 NTSTATUS WINAPI NtCommitTransaction( HANDLE transaction, BOOLEAN wait )

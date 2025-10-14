@@ -3915,6 +3915,15 @@ struct handle_info
 @END
 
 
+/* create a wait completion packet */
+@REQ(create_completion_packet)
+    unsigned int access;          /* desired access */
+    VARARG(objattr,object_attributes); /* object attributes */
+@REPLY
+    obj_handle_t handle;          /* wait completion packet handle */
+@END
+
+
 /* check for associated completion and push msg */
 @REQ(add_fd_completion)
     obj_handle_t   handle;        /* async' object */

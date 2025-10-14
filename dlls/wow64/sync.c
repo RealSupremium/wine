@@ -1870,6 +1870,27 @@ NTSTATUS WINAPI wow64_NtCreateTransaction( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtCreateWaitCompletionPacket
+ */
+NTSTATUS WINAPI wow64_NtCreateWaitCompletionPacket( UINT *args )
+{
+    ULONG *handle_ptr = get_ptr( &args );
+    ACCESS_MASK access = get_ulong( &args );
+    OBJECT_ATTRIBUTES32 *attr32 = get_ptr( &args );
+
+    struct object_attr64 attr;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    *handle_ptr = 0;
+    status = NtCreateWaitCompletionPacket( &handle, access, objattr_32to64( &attr, attr32 ));
+    put_handle( handle_ptr, handle );
+
+    return status;
+}
+
+
+/**********************************************************************
  *           wow64_NtCommitTransaction
  */
 NTSTATUS WINAPI wow64_NtCommitTransaction( UINT *args )

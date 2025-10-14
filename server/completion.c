@@ -36,7 +36,6 @@
 #include "handle.h"
 #include "request.h"
 
-
 static const WCHAR completion_name[] = {'I','o','C','o','m','p','l','e','t','i','o','n'};
 
 struct type_descr completion_type =
@@ -77,6 +76,11 @@ struct completion
     struct list         queue;
     struct list         wait_queue;
     unsigned int        depth;
+};
+
+struct completion_packet
+{
+    struct object      obj;                       /* object header */
 };
 
 static void completion_wait_dump( struct object*, int );
@@ -319,6 +323,61 @@ void add_completion( struct completion *completion, apc_param_t ckey, apc_param_
     if (!list_empty( &completion->queue )) signal_sync( completion->sync );
 }
 
+static const WCHAR completion_packet_name[] = {'W','a','i','t','C','o','m','p','l','e','t','i','o','n','P','a','c','k','e','t'};
+
+struct type_descr completion_packet_type =
+{
+    { completion_packet_name, sizeof(completion_packet_name) }, /* name */
+    WAIT_COMPLETION_PACKET_ALL_ACCESS | SYNCHRONIZE,            /* valid_access */
+    {                                                           /* mapping */
+         WAIT_COMPLETION_PACKET_GENERIC_READ,
+         WAIT_COMPLETION_PACKET_GENERIC_WRITE,
+         WAIT_COMPLETION_PACKET_GENERIC_EXECUTE,
+         WAIT_COMPLETION_PACKET_ALL_ACCESS
+    },
+};
+
+static void completion_packet_dump( struct object *, int );
+
+static const struct object_ops completion_packet_ops =
+{
+    sizeof(struct completion_packet), /* size */
+    &completion_packet_type,          /* type */
+    completion_packet_dump,           /* dump */
+    no_add_queue,                     /* add_queue */
+    NULL,                             /* remove_queue */
+    NULL,                             /* signaled */
+    NULL,                             /* satisfied */
+    no_signal,                        /* signal */
+    no_get_fd,                        /* get_fd */
+    default_get_sync,                 /* get_sync */
+    default_map_access,               /* map_access */
+    default_get_sd,                   /* get_sd */
+    default_set_sd,                   /* set_sd */
+    default_get_full_name,            /* get_full_name */
+    no_lookup_name,                   /* lookup_name */
+    directory_link_name,              /* link_name */
+    default_unlink_name,              /* unlink_name */
+    no_open_file,                     /* open_file */
+    no_kernel_obj_list,               /* get_kernel_obj_list */
+    no_close_handle,                  /* close_handle */
+    no_destroy                        /* destroy */
+};
+
+static void completion_packet_dump( struct object *obj, int verbose )
+{
+    assert( obj->ops == &completion_packet_ops );
+    fprintf( stderr, "WaitCompletionPacket\n" );
+}
+
+static struct completion_packet *create_completion_packet( struct object *root,
+                                                           const struct unicode_str *name,
+                                                           unsigned int attr,
+                                                           const struct security_descriptor *sd )
+{
+    return create_named_object( root, &completion_packet_ops, name, attr, sd );
+}
+
 /* create a completion */
 DECL_HANDLER(create_completion)
 {
@@ -453,4 +512,27 @@ DECL_HANDLER(query_completion)
     reply->depth = completion->depth;
 
     release_object( completion );
+}
+
+/* create a wait completion packet */
+DECL_HANDLER(create_completion_packet)
+{
+    struct completion_packet *packet;
+    struct unicode_str name;
+    struct object *root;
+    const struct security_descriptor *sd;
+    const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, &root );
+
+    if (!objattr) return;
+    if ((packet = create_completion_packet( root, &name, objattr->attributes, sd )))
+    {
+        if (get_error() == STATUS_OBJECT_NAME_EXISTS)
+            reply->handle = alloc_handle( current->process, packet, req->access, objattr->attributes );
+        else
+            reply->handle = alloc_handle_no_access_check( current->process, packet,
+                                                          req->access, objattr->attributes );
+        release_object( packet );
+    }
+
+    if (root) release_object( root );
 }
