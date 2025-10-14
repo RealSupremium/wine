@@ -56,6 +56,7 @@ static NTSTATUS (WINAPI *pNtAllocateReserveObject)( HANDLE *, const OBJECT_ATTRI
 static NTSTATUS (WINAPI *pNtCreateMailslotFile)( PHANDLE, ULONG, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK,
                                        ULONG, ULONG, ULONG, PLARGE_INTEGER );
 static NTSTATUS (WINAPI *pNtCreateFile)(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,PIO_STATUS_BLOCK,PLARGE_INTEGER,ULONG,ULONG,ULONG,ULONG,PVOID,ULONG);
+static NTSTATUS (WINAPI *pNtCreateWaitCompletionPacket)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES);
 static NTSTATUS (WINAPI *pNtOpenFile)(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,PIO_STATUS_BLOCK,ULONG,ULONG);
 static NTSTATUS (WINAPI *pNtDeleteFile)(POBJECT_ATTRIBUTES ObjectAttributes);
 static NTSTATUS (WINAPI *pNtReadFile)(HANDLE hFile, HANDLE hEvent,
@@ -6892,6 +6893,42 @@ static void test_file_map_large_size(void)
     DeleteFileA(source);
 }
 
+static void test_create_wait_completion_packet(void)
+{
+    UNICODE_STRING name = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\test_create_waitcompletionpacket");
+    HANDLE handle, handle2;
+    OBJECT_ATTRIBUTES attr;
+    NTSTATUS status;
+
+    if (!pNtCreateWaitCompletionPacket)
+    {
+        todo_wine
+        win_skip("NtCreateWaitCompletionPacket is unavailable.\n");
+        return;
+    }
+
+    InitializeObjectAttributes(&attr, &name, 0, NULL, NULL);
+
+    /* Parameter checks */
+    status = pNtCreateWaitCompletionPacket(NULL, GENERIC_ALL, &attr);
+    ok(status == STATUS_ACCESS_VIOLATION, "Got unexpected status %#lx.\n", status);
+
+    status = pNtCreateWaitCompletionPacket(&handle, 0, &attr);
+    ok(status == STATUS_SUCCESS, "Got unexpected status %#lx.\n", status);
+    pNtClose(handle);
+
+    status = pNtCreateWaitCompletionPacket(&handle, GENERIC_ALL, NULL);
+    ok(status == STATUS_SUCCESS, "Got unexpected status %#lx.\n", status);
+    pNtClose(handle);
+
+    status = pNtCreateWaitCompletionPacket(&handle, GENERIC_ALL, &attr);
+    ok(status == STATUS_SUCCESS, "Got unexpected status %#lx.\n", status);
+
+    status = pNtCreateWaitCompletionPacket(&handle2, GENERIC_ALL, &attr);
+    ok(status == STATUS_OBJECT_NAME_COLLISION, "Got unexpected status %#lx.\n", status);
+    pNtClose(handle);
+}
+
 START_TEST(file)
 {
     HMODULE hkernel32 = GetModuleHandleA("kernel32.dll");
@@ -6912,6 +6949,7 @@ START_TEST(file)
     pNtAllocateReserveObject= (void *)GetProcAddress(hntdll, "NtAllocateReserveObject");
     pNtCreateMailslotFile   = (void *)GetProcAddress(hntdll, "NtCreateMailslotFile");
     pNtCreateFile           = (void *)GetProcAddress(hntdll, "NtCreateFile");
+    pNtCreateWaitCompletionPacket = (void *)GetProcAddress(hntdll, "NtCreateWaitCompletionPacket");
     pNtOpenFile             = (void *)GetProcAddress(hntdll, "NtOpenFile");
     pNtDeleteFile           = (void *)GetProcAddress(hntdll, "NtDeleteFile");
     pNtReadFile             = (void *)GetProcAddress(hntdll, "NtReadFile");
@@ -6976,4 +7014,5 @@ START_TEST(file)
     test_mailslot_name();
     test_reparse_points();
     test_file_map_large_size();
+    test_create_wait_completion_packet();
 }
