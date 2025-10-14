@@ -1889,6 +1889,18 @@ NTSTATUS WINAPI wow64_NtAssociateWaitCompletionPacket( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtCancelWaitCompletionPacket
+ */
+NTSTATUS WINAPI wow64_NtCancelWaitCompletionPacket( UINT *args )
+{
+    HANDLE packet = get_handle( &args );
+    BOOLEAN remove_signaled = get_ulong( &args );
+
+    return NtCancelWaitCompletionPacket( packet, remove_signaled );
+}
+
+
+/**********************************************************************
  *           wow64_NtCreateWaitCompletionPacket
  */
 NTSTATUS WINAPI wow64_NtCreateWaitCompletionPacket( UINT *args )

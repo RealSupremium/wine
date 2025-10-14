@@ -3653,6 +3653,26 @@ NTSTATUS WINAPI NtAssociateWaitCompletionPacket( HANDLE packet, HANDLE completio
 }
 
 /***********************************************************************
+ *           NtCancelWaitCompletionPacket (NTDLL.@)
+ */
+NTSTATUS WINAPI NtCancelWaitCompletionPacket( HANDLE packet, BOOLEAN remove_signaled )
+{
+    NTSTATUS status;
+
+    TRACE( "%p, %d\n", packet, remove_signaled );
+
+    SERVER_START_REQ( cancel_completion_packet )
+    {
+        req->packet = wine_server_obj_handle( packet );
+        req->remove_signaled = remove_signaled;
+        status = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+    return status;
+}
+
+
+/***********************************************************************
  *           NtCreateWaitCompletionPacket (NTDLL.@)
  */
 NTSTATUS WINAPI NtCreateWaitCompletionPacket( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBUTES *attr )

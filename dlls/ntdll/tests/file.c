@@ -7663,7 +7663,6 @@ static void test_cancel_wait_completion_packet(void)
 
     if (!pNtCancelWaitCompletionPacket)
     {
-        todo_wine
         win_skip("NtCancelWaitCompletionPacket is unavailable.\n");
         return;
     }

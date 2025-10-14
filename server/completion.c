@@ -745,3 +745,30 @@ DECL_HANDLER(associate_completion_packet)
     release_object( target );
     release_object( packet );
 }
+
+/* cancel a wait completion packet */
+DECL_HANDLER(cancel_completion_packet)
+{
+    struct completion_packet *packet;
+
+    packet = get_completion_packet_obj( current->process, req->packet, WAIT_COMPLETION_PACKET_QUERY_STATE );
+    if (!packet)
+        return;
+
+    if (!packet->in_target_packet_queue && !packet->in_completion_queue)
+    {
+        set_error( STATUS_CANCELLED );
+        release_object( packet );
+        return;
+    }
+
+    if (packet->in_completion_queue && !req->remove_signaled)
+    {
+        set_error( STATUS_PENDING );
+        release_object( packet );
+        return;
+    }
+
+    cancel_completion_packet( packet );
+    release_object( packet );
+}
