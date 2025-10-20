@@ -71,6 +71,22 @@ static double mftime_to_seconds(MFTIME time)
     return (double)time / 10000000.0;
 }
 
+static HRESULT create_video_media_type_from_fourcc(IMFMediaType **media_type, UINT32 fourcc)
+{
+    GUID subtype;
+    HRESULT hr;
+
+    if (FAILED(hr = MFCreateMediaType(media_type)))
+        return hr;
+
+    memcpy(&subtype, &MFVideoFormat_Base, sizeof(subtype));
+    subtype.Data1 = fourcc;
+    IMFMediaType_SetGUID(*media_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    IMFMediaType_SetGUID(*media_type, &MF_MT_SUBTYPE, &subtype);
+
+    return hr;
+}
+
 enum media_engine_mode
 {
     MEDIA_ENGINE_INVALID,
@@ -1148,36 +1164,49 @@ static HRESULT media_engine_create_effects(struct effect *effects, size_t count,
 static HRESULT media_engine_create_audio_renderer(struct media_engine *engine, IMFTopologyNode **node)
 {
     unsigned int category, role;
-    IMFActivate *sar_activate;
+    IMFStreamSink *stream_sink;
+    IMFAttributes *attributes;
+    IMFMediaSink *media_sink;
     HRESULT hr;
 
     *node = NULL;
 
-    if (FAILED(hr = MFCreateAudioRendererActivate(&sar_activate)))
+    if (FAILED(hr = MFCreateAttributes(&attributes, 2)))
         return hr;
 
     /* Configuration attributes keys differ between Engine and SAR. */
     if (SUCCEEDED(IMFAttributes_GetUINT32(engine->attributes, &MF_MEDIA_ENGINE_AUDIO_CATEGORY, &category)))
-        IMFActivate_SetUINT32(sar_activate, &MF_AUDIO_RENDERER_ATTRIBUTE_STREAM_CATEGORY, category);
+        IMFAttributes_SetUINT32(attributes, &MF_AUDIO_RENDERER_ATTRIBUTE_STREAM_CATEGORY, category);
     if (SUCCEEDED(IMFAttributes_GetUINT32(engine->attributes, &MF_MEDIA_ENGINE_AUDIO_ENDPOINT_ROLE, &role)))
-        IMFActivate_SetUINT32(sar_activate, &MF_AUDIO_RENDERER_ATTRIBUTE_ENDPOINT_ROLE, role);
+        IMFAttributes_SetUINT32(attributes, &MF_AUDIO_RENDERER_ATTRIBUTE_ENDPOINT_ROLE, role);
+    hr = MFCreateAudioRenderer(attributes, &media_sink);
+    IMFAttributes_Release(attributes);
+
+    if (FAILED(hr))
+        return hr;
 
     if (SUCCEEDED(hr = MFCreateTopologyNode(MF_TOPOLOGY_OUTPUT_NODE, node)))
     {
-        IMFTopologyNode_SetObject(*node, (IUnknown *)sar_activate);
-        IMFTopologyNode_SetUINT32(*node, &MF_TOPONODE_NOSHUTDOWN_ON_REMOVE, FALSE);
+        if (FAILED(hr = IMFMediaSink_GetStreamSinkByIndex(media_sink, 0, &stream_sink)))
+            hr = IMFMediaSink_AddStreamSink(media_sink, 0, NULL, &stream_sink);
+
+        if (SUCCEEDED(hr))
+        {
+            IMFTopologyNode_SetObject(*node, (IUnknown *)stream_sink);
+            IMFTopologyNode_SetUINT32(*node, &MF_TOPONODE_NOSHUTDOWN_ON_REMOVE, FALSE);
+            IMFStreamSink_Release(stream_sink);
+        }
     }
 
-    IMFActivate_Release(sar_activate);
+    IMFMediaSink_Release(media_sink);
 
     return hr;
 }
 
 static HRESULT media_engine_create_video_renderer(struct media_engine *engine, IMFTopologyNode **node)
 {
+    UINT32 output_format, fourcc;
     IMFMediaType *media_type;
-    UINT32 output_format;
-    GUID subtype;
     HRESULT hr;
 
     *node = NULL;
@@ -1188,18 +1217,14 @@ static HRESULT media_engine_create_video_renderer(struct media_engine *engine, I
         return E_FAIL;
     }
 
-    memcpy(&subtype, &MFVideoFormat_Base, sizeof(subtype));
-    if (!(subtype.Data1 = MFMapDXGIFormatToDX9Format(output_format)))
+    if (!(fourcc = MFMapDXGIFormatToDX9Format(output_format)))
     {
         WARN("Unrecognized output format %#x.\n", output_format);
         return E_FAIL;
     }
 
-    if (FAILED(hr = MFCreateMediaType(&media_type)))
+    if (FAILED(hr = create_video_media_type_from_fourcc(&media_type, fourcc)))
         return hr;
-
-    IMFMediaType_SetGUID(media_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
-    IMFMediaType_SetGUID(media_type, &MF_MT_SUBTYPE, &subtype);
 
     hr = create_video_frame_sink(media_type, (IUnknown *)engine->device_manager, &engine->sink_events, &engine->presentation.frame_sink);
     IMFMediaType_Release(media_type);
@@ -1259,12 +1284,85 @@ static void media_engine_clear_effects(struct effects *effects)
     memset(effects, 0, sizeof(*effects));
 }
 
+static HRESULT sar_node_set_media_type(IMFTopologyNode *sar_node)
+{
+    IMFMediaTypeHandler *handler;
+    MF_TOPOLOGY_TYPE node_type;
+    IMFStreamSink *stream_sink;
+    IMFTopologyNode *up_node;
+    IMFMediaType *media_type;
+    IMFStreamDescriptor *sd;
+    IMFTransform *transform;
+    DWORD up_output;
+    HRESULT hr;
+
+    if (FAILED(hr = IMFTopologyNode_GetInput(sar_node, 0, &up_node, &up_output)))
+        return hr;
+    if (FAILED(hr = IMFTopologyNode_GetNodeType(up_node, &node_type)))
+    {
+        IMFTopologyNode_Release(up_node);
+        return hr;
+    }
+
+    switch (node_type)
+    {
+        case MF_TOPOLOGY_SOURCESTREAM_NODE:
+            if (SUCCEEDED(hr = IMFTopologyNode_GetUnknown(up_node, &MF_TOPONODE_STREAM_DESCRIPTOR,
+                    &IID_IMFStreamDescriptor, (void **)&sd)))
+            {
+                hr = IMFStreamDescriptor_GetMediaTypeHandler(sd, &handler);
+                IMFStreamDescriptor_Release(sd);
+                if (SUCCEEDED(hr))
+                {
+                    hr = IMFMediaTypeHandler_GetCurrentMediaType(handler, &media_type);
+                    IMFMediaTypeHandler_Release(handler);
+                }
+            }
+            break;
+        case MF_TOPOLOGY_TRANSFORM_NODE:
+            if (SUCCEEDED(hr = IMFTopologyNode_GetObject(up_node, (IUnknown **)&transform)))
+            {
+                hr = IMFTransform_GetOutputCurrentType(transform, up_output, &media_type);
+                IMFTransform_Release(transform);
+            }
+            break;
+        default:
+            WARN("Unhandled node type %u.\n", node_type);
+            hr = MF_E_UNEXPECTED;
+            break;
+    }
+
+    if (FAILED(hr))
+    {
+        IMFTopologyNode_Release(up_node);
+        return hr;
+    }
+
+    if (SUCCEEDED(hr = IMFTopologyNode_GetObject(sar_node, (IUnknown **)&stream_sink)))
+    {
+        hr = IMFStreamSink_GetMediaTypeHandler(stream_sink, &handler);
+        IMFStreamSink_Release(stream_sink);
+        if (SUCCEEDED(hr))
+        {
+            hr = IMFMediaTypeHandler_SetCurrentMediaType(handler, media_type);
+            IMFMediaTypeHandler_Release(handler);
+        }
+    }
+
+    IMFMediaType_Release(media_type);
+    IMFTopologyNode_Release(up_node);
+    return hr;
+}
+
 static HRESULT media_engine_create_topology(struct media_engine *engine, IMFMediaSource *source)
 {
     IMFStreamDescriptor *sd_audio = NULL, *sd_video = NULL;
+    IMFTopology *topology, *resolved_topology = NULL;
     IMFPresentationDescriptor *pd;
+    IMFTopoLoader *topo_loader;
     DWORD stream_count = 0, i;
-    IMFTopology *topology;
+    IMFMediaType *media_type;
+    TOPOID sar_node_id;
     UINT64 duration;
     HRESULT hr;
 
@@ -1361,6 +1459,7 @@ static HRESULT media_engine_create_topology(struct media_engine *engine, IMFMedi
                 if (FAILED(hr = media_engine_create_effects(engine->audio_effects.effects, engine->audio_effects.count,
                         audio_src, sar_node, topology)))
                     WARN("Failed to create audio effect nodes, hr %#lx.\n", hr);
+                IMFTopologyNode_GetTopoNodeID(sar_node, &sar_node_id);
             }
 
             if (sar_node)
@@ -1399,12 +1498,42 @@ static HRESULT media_engine_create_topology(struct media_engine *engine, IMFMedi
         IMFTopology_SetUINT32(topology, &MF_TOPOLOGY_ENUMERATE_SOURCE_TYPES, TRUE);
         IMFTopology_SetUINT32(topology, &MF_TOPOLOGY_ENABLE_XVP_FOR_PLAYBACK, TRUE);
 
+        /* MESessionTopologySet is not sent until the session is started, which would
+         * complicate things if loading failed, so the topology is resolved here. The session
+         * engine does not set types on the sinks when NORESOLUTION is specified. Video type
+         * is set explicitly, but audio type must be taken from the sink's upstream node. */
+        if (SUCCEEDED(hr) && SUCCEEDED(hr = MFCreateTopoLoader(&topo_loader)))
+        {
+            if (FAILED(hr = IMFTopoLoader_Load(topo_loader, topology, &resolved_topology, NULL))
+                    && svr_node && SUCCEEDED(hr = create_video_media_type_from_fourcc(&media_type,
+                    MFMapDXGIFormatToDX9Format(DXGI_FORMAT_B8G8R8A8_UNORM))))
+            {
+                video_frame_sink_set_media_type(engine->presentation.frame_sink, media_type);
+                IMFMediaType_Release(media_type);
+                engine->video_frame.output_format = DXGI_FORMAT_B8G8R8A8_UNORM;
+                hr = IMFTopoLoader_Load(topo_loader, topology, &resolved_topology, NULL);
+            }
+            IMFTopoLoader_Release(topo_loader);
+
+            if (FAILED(hr))
+                WARN("Failed to load topology, hr %#lx.\n", hr);
+        }
         if (SUCCEEDED(hr))
-            hr = IMFMediaSession_SetTopology(engine->session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology);
+        {
+            hr = IMFMediaSession_SetTopology(engine->session,
+                    MFSESSION_SETTOPOLOGY_IMMEDIATE | MFSESSION_SETTOPOLOGY_NORESOLUTION, resolved_topology);
+            if (SUCCEEDED(hr) && SUCCEEDED(hr = IMFTopology_GetNodeByID(resolved_topology, sar_node_id, &sar_node)))
+            {
+                hr = sar_node_set_media_type(sar_node);
+                IMFTopologyNode_Release(sar_node);
+            }
+        }
     }
 
     if (topology)
         IMFTopology_Release(topology);
+    if (resolved_topology)
+        IMFTopology_Release(resolved_topology);
 
     if (sd_video)
         IMFStreamDescriptor_Release(sd_video);
@@ -2495,6 +2624,69 @@ static HRESULT get_d3d11_resource_from_sample(IMFSample *sample, ID3D11Texture2D
     return hr;
 }
 
+static DXGI_FORMAT dxgi_format_get_typeless_format(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:
+        case DXGI_FORMAT_R32G32B32A32_UINT:
+        case DXGI_FORMAT_R32G32B32A32_SINT:
+            return DXGI_FORMAT_R32G32B32A32_TYPELESS;
+
+        case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        case DXGI_FORMAT_R16G16B16A16_UNORM:
+        case DXGI_FORMAT_R16G16B16A16_UINT:
+        case DXGI_FORMAT_R16G16B16A16_SNORM:
+        case DXGI_FORMAT_R16G16B16A16_SINT:
+            return DXGI_FORMAT_R16G16B16A16_TYPELESS;
+
+        case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+        case DXGI_FORMAT_R10G10B10A2_UNORM:
+        case DXGI_FORMAT_R10G10B10A2_UINT:
+            return DXGI_FORMAT_R10G10B10A2_TYPELESS;
+
+        case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+        case DXGI_FORMAT_R8G8B8A8_UNORM:
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        case DXGI_FORMAT_R8G8B8A8_UINT:
+        case DXGI_FORMAT_R8G8B8A8_SNORM:
+        case DXGI_FORMAT_R8G8B8A8_SINT:
+            return DXGI_FORMAT_R8G8B8A8_TYPELESS;
+
+        case DXGI_FORMAT_B8G8R8A8_UNORM:
+        case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+            return DXGI_FORMAT_B8G8R8A8_TYPELESS;
+
+        case DXGI_FORMAT_B8G8R8X8_TYPELESS:
+        case DXGI_FORMAT_B8G8R8X8_UNORM:
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+            return DXGI_FORMAT_B8G8R8X8_TYPELESS;
+
+        default:
+            WARN("Unhandled format %#x.\n", format);
+            return format;
+    }
+}
+
+static BOOL transfer_needs_render_pipeline(const D3D11_TEXTURE2D_DESC *src_desc, const D3D11_TEXTURE2D_DESC *dst_desc,
+        const D3D11_BOX *src_box, const RECT *dst_rect)
+{
+    if (dst_rect->right && dst_rect->bottom
+            && (dst_rect->right - dst_rect->left != src_box->right - src_box->left
+            || dst_rect->bottom - dst_rect->top != src_box->bottom - src_box->top))
+        return TRUE;
+
+    /* If block-compressed formats were to show up in the dst then we
+     * would need to also check copy-to-BC and byte count compatibility. */
+    return dxgi_format_get_typeless_format(src_desc->Format) != dxgi_format_get_typeless_format(dst_desc->Format);
+}
+
+static HRESULT media_engine_render_d3d11(struct media_engine *engine, ID3D11Texture2D *texture,
+        const MFVideoNormalizedRect *src_rect, const RECT *dst_rect, const MFARGB *color);
+
 static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Texture2D *dst_texture,
         const MFVideoNormalizedRect *src_rect, const RECT *dst_rect, const MFARGB *color)
 {
@@ -2508,37 +2700,48 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
     ID3D11Device *device;
     IMFSample *sample;
     UINT subresource;
+    LONGLONG pts;
     HRESULT hr;
+
+    ID3D11Texture2D_GetDesc(dst_texture, &dst_desc);
 
     if (!src_rect)
         src_rect = &src_rect_default;
     if (!dst_rect)
+    {
         dst_rect = &dst_rect_default;
+        dst_rect_default.right = dst_desc.Width;
+        dst_rect_default.bottom = dst_desc.Height;
+    }
     if (!color)
         color = &color_default;
 
     if (!video_frame_sink_get_sample(engine->presentation.frame_sink, &sample))
-        return MF_E_UNEXPECTED;
+    {
+        /* The app does not need to call OnVideoStreamTick() before transferring
+         * a frame, but we need it to get the current sample. */
+        IMFMediaEngineEx_OnVideoStreamTick(&engine->IMFMediaEngineEx_iface, &pts);
+        if (!video_frame_sink_get_sample(engine->presentation.frame_sink, &sample))
+            return MF_E_UNEXPECTED;
+    }
     hr = get_d3d11_resource_from_sample(sample, &src_texture, &subresource);
     IMFSample_Release(sample);
     if (FAILED(hr))
-        return hr;
+        return media_engine_render_d3d11(engine, dst_texture, src_rect, dst_rect, color);
 
     ID3D11Texture2D_GetDesc(src_texture, &src_desc);
-    ID3D11Texture2D_GetDesc(dst_texture, &dst_desc);
 
-    src_box.left = src_rect->left * src_desc.Width;
-    src_box.top = src_rect->top * src_desc.Height;
+    src_box.left = src_rect->left * src_desc.Width + 0.5f;
+    src_box.top = src_rect->top * src_desc.Height + 0.5f;
     src_box.front = 0;
-    src_box.right = src_rect->right * src_desc.Width;
-    src_box.bottom = src_rect->bottom * src_desc.Height;
+    src_box.right = src_rect->right * src_desc.Width + 0.5f;
+    src_box.bottom = src_rect->bottom * src_desc.Height + 0.5f;
     src_box.back = 1;
 
-    if (dst_rect->left + src_box.right - src_box.left > dst_desc.Width ||
-            dst_rect->top + src_box.bottom - src_box.top > dst_desc.Height)
+    if (transfer_needs_render_pipeline(&src_desc, &dst_desc, &src_box, dst_rect))
     {
         ID3D11Texture2D_Release(src_texture);
-        return MF_E_UNEXPECTED;
+        return media_engine_render_d3d11(engine, dst_texture, src_rect, dst_rect, color);
     }
 
     if (FAILED(hr = media_engine_lock_d3d_device(engine, &device)))
@@ -2557,7 +2760,7 @@ static HRESULT media_engine_transfer_d3d11(struct media_engine *engine, ID3D11Te
     return hr;
 }
 
-static HRESULT media_engine_transfer_to_d3d11_texture(struct media_engine *engine, ID3D11Texture2D *texture,
+static HRESULT media_engine_render_d3d11(struct media_engine *engine, ID3D11Texture2D *texture,
         const MFVideoNormalizedRect *src_rect, const RECT *dst_rect, const MFARGB *color)
 {
     static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -2722,8 +2925,7 @@ static HRESULT WINAPI media_engine_TransferVideoFrame(IMFMediaEngineEx *iface, I
 
     if (SUCCEEDED(IUnknown_QueryInterface(surface, &IID_ID3D11Texture2D, (void **)&texture)))
     {
-        if (!engine->device_manager || FAILED(hr = media_engine_transfer_d3d11(engine, texture, src_rect, dst_rect, color)))
-            hr = media_engine_transfer_to_d3d11_texture(engine, texture, src_rect, dst_rect, color);
+        hr = media_engine_transfer_d3d11(engine, texture, src_rect, dst_rect, color);
         ID3D11Texture2D_Release(texture);
     }
     else

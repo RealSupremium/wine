@@ -28,6 +28,12 @@
 /* @makedep: i420-64x64.avi */
 i420-64x64.avi RCDATA i420-64x64.avi
 
+/* Generated with:
+ * ffmpeg -i i420-64x64.avi -c:v libx264 -preset slow -crf 17 i420-64x64.mp4
+ */
+/* @makedep: i420-64x64.mp4 */
+i420-64x64.mp4 RCDATA i420-64x64.mp4
+
 /* Generated from running the tests on Windows */
 /* @makedep: rgb32frame.bmp */
 rgb32frame.bmp RCDATA rgb32frame.bmp

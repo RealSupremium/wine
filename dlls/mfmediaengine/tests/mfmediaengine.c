@@ -164,6 +164,30 @@ static DWORD check_rgb32_data_(int line, const WCHAR *filename, const BYTE *data
     return compare_rgb32(data, &length, &size, rect, expect_data);
 }
 
+#define check_r10g10b10a2_diff(a, b, c, d, e, f, g) check_r10g10b10a2_diff_(__LINE__, a, b, c, d, e, f, g)
+static void check_r10g10b10a2_diff_(int line, const D3D11_MAPPED_SUBRESOURCE *map_desc,
+        UINT x, UINT y, int r, int g, int b, UINT max_diff)
+{
+    UINT got = ((UINT *)map_desc->pData)[x + map_desc->RowPitch / 4u * y];
+    UINT diff = abs(r - (int)(got & 0x3ff))
+            + abs(g - (int)((got >> 10) & 0x3ff))
+            + abs(b - (int)((got >> 20) & 0x3ff));
+    UINT a = got >> 30;
+    ok_(__FILE__, line)(diff <= max_diff, "got diff %u at (%u, %u)\n", diff, x, y);
+    ok_(__FILE__, line)(a == 3, "got alpha %u at (%u, %u)\n", a, x, y);
+}
+
+#define check_bgr_diff(a, b, c, d, e, f, g) check_bgr_diff_(__LINE__, a, b, c, d, e, f, g)
+static void check_bgr_diff_(int line, const D3D11_MAPPED_SUBRESOURCE *map_desc,
+        UINT x, UINT y, int r, int g, int b, UINT max_diff)
+{
+    UINT got = ((UINT *)map_desc->pData)[x + map_desc->RowPitch / 4u * y];
+    UINT diff = abs(b - (int)(got & 0xff))
+            + abs(g - (int)((got >> 8) & 0xff))
+            + abs(r - (int)((got >> 16) & 0xff));
+    ok_(__FILE__, line)(diff <= max_diff, "got diff %u at (%u, %u)\n", diff, x, y);
+}
+
 static void init_functions(void)
 {
     HMODULE mod;
@@ -1228,7 +1252,8 @@ static HRESULT WINAPI test_transfer_notify_EventNotify(IMFMediaEngineNotify *ifa
         break;
 
     case MF_MEDIA_ENGINE_EVENT_ERROR:
-        ok(broken(param2 == MF_E_UNSUPPORTED_BYTESTREAM_TYPE), "Unexpected error %#lx\n", param2);
+        ok(broken(param2 == MF_E_UNSUPPORTED_BYTESTREAM_TYPE || param2 == MF_E_INVALIDMEDIATYPE),
+                "Unexpected error %#lx\n", param2);
         notify->error = param2;
         /* fallthrough */
     case MF_MEDIA_ENGINE_EVENT_FIRSTFRAMEREADY:
@@ -1283,6 +1308,8 @@ static void test_TransferVideoFrame(void)
     DWORD res;
     BSTR url;
     LONGLONG pts;
+
+    static const MFARGB border = {0x3f, 0x7f, 0x1f, 0xff};
 
     stream = load_resource(L"i420-64x64.avi", L"video/avi");
 
@@ -1368,6 +1395,208 @@ static void test_TransferVideoFrame(void)
     ok(map_desc.RowPitch == desc.Width * 4, "got RowPitch %u\n", map_desc.RowPitch);
     res = check_rgb32_data(L"rgb32frame.bmp", map_desc.pData, map_desc.RowPitch * desc.Height, &dst_rect);
     ok(res == 0, "Unexpected %lu%% diff\n", res);
+    ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
+
+    ID3D11Texture2D_Release(texture);
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 32;
+    desc.Height = 32;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8X8_UNORM;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    desc.SampleDesc.Count = 1;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &texture);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    SetRect(&dst_rect, 0, 0, desc.Width, desc.Height);
+    hr = IMFMediaEngineEx_TransferVideoFrame(notify->media_engine, (IUnknown *)texture, NULL, &dst_rect, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)rb_texture,
+            0, 0, 0, 0, (ID3D11Resource *)texture, 0, NULL);
+
+    memset(&map_desc, 0, sizeof(map_desc));
+    hr = ID3D11DeviceContext_Map(context, (ID3D11Resource *)rb_texture, 0, D3D11_MAP_READ, 0, &map_desc);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    /* scaled down */
+    check_bgr_diff(&map_desc, 16, 2, 0xff, 0xff, 0xff, 6);
+    check_bgr_diff(&map_desc, 16, 7, 0xff, 0xff, 0, 8);
+    check_bgr_diff(&map_desc, 16, 11, 0x1, 0xff, 0xff, 6);
+    check_bgr_diff(&map_desc, 16, 16, 0x0, 0xff, 0x1, 6);
+    check_bgr_diff(&map_desc, 16, 20, 0xff, 0, 0xfe, 4);
+    check_bgr_diff(&map_desc, 16, 25, 0xfe, 0, 0, 1);
+    check_bgr_diff(&map_desc, 16, 29, 0x0, 0, 0xff, 2);
+    ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
+
+    ID3D11Texture2D_Release(texture);
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 80;
+    desc.Height = 96;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8X8_UNORM;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    desc.SampleDesc.Count = 1;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &texture);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ID3D11Texture2D_Release(rb_texture);
+    ID3D11Texture2D_GetDesc(texture, &desc);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags = 0;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &rb_texture);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    SetRect(&dst_rect, 0, 0, desc.Width, desc.Height);
+    hr = IMFMediaEngineEx_TransferVideoFrame(notify->media_engine, (IUnknown *)texture, NULL, &dst_rect, &border);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)rb_texture,
+            0, 0, 0, 0, (ID3D11Resource *)texture, 0, NULL);
+
+    memset(&map_desc, 0, sizeof(map_desc));
+    hr = ID3D11DeviceContext_Map(context, (ID3D11Resource *)rb_texture, 0, D3D11_MAP_READ, 0, &map_desc);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    /* letterbox with border colour above/below */
+    check_bgr_diff(&map_desc, 40, 7, 0x1f, 0x7f, 0x3f, 0);
+    check_bgr_diff(&map_desc, 40, 14, 0xff, 0xff, 0xff, 6);
+    check_bgr_diff(&map_desc, 40, 25, 0xff, 0xff, 0, 8);
+    check_bgr_diff(&map_desc, 40, 37, 0x1, 0xff, 0xff, 6);
+    check_bgr_diff(&map_desc, 40, 48, 0x0, 0xff, 0x1, 6);
+    check_bgr_diff(&map_desc, 40, 59, 0xff, 0, 0xfe, 4);
+    check_bgr_diff(&map_desc, 40, 71, 0xfe, 0, 0, 1);
+    check_bgr_diff(&map_desc, 40, 82, 0x0, 0, 0xff, 2);
+    check_bgr_diff(&map_desc, 40, 88, 0x1f, 0x7f, 0x3f, 0);
+    ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
+
+    ID3D11DeviceContext_Release(context);
+    ID3D11Texture2D_Release(rb_texture);
+
+done:
+    if (media_engine)
+    {
+        IMFMediaEngineEx_Shutdown(media_engine);
+        IMFMediaEngineEx_Release(media_engine);
+    }
+
+    if (texture)
+        ID3D11Texture2D_Release(texture);
+    if (device)
+        ID3D11Device_Release(device);
+
+    IMFMediaEngineNotify_Release(&notify->IMFMediaEngineNotify_iface);
+}
+
+static void test_TransferVideoFrame_10bit(void)
+{
+    ID3D11Texture2D *texture = NULL, *rb_texture;
+    IMFMediaEngineEx *media_engine = NULL;
+    struct test_transfer_notify *notify;
+    D3D11_MAPPED_SUBRESOURCE map_desc;
+    IMFDXGIDeviceManager *manager;
+    ID3D11DeviceContext *context;
+    D3D11_TEXTURE2D_DESC desc;
+    IMFByteStream *stream;
+    ID3D11Device *device;
+    RECT dst_rect;
+    LONGLONG pts;
+    UINT token;
+    HRESULT hr;
+    DWORD res;
+    BSTR url;
+
+    /* Windows does not support R10G10B10A2 output from raw video, but does at least for h264 */
+    stream = load_resource(L"i420-64x64.mp4", L"video/mp4");
+
+    notify = create_transfer_notify();
+
+    if (!(device = create_d3d11_device()))
+    {
+        skip("Failed to create a D3D11 device, skipping tests.\n");
+        goto done;
+    }
+
+    hr = pMFCreateDXGIDeviceManager(&token, &manager);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFDXGIDeviceManager_ResetDevice(manager, (IUnknown *)device, token);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    create_media_engine(&notify->IMFMediaEngineNotify_iface, manager, DXGI_FORMAT_R10G10B10A2_UNORM,
+            &IID_IMFMediaEngineEx, (void **)&media_engine);
+
+    IMFDXGIDeviceManager_Release(manager);
+
+    if (!(notify->media_engine = media_engine))
+        goto done;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 64;
+    desc.Height = 64;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    desc.SampleDesc.Count = 1;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &texture);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    url = SysAllocString(L"i420-64x64.mp4");
+    hr = IMFMediaEngineEx_SetSourceFromByteStream(media_engine, stream, url);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    SysFreeString(url);
+    IMFByteStream_Release(stream);
+
+    res = WaitForSingleObject(notify->frame_ready_event, 5000);
+    ok(!res, "Unexpected res %#lx.\n", res);
+
+    if (FAILED(notify->error))
+    {
+        win_skip("Media engine reported error %#lx, skipping tests.\n", notify->error);
+        goto done;
+    }
+
+    res = 0;
+    hr = IMFMediaEngineEx_GetNumberOfStreams(media_engine, &res);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(res == 2, "Unexpected stream count %lu.\n", res);
+
+    /* FIXME: Wine first video frame is often full of garbage, wait for another update */
+    res = WaitForSingleObject(notify->ready_event, 500);
+    /* It's also missing the MF_MEDIA_ENGINE_EVENT_TIMEUPDATE notifications */
+    todo_wine
+    ok(!res, "Unexpected res %#lx.\n", res);
+
+    SetRect(&dst_rect, 0, 0, desc.Width, desc.Height);
+    IMFMediaEngineEx_OnVideoStreamTick(notify->media_engine, &pts);
+    hr = IMFMediaEngineEx_TransferVideoFrame(notify->media_engine, (IUnknown *)texture, NULL, &dst_rect, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ID3D11Texture2D_GetDesc(texture, &desc);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags = 0;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &rb_texture);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ID3D11Device_GetImmediateContext(device, &context);
+
+    ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)rb_texture,
+            0, 0, 0, 0, (ID3D11Resource *)texture, 0, NULL);
+
+    memset(&map_desc, 0, sizeof(map_desc));
+    hr = ID3D11DeviceContext_Map(context, (ID3D11Resource *)rb_texture, 0, D3D11_MAP_READ, 0, &map_desc);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!!map_desc.pData, "got pData %p\n", map_desc.pData);
+    ok(map_desc.DepthPitch == 16384, "got DepthPitch %u\n", map_desc.DepthPitch);
+    ok(map_desc.RowPitch == desc.Width * 4, "got RowPitch %u\n", map_desc.RowPitch);
+    check_r10g10b10a2_diff(&map_desc, 32, 5, 0x3ff, 0x3ff, 0x3ff, 24);
+    check_r10g10b10a2_diff(&map_desc, 32, 14, 0x3fa, 0x3ff, 0x4, 31);
+    check_r10g10b10a2_diff(&map_desc, 32, 23, 0x5, 0x3ff, 0x3ff, 25);
+    check_r10g10b10a2_diff(&map_desc, 32, 32, 0x1, 0x3ff, 0x6, 27);
+    check_r10g10b10a2_diff(&map_desc, 32, 41, 0x3fd, 0, 0x3f7, 10);
+    check_r10g10b10a2_diff(&map_desc, 32, 50, 0x3fd, 0, 0, 10);
+    check_r10g10b10a2_diff(&map_desc, 32, 59, 0x2, 0, 0x3ff, 10);
     ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)rb_texture, 0);
 
     ID3D11DeviceContext_Release(context);
@@ -2713,6 +2942,7 @@ START_TEST(mfmediaengine)
     test_SetSourceFromByteStream();
     test_audio_configuration();
     test_TransferVideoFrame();
+    test_TransferVideoFrame_10bit();
     test_effect();
     test_GetDuration();
     test_GetSeekable();

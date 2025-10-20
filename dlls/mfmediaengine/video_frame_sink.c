@@ -1214,6 +1214,16 @@ failed:
     return hr;
 }
 
+void video_frame_sink_set_media_type(struct video_frame_sink *sink, IMFMediaType *media_type)
+{
+    IMFMediaType_Release(sink->media_type);
+    IMFMediaType_Release(sink->current_media_type);
+    sink->media_type = media_type;
+    IMFMediaType_AddRef(sink->media_type);
+    sink->current_media_type = media_type;
+    IMFMediaType_AddRef(sink->current_media_type);
+}
+
 HRESULT video_frame_sink_query_iface(struct video_frame_sink *sink, REFIID riid, void **obj)
 {
     return IMFStreamSink_QueryInterface(&sink->IMFStreamSink_iface, riid, obj);
