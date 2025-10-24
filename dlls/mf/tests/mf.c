@@ -6969,7 +6969,6 @@ static void test_media_session_Start(void)
     /* sometimes briefly leaking */
     Sleep(20);
     ref = IMFMediaSession_Release(session);
-    todo_wine
     ok(!ref, "Unexpected refcount %ld.\n", ref);
 
     IMFPresentationClock_Release(presentation_clock);
@@ -7303,7 +7302,6 @@ done:
         /* sometimes briefly leaking */
         Sleep(20);
         ref = IMFMediaSession_Release(session);
-        todo_wine
         ok(!ref, "Unexpected refcount %ld.\n", ref);
 
         IMFMediaSource_Release(source);
@@ -7500,7 +7498,6 @@ static void test_media_session_Close(void)
     /* sometimes briefly leaking */
     Sleep(20);
     ref = IMFMediaSession_Release(session);
-    todo_wine
     ok(!ref, "Unexpected refcount %ld.\n", ref);
 
     IMFPresentationClock_Release(presentation_clock);
