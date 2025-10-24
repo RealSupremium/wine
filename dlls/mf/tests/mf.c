@@ -1469,6 +1469,8 @@ static ULONG WINAPI test_media_stream_Release(IMFMediaStream *iface)
         if (stream->delayed_sample)
             IMFSample_Release(stream->delayed_sample);
         IMFMediaEventQueue_Release(stream->event_queue);
+        if (stream->source)
+            IMFMediaSource_Release(stream->source);
         free(stream);
     }
 
@@ -1922,11 +1924,26 @@ static HRESULT WINAPI test_source_Shutdown(IMFMediaSource *iface)
 {
     struct test_source *source = impl_test_source_from_IMFMediaSource(iface);
     HRESULT hr;
+    UINT i;
 
     add_object_state(&actual_object_state_record, SOURCE_SHUTDOWN);
 
     hr = IMFMediaEventQueue_Shutdown(source->event_queue);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    for (i = 0; i < source->stream_count; ++i)
+    {
+        struct test_media_stream *stream = source->streams[i];
+
+        if (stream)
+        {
+            /* The session typically captures stream events, so the stream event queue
+             * holds a stream reference that can only be released by queue shutdown. */
+            hr = IMFMediaEventQueue_Shutdown(stream->event_queue);
+            ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+            IMFMediaStream_Release(&stream->IMFMediaStream_iface);
+            source->streams[i] = NULL;
+        }
+    }
 
     return S_OK;
 }
@@ -7040,7 +7057,6 @@ static void test_media_session_Start(void)
     /* sometimes briefly leaking */
     Sleep(20);
     ref = IMFMediaSession_Release(session);
-    todo_wine
     ok(!ref || broken(!!ref), "Unexpected refcount %ld.\n", ref);
 
     IMFPresentationClock_Release(presentation_clock);
