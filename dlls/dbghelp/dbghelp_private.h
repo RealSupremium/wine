@@ -831,7 +831,7 @@ extern BOOL         pe_load_debug_directory(const struct process* pcs,
                                             struct module* module,
                                             const BYTE* mapping,
                                             const IMAGE_SECTION_HEADER* sectp, DWORD nsect,
-                                            const IMAGE_DEBUG_DIRECTORY* dbg, int nDbg);
+                                            const IMAGE_DEBUG_DIRECTORY* dbg, int nDbg, BOOL in_pe_image);
 extern DWORD        msc_get_file_indexinfo(void* image, const IMAGE_DEBUG_DIRECTORY* dbgdir, DWORD size,
                                            SYMSRV_INDEX_INFOW* info);
 extern DWORD        pdb_get_file_indexinfo(void* image, DWORD size, SYMSRV_INDEX_INFOW* info);

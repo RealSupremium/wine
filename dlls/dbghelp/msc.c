@@ -3538,6 +3538,8 @@ static BOOL pdb_init(struct pdb_file_info* pdb_file, const char* image)
         default:
             ERR("-Unknown root block version %d\n", root->Version);
         }
+        ERR("Support of old PDB format (JG) is deprecated\n");
+
         pdb_file->kind = PDB_JG;
         pdb_file->u.jg.toc = jg_toc;
         TRACE("found JG: age=%x timestamp=%x\n", root->Age, root->TimeDateStamp);
@@ -4051,7 +4053,7 @@ static BOOL pdb_process_file(const struct process *pcs,
 #define CODEVIEW_RSDS_SIG       MAKESIG('R','S','D','S')
 
 static BOOL codeview_process_info(const struct process *pcs,
-                                  const struct msc_debug_info *msc_dbg)
+                                  const struct msc_debug_info *msc_dbg, BOOL in_pe_image)
 {
     const DWORD*                signature = (const DWORD*)msc_dbg->root;
     BOOL                        ret = FALSE;
@@ -4072,6 +4074,8 @@ static BOOL codeview_process_info(const struct process *pcs,
         BOOL                    has_linenumber_info = FALSE;
 
         codeview_init_basic_types(msc_dbg->module);
+
+        if (in_pe_image) ERR("Support of CodeView debug information in PE image is deprecated\n");
 
         for (i = 0; i < hdr->cDir; i++)
         {
@@ -4186,7 +4190,7 @@ static BOOL codeview_process_info(const struct process *pcs,
 BOOL pe_load_debug_directory(const struct process* pcs, struct module* module, 
                              const BYTE* mapping,
                              const IMAGE_SECTION_HEADER* sectp, DWORD nsect,
-                             const IMAGE_DEBUG_DIRECTORY* dbg, int nDbg)
+                             const IMAGE_DEBUG_DIRECTORY* dbg, int nDbg, BOOL in_pe_image)
 {
     BOOL                        ret;
     int                         i;
@@ -4207,6 +4211,7 @@ BOOL pe_load_debug_directory(const struct process* pcs, struct module* module,
         {
             if (dbg[i].Type == IMAGE_DEBUG_TYPE_OMAP_FROM_SRC)
             {
+                if (in_pe_image) ERR("Support of OMAP debug information in PE image is deprecated\n");
                 msc_dbg.nomap = dbg[i].SizeOfData / sizeof(OMAP);
                 msc_dbg.omapp = (const OMAP*)(mapping + dbg[i].PointerToRawData);
                 break;
@@ -4219,7 +4224,7 @@ BOOL pe_load_debug_directory(const struct process* pcs, struct module* module,
             if (dbg[i].Type == IMAGE_DEBUG_TYPE_CODEVIEW)
             {
                 msc_dbg.root = mapping + dbg[i].PointerToRawData;
-                if ((ret = codeview_process_info(pcs, &msc_dbg))) goto done;
+                if ((ret = codeview_process_info(pcs, &msc_dbg, in_pe_image))) goto done;
             }
         }
     
@@ -4228,6 +4233,7 @@ BOOL pe_load_debug_directory(const struct process* pcs, struct module* module,
         {
             if (dbg[i].Type == IMAGE_DEBUG_TYPE_COFF)
             {
+                if (in_pe_image) ERR("Support of COFF debug information in PE image is deprecated\n");
                 msc_dbg.root = mapping + dbg[i].PointerToRawData;
                 if ((ret = coff_process_info(&msc_dbg))) goto done;
             }
@@ -4239,7 +4245,7 @@ BOOL pe_load_debug_directory(const struct process* pcs, struct module* module,
 	  */
         for (i = 0; i < nDbg; i++)
             if (dbg[i].Type == IMAGE_DEBUG_TYPE_FPO)
-                FIXME("This guy has FPO information\n");
+                FIXME("No support for FPO information in PE image\n");
 #if 0
 
 #define FRAME_FPO   0

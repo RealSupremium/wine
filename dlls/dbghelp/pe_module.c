@@ -594,6 +594,7 @@ static BOOL pe_load_dbg_file(const struct process* pcs, struct module* module,
     SYMSRV_INDEX_INFOW                  info;
 
     TRACE("Processing DBG file %s\n", debugstr_a(dbg_name));
+    ERR("Support of split debug information in .DBG file (%s) is deprecated.\n", debugstr_a(dbg_name));
 
     if (path_find_symbol_file(pcs, module, dbg_name, FALSE, NULL, timestamp, 0, &info, &module->module.DbgUnmatched) &&
         (hFile = CreateFileW(info.dbgfile, GENERIC_READ, FILE_SHARE_READ, NULL,
@@ -616,7 +617,7 @@ static BOOL pe_load_dbg_file(const struct process* pcs, struct module* module,
 
         ret = pe_load_debug_directory(pcs, module, dbg_mapping, sectp,
                                       hdr->NumberOfSections, dbg,
-                                      hdr->DebugDirectorySize / sizeof(*dbg));
+                                      hdr->DebugDirectorySize / sizeof(*dbg), FALSE);
     }
     else
         ERR("Couldn't find .DBG file %s (%s)\n", debugstr_a(dbg_name), debugstr_w(info.dbgfile));
@@ -667,7 +668,7 @@ static BOOL pe_load_msc_debug_info(const struct process* pcs, struct module* mod
     {
         /* Debug info is embedded into PE module */
         ret = pe_load_debug_directory(pcs, module, mapping, IMAGE_FIRST_SECTION( nth ),
-                                      nth->FileHeader.NumberOfSections, dbg, nDbg);
+                                      nth->FileHeader.NumberOfSections, dbg, nDbg, TRUE);
     }
     pe_unmap_full(fmap);
     return ret;
