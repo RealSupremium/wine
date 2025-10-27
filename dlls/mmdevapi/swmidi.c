@@ -27,6 +27,19 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(midi);
 
+static CRITICAL_SECTION cs;
+static CRITICAL_SECTION_DEBUG cs_debug = 
+{
+    0, 0, &cs,
+    { &cs_debug.ProcessLocksList, &cs_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": cs") }
+};
+static CRITICAL_SECTION cs = { &cs_debug, -1, 0, 0, 0, 0 };
+
+static BOOL open;
+static MIDIOPENDESC open_desc;
+static WORD open_flags;
+
 static DWORD swmidi_get_dev_caps(MIDIOUTCAPSW *out_caps, DWORD_PTR size)
 {
     MIDIOUTCAPSW caps = {
@@ -46,6 +59,46 @@ static DWORD swmidi_get_dev_caps(MIDIOUTCAPSW *out_caps, DWORD_PTR size)
     return MMSYSERR_NOERROR;
 }
 
+static DWORD swmidi_open(MIDIOPENDESC *desc, UINT flags)
+{
+    TRACE("desc %p, flags %x.\n", desc, flags);
+
+    EnterCriticalSection(&cs);
+
+    if (open)
+    {
+        LeaveCriticalSection(&cs);
+        return MMSYSERR_ALLOCATED;
+    }
+
+    open = TRUE;
+    open_desc = *desc;
+    open_flags = HIWORD(flags & CALLBACK_TYPEMASK);
+
+    LeaveCriticalSection(&cs);
+
+    DriverCallback(open_desc.dwCallback, open_flags, (HDRVR)open_desc.hMidi, MOM_OPEN,
+            open_desc.dwInstance, 0, 0);
+
+    return MMSYSERR_NOERROR;
+}
+
+static DWORD swmidi_close(void)
+{
+    TRACE("\n");
+
+    EnterCriticalSection(&cs);
+
+    open = FALSE;
+
+    LeaveCriticalSection(&cs);
+
+    DriverCallback(open_desc.dwCallback, open_flags, (HDRVR)open_desc.hMidi, MOM_CLOSE,
+            open_desc.dwInstance, 0, 0);
+
+    return MMSYSERR_NOERROR;
+}
+
 DWORD swmidi_mod_message(UINT dev_id, UINT msg, DWORD_PTR user, DWORD_PTR param1, DWORD_PTR param2)
 {
     TRACE("dev_id %u, msg %x, user %#Ix, param1 %#Ix, param2 %#Ix.\n", dev_id, msg, user, param1,
@@ -60,6 +113,10 @@ DWORD swmidi_mod_message(UINT dev_id, UINT msg, DWORD_PTR user, DWORD_PTR param1
         return 1;
     case MODM_GETDEVCAPS:
         return swmidi_get_dev_caps((MIDIOUTCAPSW *)param1, param2);
+    case MODM_OPEN:
+        return swmidi_open((MIDIOPENDESC *)param1, param2);
+    case MODM_CLOSE:
+        return swmidi_close();
     }
 
     return MMSYSERR_NOTSUPPORTED;
