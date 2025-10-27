@@ -22,6 +22,7 @@
 
 #include "windef.h"
 #include "mmddk.h"
+#include "dmusici.h"
 
 #include "wine/debug.h"
 
@@ -39,6 +40,87 @@ static CRITICAL_SECTION cs = { &cs_debug, -1, 0, 0, 0, 0 };
 static BOOL open;
 static MIDIOPENDESC open_desc;
 static WORD open_flags;
+
+static HANDLE close_event;
+static HANDLE open_event;
+static HANDLE thread;
+static DWORD init_result;
+
+static IDirectMusic *dmusic;
+static IDirectMusicPort *port;
+
+static HRESULT init_dmusic(void)
+{
+    DMUS_PORTPARAMS port_params;
+    HRESULT hr;
+
+    hr = CoCreateInstance(&CLSID_DirectMusic, NULL, CLSCTX_INPROC_SERVER, &IID_IDirectMusic,
+            (void **)&dmusic);
+    if (FAILED(hr))
+        return hr;
+
+    hr = IDirectMusic_SetDirectSound(dmusic, NULL, NULL);
+    if (FAILED(hr))
+    {
+        IDirectMusic_Release(dmusic);
+        return hr;
+    }
+
+    memset(&port_params, 0, sizeof(port_params));
+    port_params.dwSize = sizeof(port_params);
+    port_params.dwValidParams = DMUS_PORTPARAMS_CHANNELGROUPS | DMUS_PORTPARAMS_EFFECTS;
+    port_params.dwChannelGroups = 1;
+    port_params.dwEffectFlags = 0;
+    hr = IDirectMusic_CreatePort(dmusic, &GUID_NULL, &port_params, &port, NULL);
+    if (FAILED(hr))
+    {
+        IDirectMusic_Release(dmusic);
+        return hr;
+    }
+
+    hr = IDirectMusicPort_Activate(port, TRUE);
+    if (FAILED(hr))
+    {
+        IDirectMusicPort_Release(port);
+        IDirectMusic_Release(dmusic);
+        return hr;
+    }
+
+    return S_OK;
+}
+
+static void destroy_dmusic(void)
+{
+    IDirectMusicPort_Activate(port, FALSE);
+    IDirectMusicPort_Release(port);
+    IDirectMusic_Release(dmusic);
+}
+
+static DWORD WINAPI thread_proc(void *param)
+{
+    SetThreadDescription(GetCurrentThread(), L"swmidi");
+
+    CoInitialize(NULL);
+
+    if (FAILED(init_dmusic()))
+    {
+        CoUninitialize();
+        init_result = MMSYSERR_ERROR;
+        SetEvent(open_event);
+        return 0;
+    }
+
+    init_result = MMSYSERR_NOERROR;
+    SetEvent(open_event);
+
+    WaitForSingleObject(close_event, INFINITE);
+
+    destroy_dmusic();
+
+    CoUninitialize();
+
+    return 0;
+}
 
 static DWORD swmidi_get_dev_caps(MIDIOUTCAPSW *out_caps, DWORD_PTR size)
 {
@@ -71,6 +153,28 @@ static DWORD swmidi_open(MIDIOPENDESC *desc, UINT flags)
         return MMSYSERR_ALLOCATED;
     }
 
+    close_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+    open_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+
+    thread = CreateThread(NULL, 0, thread_proc, NULL, 0, NULL);
+    if (!thread)
+    {
+        LeaveCriticalSection(&cs);
+        return MMSYSERR_ERROR;
+    }
+
+    WaitForSingleObject(open_event, INFINITE);
+
+    if (init_result != MMSYSERR_NOERROR)
+    {
+        WaitForSingleObject(thread, INFINITE);
+        CloseHandle(thread);
+        CloseHandle(open_event);
+        CloseHandle(close_event);
+        LeaveCriticalSection(&cs);
+        return init_result;
+    }
+
     open = TRUE;
     open_desc = *desc;
     open_flags = HIWORD(flags & CALLBACK_TYPEMASK);
@@ -88,6 +192,13 @@ static DWORD swmidi_close(void)
     TRACE("\n");
 
     EnterCriticalSection(&cs);
+
+    SetEvent(close_event);
+    WaitForSingleObject(thread, INFINITE);
+
+    CloseHandle(thread);
+    CloseHandle(open_event);
+    CloseHandle(close_event);
 
     open = FALSE;
 
