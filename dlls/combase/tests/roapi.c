@@ -658,7 +658,6 @@ static void set_error_reporting_flags_(int line, UINT32 flags)
     ok_(__FILE__, line)(hr == S_OK, "RoSetErrorReportingFlags failed, hr %#lx.\n", hr);
     hr = RoGetErrorReportingFlags(&new_flags);
     ok_(__FILE__, line)(hr == S_OK, "RoGetErrorReportingFlags failed, hr %#lx.\n", hr);
-    todo_wine_if(flags != RO_ERROR_REPORTING_USESETERRORINFO)
     ok_(__FILE__, line)(new_flags == flags, "Got unexpected flags %#x != %#x.\n", new_flags, flags);
 }
 
@@ -696,7 +695,7 @@ static DWORD CALLBACK test_thread_RoSetErrorReportingFlags(void *param)
         flags = 0xdeadbeef;
         hr = RoGetErrorReportingFlags(&flags);
         ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-        todo_wine ok(flags == RO_ERROR_REPORTING_NONE, "Got unexpected flags %#.x\n", flags);
+        ok(flags == RO_ERROR_REPORTING_NONE, "Got unexpected flags %#.x\n", flags);
         winetest_pop_context();
     }
 
@@ -715,7 +714,7 @@ static void test_RoSetErrorReportingFlags(void)
 
     /* Pass non-existent flags */
     hr = RoSetErrorReportingFlags(RO_ERROR_REPORTING_USESETERRORINFO | 0x80);
-    todo_wine ok(hr == E_INVALIDARG, "Got unexpected hr %#lx.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#lx.\n", hr);
 
     set_error_reporting_flags(RO_ERROR_REPORTING_NONE);
 
@@ -741,7 +740,7 @@ static void test_RoSetErrorReportingFlags(void)
             flags = 0xdeadbeef;
             hr = RoGetErrorReportingFlags(&flags);
             ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-            todo_wine ok(flags == RO_ERROR_REPORTING_NONE, "Got unexpected flags %#x.\n", flags);
+            ok(flags == RO_ERROR_REPORTING_NONE, "Got unexpected flags %#x.\n", flags);
 
             ret = SetEvent(data.event1);
             ok(ret, "SetEvent failed, error %lu.\n", GetLastError());
@@ -753,7 +752,6 @@ static void test_RoSetErrorReportingFlags(void)
             flags = 0xdeadbeef;
             hr = RoGetErrorReportingFlags(&flags);
             ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-            todo_wine_if(test_flags[i] != RO_ERROR_REPORTING_USESETERRORINFO)
             ok(flags == test_flags[i], "Got unexpected flags %#x\n", flags);
 
             /* Reset flags to RO_ERROR_REPORTING_NONE */
@@ -766,7 +764,6 @@ static void test_RoSetErrorReportingFlags(void)
             /* Flags don't change on apartment uninitialization. */
             hr = RoGetErrorReportingFlags(&flags);
             ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-            todo_wine
             ok(flags == RO_ERROR_REPORTING_NONE, "Got unexpected flags %#x.\n", flags);
             winetest_pop_context();
         }

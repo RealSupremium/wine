@@ -547,12 +547,19 @@ HRESULT WINAPI RoReportUnhandledError(IRestrictedErrorInfo *info)
     return S_OK;
 }
 
+static LONG error_reporting_flags = RO_ERROR_REPORTING_USESETERRORINFO;
 /***********************************************************************
  *      RoSetErrorReportingFlags (combase.@)
  */
 HRESULT WINAPI RoSetErrorReportingFlags(UINT32 flags)
 {
-    FIXME("(%08x): stub\n", flags);
+    UINT32 valid_flags = RO_ERROR_REPORTING_SUPPRESSEXCEPTIONS | RO_ERROR_REPORTING_FORCEEXCEPTIONS |
+                         RO_ERROR_REPORTING_USESETERRORINFO | RO_ERROR_REPORTING_SUPPRESSSETERRORINFO;
+
+    TRACE("(%08x)\n", flags);
+
+    if (flags & ~valid_flags) return E_INVALIDARG;
+    WriteRelease(&error_reporting_flags, flags);
     return S_OK;
 }
 
@@ -561,12 +568,12 @@ HRESULT WINAPI RoSetErrorReportingFlags(UINT32 flags)
  */
 HRESULT WINAPI RoGetErrorReportingFlags(UINT32 *flags)
 {
-    FIXME("(%p): stub\n", flags);
+    TRACE("(%p)\n", flags);
 
     if (!flags)
         return E_POINTER;
 
-    *flags = RO_ERROR_REPORTING_USESETERRORINFO;
+    *flags = ReadAcquire(&error_reporting_flags);
     return S_OK;
 }
 
