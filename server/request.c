@@ -62,6 +62,10 @@
 #include "handle.h"
 #include "request_handlers.h"
 
+#ifndef __ANDROID__
+#include "wine/server_workdir.h"
+#endif
+
 /* Some versions of glibc don't define this */
 #ifndef SCM_RIGHTS
 #define SCM_RIGHTS 1
@@ -642,11 +646,14 @@ static char *create_server_dir( int force )
     /* create the base directory if needed */
 
 #ifdef __ANDROID__  /* there's no /tmp dir on Android */
-    if (asprintf( &base_dir, "%s/.wineserver", config_dir ) == -1)
+    if (asprintf( &base_dir, "%s/.wineserver", config_dir ) < 0)
         fatal_error( "out of memory\n" );
 #else
-    if (asprintf( &base_dir, "/tmp/.wine-%u", getuid() ) == -1)
-        fatal_error( "out of memory\n" );
+    if (!(base_dir = wineserver_workdir()))
+    {
+        if (errno == ENOMEM) fatal_error( "out of memory\n" );
+        fatal_error( "error while building wineserver directory\n" );
+    }
 #endif
     create_dir( base_dir, &st2 );
 
