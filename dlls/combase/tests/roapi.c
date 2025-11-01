@@ -795,7 +795,7 @@ static void test_GetRestrictedErrorInfo(void)
     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
 
     hr = GetRestrictedErrorInfo(&r_info);
-    todo_wine ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
+    ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
 
     /* The ICreateErrorInfo object returned by CreateErrorInfo does not supoprt IRestrictedErrorInfo. */
     hr = CreateErrorInfo(&create_info);
@@ -807,35 +807,29 @@ static void test_GetRestrictedErrorInfo(void)
     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
     /* GetRestrictedErrorInfo should return S_FALSE if the error object does not support IRestrictedErrorInfo. */
     hr = GetRestrictedErrorInfo(&r_info);
-    todo_wine ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
+    ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
     /* Nonetheless, GetRestrictedErrorInfo will still clear the current error. */
     count = IErrorInfo_Release(info);
-    todo_wine ok(count == 0, "Got unexpected count %lu.\n", count);
+    ok(count == 0, "Got unexpected count %lu.\n", count);
     hr = GetErrorInfo(0, &info);
-    todo_wine ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
-    if (hr == S_OK) IErrorInfo_Release(info);
+    ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
 
     /* IRestrictedErrorInfo objects can only be created by the Ro* error reporting methods. */
     ret = RoOriginateError(E_INVALIDARG, NULL);
-    todo_wine ok(ret, "RoOriginateError failed.\n");
+    ok(ret, "RoOriginateError failed.\n");
     hr = GetRestrictedErrorInfo(&r_info);
-    todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-    if (hr == S_OK)
-    {
-        hr = IRestrictedErrorInfo_QueryInterface(r_info, &IID_IErrorInfo, (void **)&info);
-        ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-        IRestrictedErrorInfo_Release(r_info);
-        hr = SetErrorInfo(0, info);
-        ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-        IErrorInfo_Release(info);
-        hr = GetRestrictedErrorInfo(&r_info2);
-        ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-        ok(r_info2 == r_info, "Got unexpected r_info2 %p != %p.\n", r_info2, r_info);
-        count = IRestrictedErrorInfo_Release(r_info2);
-        ok(count == 0, "Got unexpected count %lu.\n", count);
-    }
-    else
-        SetErrorInfo(0, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    hr = IRestrictedErrorInfo_QueryInterface(r_info, &IID_IErrorInfo, (void **)&info);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    IRestrictedErrorInfo_Release(r_info);
+    hr = SetErrorInfo(0, info);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    IErrorInfo_Release(info);
+    hr = GetRestrictedErrorInfo(&r_info2);
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    ok(r_info2 == r_info, "Got unexpected r_info2 %p != %p.\n", r_info2, r_info);
+    count = IRestrictedErrorInfo_Release(r_info2);
+    ok(count == 0, "Got unexpected count %lu.\n", count);
 }
 
 /* Return the system-supplied description of an HRESULT code. If there isn't one, we only check whether error
@@ -1020,12 +1014,11 @@ static void test_error_reporting(void)
        exp_len = wcslen(default_msg);
        exp_msg = default_msg[0] ? default_msg : NULL;
        ret = RoOriginateError(test_codes[i], NULL);
-       todo_wine ok(ret, "RoOriginateError returned %d.\n", ret);
-       todo_wine_if(debugger)
+       ok(ret, "RoOriginateError returned %d.\n", ret);
        ok(exception_caught == debugger, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], NULL, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], NULL, NULL);
        exception_caught = FALSE;
        ret = RoOriginateLanguageException(test_codes[i], NULL, NULL);
        todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
@@ -1038,23 +1031,22 @@ static void test_error_reporting(void)
        /* A NULL string with a non-zero length is accepted. */
        exception_caught = FALSE;
        ret = RoOriginateError(test_codes[i], NULL);
-       todo_wine ok(ret, "RoOriginateError returned %d.\n", ret);
-       todo_wine_if(debugger)
+       ok(ret, "RoOriginateError returned %d.\n", ret);
        ok(exception_caught == debugger, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], NULL, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], NULL, NULL);
 
        /* RO_ERROR_REPORTING_FORCEEXCEPTIONS overrides RO_ERROR_REPORTING_SUPPRESSEXCEPTIONS */
        set_error_reporting_flags(RO_ERROR_REPORTING_USESETERRORINFO | RO_ERROR_REPORTING_SUPPRESSEXCEPTIONS |
                                  RO_ERROR_REPORTING_FORCEEXCEPTIONS);
        exception_caught = FALSE;
        ret = RoOriginateErrorW(test_codes[i], 0, NULL);
-       todo_wine ok(ret, "RoOriginateErrorW returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateErrorW returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], NULL, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], NULL, NULL);
 
        set_error_reporting_flags(RO_ERROR_REPORTING_USESETERRORINFO);
        exception_caught = FALSE;
@@ -1063,12 +1055,11 @@ static void test_error_reporting(void)
        /* RoOriginateError with a custom error message. */
        WindowsCreateStringReference(message, wcslen(message), &hstr_hdr, &msg);
        ret = RoOriginateError(test_codes[i], msg);
-       todo_wine ok(ret, "RoOriginateError returned %d.\n", ret);
-       todo_wine_if(debugger)
+       ok(ret, "RoOriginateError returned %d.\n", ret);
        ok(exception_caught == debugger, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], message, NULL);
        exception_caught = FALSE;
        ret = RoOriginateLanguageException(test_codes[i], msg, NULL);
        todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
@@ -1081,19 +1072,19 @@ static void test_error_reporting(void)
        set_error_reporting_flags(RO_ERROR_REPORTING_USESETERRORINFO | RO_ERROR_REPORTING_FORCEEXCEPTIONS);
        exception_caught = FALSE;
        ret = RoOriginateErrorW(test_codes[i], wcslen(message), message);
-       todo_wine ok(ret, "RoOriginateErrorW returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateErrorW returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], message, NULL);
 
        exception_caught = FALSE;
        ret = RoOriginateErrorW(test_codes[i], 0, message);
-       todo_wine ok(ret, "RoOriginateErrorW returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateErrorW returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], message, NULL);
 
        /* Error messages longer than 512 characters are truncated. */
        exception_caught = FALSE;
@@ -1101,11 +1092,11 @@ static void test_error_reporting(void)
        exp_msg = message_trunc;
        WindowsCreateStringReference(message_large, wcslen(message_large), &hstr_hdr, &msg);
        ret = RoOriginateError(test_codes[i], msg);
-       todo_wine ok(ret, "RoOriginateError returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateError returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message_trunc, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], message_trunc, NULL);
        exception_caught = FALSE;
        ret = RoOriginateLanguageException(test_codes[i], msg, NULL);
        todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
@@ -1116,19 +1107,19 @@ static void test_error_reporting(void)
 
        exception_caught = FALSE;
        ret = RoOriginateErrorW(test_codes[i], wcslen(message_large), message_large);
-       todo_wine ok(ret, "RoOriginateErrorW returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateErrorW returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message_trunc, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], message_trunc, NULL);
 
        exception_caught = FALSE;
        ret = RoOriginateErrorW(test_codes[i], 0, message_large);
-       todo_wine ok(ret, "RoOriginateErrorW returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateErrorW returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message_trunc, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], message_trunc, NULL);
 
        /* RoOriginateError with a custom error message containing an embedded NUL. */
        exception_caught = FALSE;
@@ -1140,12 +1131,12 @@ static void test_error_reporting(void)
        hr = WindowsPromoteStringBuffer(hstr_buf, &msg);
        ok(hr == S_OK, "Got unexpected hr %#lx\n", hr);
        ret = RoOriginateError(test_codes[i], msg);
-       todo_wine ok(ret, "RoOriginateError returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateError returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        /* MSDN says that RoOriginateError uses SetErrorInfo to set the error object for the current thread, so we
         * should be able to get it through GetErrorInfo as well. */
        hr = GetErrorInfo(0, &info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
        if (hr == S_OK)
        {
            hr = IErrorInfo_QueryInterface(info, &IID_IRestrictedErrorInfo, (void **)&r_info);
@@ -1164,11 +1155,11 @@ static void test_error_reporting(void)
 
        exception_caught = FALSE;
        ret = RoOriginateErrorW(test_codes[i], ARRAY_SIZE(message_nul), message_nul);
-       todo_wine ok(ret, "RoOriginateErrorW returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateErrorW returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
-       if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message_nul, NULL);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       test_IRestrictedErrorInfo(r_info, test_codes[i], message_nul, NULL);
 
        winetest_pop_context();
    }
@@ -1177,31 +1168,31 @@ static void test_error_reporting(void)
     exception_caught = FALSE;
     set_error_reporting_flags(RO_ERROR_REPORTING_NONE | RO_ERROR_REPORTING_SUPPRESSEXCEPTIONS);
     ret = RoOriginateError(E_FAIL, NULL);
-    todo_wine ok(ret, "RoOriginateError returned %d.\n", ret);
+    ok(ret, "RoOriginateError returned %d.\n", ret);
     ok(!exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
     r_info = (IRestrictedErrorInfo *)0xdeadbeef;
     hr = GetRestrictedErrorInfo(&r_info);
-    todo_wine ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
-    todo_wine ok(!r_info, "Got unexpected r_info %p\n", r_info);
+    ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
+    ok(!r_info, "Got unexpected r_info %p\n", r_info);
     exception_caught = FALSE;
     ret = RoOriginateLanguageException(E_FAIL, NULL, NULL);
     todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
     ok(!exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
     hr = GetRestrictedErrorInfo(&r_info);
-    todo_wine ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
+    ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
     ret = RtlRemoveVectoredExceptionHandler(handler);
     ok(ret, "RtlRemoveVectoredExceptionHandler returned %d.\n", ret);
 
     /* RO_ERROR_REPORTING_SUPPRESSSETERRORINFO overrides RO_ERROR_REPORTING_USESETERRORINFO. */
     set_error_reporting_flags(RO_ERROR_REPORTING_USESETERRORINFO | RO_ERROR_REPORTING_SUPPRESSSETERRORINFO);
     ret = RoOriginateError(E_FAIL, NULL);
-    todo_wine ok(ret, "RoOriginateError returned %d.\n", ret);
+    ok(ret, "RoOriginateError returned %d.\n", ret);
     hr = GetRestrictedErrorInfo(&r_info);
-    todo_wine ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
+    ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
     ret = RoOriginateLanguageException(E_FAIL, NULL, NULL);
     todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
     hr = GetRestrictedErrorInfo(&r_info);
-    todo_wine ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
+    ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
 
     /* Restore the default flags. */
     set_error_reporting_flags(RO_ERROR_REPORTING_USESETERRORINFO);
