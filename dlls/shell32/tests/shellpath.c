@@ -1323,6 +1323,15 @@ static const struct knownFolderDef known_folders[] = {
                  NULL,
                  FILE_ATTRIBUTE_READONLY,
                  KFDF_PRECREATE | KFDF_ROAMABLE),
+    KNOWN_FOLDER(FOLDERID_Screenshots,
+                 NO_CSIDL,
+                 "Screenshots",
+                 KF_CATEGORY_PERUSER,
+                 FOLDERID_Pictures, GUID_NULL,
+                 "Screenshots",
+                 NULL,
+                 0,
+                 KFDF_PRECREATE | KFDF_ROAMABLE),
 };
 #undef KNOWN_FOLDER
 BOOL known_folder_found[ARRAY_SIZE(known_folders)];
@@ -1829,7 +1838,7 @@ static void test_NonExistentPath(void)
                 startup.wShowWindow = SW_SHOWNORMAL;
                 CreateProcessA(NULL, buffer, NULL, NULL, FALSE, 0L, NULL, NULL,
                  &startup, &info);
-                wait_child_process( info.hProcess );
+                wait_child_process( &info );
 
                 /* restore original values: */
                 trace("Restoring CSIDL_FAVORITES to %s\n", originalPath);

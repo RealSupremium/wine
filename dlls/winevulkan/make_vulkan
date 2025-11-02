@@ -64,7 +64,7 @@ from enum import Enum
 LOGGER = logging.Logger("vulkan")
 LOGGER.addHandler(logging.StreamHandler())
 
-VK_XML_VERSION = "1.4.325"
+VK_XML_VERSION = "1.4.329"
 WINE_VK_VERSION = (1, 4)
 
 # Filenames to create.
@@ -226,6 +226,8 @@ USER_DRIVER_FUNCS = {
     "vkGetPhysicalDeviceImageFormatProperties2",
     "vkGetPhysicalDeviceImageFormatProperties2KHR",
     "vkGetPhysicalDevicePresentRectanglesKHR",
+    "vkGetPhysicalDeviceProperties2",
+    "vkGetPhysicalDeviceProperties2KHR",
     "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
     "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
     "vkGetPhysicalDeviceSurfaceFormats2KHR",
@@ -299,8 +301,6 @@ MANUAL_LOADER_THUNKS = {
     "vkEnumerateInstanceExtensionProperties",
     "vkEnumerateInstanceVersion",
     "vkFreeCommandBuffers",
-    "vkGetPhysicalDeviceProperties2",
-    "vkGetPhysicalDeviceProperties2KHR",
 }
 
 STRUCT_CHAIN_CONVERSIONS = {
@@ -1225,7 +1225,7 @@ class VkVariable(object):
         return self.pointer and self.pointer.count('*') > 1
 
     def is_pointer_size(self):
-        if self.type in ["size_t", "HWND", "HINSTANCE"] or self.type.startswith("PFN"):
+        if self.type in ["size_t", "HWND", "HINSTANCE", "HANDLE", "LPCWSTR"] or self.type.startswith("PFN"):
             return True
         if self.is_handle() and self.handle.is_dispatchable():
             return True
@@ -2989,7 +2989,7 @@ class VkGenerator(object):
         # Note: unions are stored in structs for dependency reasons,
         # see comment in parsing section.
         for struct in self.registry.structs:
-            if struct.required:
+            if struct.required and struct.name != "SECURITY_ATTRIBUTES":
                 LOGGER.debug("Generating struct: {0}".format(struct.name))
                 f.write(struct.definition(align=True))
                 f.write("\n")
@@ -3128,6 +3128,7 @@ class VkRegistry(object):
         self.video_copyright = video_root.find('./comment').text
 
         root.extend(video_root)
+        root.extend(ET.parse("winevk.xml").getroot())
 
         self._parse_enums(root)
         self._parse_types(root)

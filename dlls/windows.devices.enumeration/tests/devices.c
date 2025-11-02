@@ -24,10 +24,15 @@
 #include "winbase.h"
 #include "winerror.h"
 #include "winstring.h"
+#include "devpropdef.h"
+#include "devfiltertypes.h"
+#include "devquery.h"
+#include "propsys.h"
 
 #include "initguid.h"
 #include "roapi.h"
 #include "weakreference.h"
+#include "ntddvdeo.h"
 
 #define WIDL_using_Windows_Foundation
 #define WIDL_using_Windows_Foundation_Collections
@@ -130,6 +135,12 @@ static ITypedEventHandler_IInspectable_IInspectable *inspectable_event_handler_c
     handler->ref = 1;
     return &handler->iface;
 }
+
+struct device_property
+{
+    const WCHAR *name;
+    PropertyType type;
+};
 
 struct device_watcher_added_handler_data
 {
@@ -344,27 +355,469 @@ static void check_device_information_collection_async_( int line, IAsyncOperatio
     }
 }
 
+struct iterable_hstring
+{
+    IIterable_HSTRING IIterable_HSTRING_iface;
+    LONG ref;
+
+    ULONG count;
+    HSTRING values[];
+};
+
+C_ASSERT( sizeof( struct iterable_hstring ) == offsetof( struct iterable_hstring, values[0] ) );
+
+static inline struct iterable_hstring *impl_from_IIterable_HSTRING( IIterable_HSTRING *iface )
+{
+    return CONTAINING_RECORD( iface, struct iterable_hstring, IIterable_HSTRING_iface );
+}
+
+struct iterator_hstring
+{
+   IIterator_HSTRING IIterator_HSTRING_iface;
+   LONG ref;
+
+   UINT32 index;
+   struct iterable_hstring *view;
+};
+
+static inline struct iterator_hstring *impl_from_IIterator_HSTRING( IIterator_HSTRING *iface )
+{
+    return CONTAINING_RECORD( iface, struct iterator_hstring, IIterator_HSTRING_iface );
+}
+
+static HRESULT WINAPI iterator_hstring_QueryInterface( IIterator_HSTRING *iface, REFIID iid, void **out )
+{
+    if (IsEqualGUID( iid, &IID_IUnknown ) ||
+        IsEqualGUID( iid, &IID_IInspectable ) ||
+        IsEqualGUID( iid, &IID_IAgileObject ) ||
+        IsEqualGUID( iid, &IID_IIterator_HSTRING ))
+    {
+       IIterator_HSTRING_AddRef(( *out = iface ));
+       return S_OK;
+    }
+
+    if (winetest_debug > 1) trace( "%s not implemented, returning E_NO_INTERFACE.\n", debugstr_guid( iid ) );
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI iterator_hstring_AddRef( IIterator_HSTRING *iface )
+{
+    struct iterator_hstring *impl = impl_from_IIterator_HSTRING( iface );
+    ULONG ref = InterlockedIncrement( &impl->ref );
+    return ref;
+}
+
+static ULONG WINAPI iterator_hstring_Release(IIterator_HSTRING *iface)
+{
+    struct iterator_hstring *impl = impl_from_IIterator_HSTRING( iface );
+    ULONG ref = InterlockedDecrement( &impl->ref );
+
+    if (!ref)
+    {
+        IIterable_HSTRING_Release( &impl->view->IIterable_HSTRING_iface );
+        free( impl );
+    }
+
+    return ref;
+}
+
+static HRESULT WINAPI iterator_hstring_GetIids( IIterator_HSTRING *iface, ULONG *iid_count, IID **iids ) { return E_NOTIMPL; }
+
+static HRESULT WINAPI iterator_hstring_GetRuntimeClassName( IIterator_HSTRING *iface, HSTRING *class_name ) { return E_NOTIMPL; }
+
+static HRESULT WINAPI iterator_hstring_GetTrustLevel( IIterator_HSTRING *iface, TrustLevel *trust_level ) { return E_NOTIMPL; }
+
+static HRESULT WINAPI iterator_hstring_get_Current( IIterator_HSTRING *iface, HSTRING *value )
+{
+    struct iterator_hstring *impl = impl_from_IIterator_HSTRING( iface );
+
+    *value = NULL;
+    if (impl->index >= impl->view->count) return E_BOUNDS;
+    return WindowsDuplicateString( impl->view->values[impl->index], value );
+}
+
+static HRESULT WINAPI iterator_hstring_get_HasCurrent( IIterator_HSTRING *iface, boolean *value )
+{
+    struct iterator_hstring *impl = impl_from_IIterator_HSTRING( iface );
+
+    *value = impl->index < impl->view->count;
+    return S_OK;
+}
+
+static HRESULT WINAPI iterator_hstring_MoveNext( IIterator_HSTRING *iface, boolean *value )
+{
+    struct iterator_hstring *impl = impl_from_IIterator_HSTRING( iface );
+
+    if (impl->index < impl->view->count) impl->index++;
+    return IIterator_HSTRING_get_HasCurrent( iface, value );
+}
+
+static HRESULT WINAPI iterator_hstring_GetMany( IIterator_HSTRING *iface, UINT32 items_size, HSTRING *items, UINT *count )
+{
+    struct iterator_hstring *impl = impl_from_IIterator_HSTRING( iface );
+    ULONG i, start = impl->index;
+    HRESULT hr = S_OK;
+
+    for (i = start; i < impl->view->count && i < start + items_size; i++)
+        if (FAILED(hr = WindowsDuplicateString( impl->view->values[i], items + i - start ))) break;
+
+    if (FAILED( hr )) while (i-- > start) WindowsDeleteString( items[i - start] );
+    *count = i - start;
+    return hr;
+}
+
+static const IIterator_HSTRINGVtbl iterator_hstring_vtbl =
+{
+    /* IUnknown methods */
+    iterator_hstring_QueryInterface,
+    iterator_hstring_AddRef,
+    iterator_hstring_Release,
+    /* IInspectable methods */
+    iterator_hstring_GetIids,
+    iterator_hstring_GetRuntimeClassName,
+    iterator_hstring_GetTrustLevel,
+    /* IIterator<HSTRING> methods */
+    iterator_hstring_get_Current,
+    iterator_hstring_get_HasCurrent,
+    iterator_hstring_MoveNext,
+    iterator_hstring_GetMany,
+};
+
+static HRESULT STDMETHODCALLTYPE iterable_hstring_QueryInterface( IIterable_HSTRING *iface, REFIID iid, void **out )
+{
+    if (IsEqualGUID( iid, &IID_IUnknown ) ||
+        IsEqualGUID( iid, &IID_IInspectable ) ||
+        IsEqualGUID( iid, &IID_IAgileObject ) ||
+        IsEqualGUID( iid, &IID_IIterable_HSTRING ))
+    {
+        IIterable_HSTRING_AddRef(( *out = iface ));
+        return S_OK;
+    }
+
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE iterable_hstring_AddRef( IIterable_HSTRING *iface )
+{
+    struct iterable_hstring *impl = impl_from_IIterable_HSTRING( iface );
+    ULONG ref = InterlockedIncrement( &impl->ref );
+    return ref;
+}
+
+static ULONG STDMETHODCALLTYPE iterable_hstring_Release( IIterable_HSTRING *iface )
+{
+    struct iterable_hstring *impl = impl_from_IIterable_HSTRING( iface );
+    ULONG ref = InterlockedDecrement( &impl->ref );
+
+    if (!ref)
+    {
+        while (impl->count--) WindowsDeleteString( impl->values[impl->count] );
+        free( impl );
+    }
+    return ref;
+}
+
+static HRESULT WINAPI iterable_hstring_GetIids( IIterable_HSTRING *iface, ULONG *iid_count, IID **iids ) { return E_NOTIMPL; }
+
+static HRESULT WINAPI iterable_hstring_GetRuntimeClassName( IIterable_HSTRING *iface, HSTRING *class_name ) { return E_NOTIMPL; }
+
+static HRESULT WINAPI iterable_hstring_GetTrustLevel( IIterable_HSTRING *iface, TrustLevel *trust_level ) { return E_NOTIMPL; }
+
+static HRESULT WINAPI iterable_hstring_First( IIterable_HSTRING *iface, IIterator_HSTRING **value )
+{
+    struct iterable_hstring *impl = impl_from_IIterable_HSTRING( iface );
+    struct iterator_hstring *iter;
+
+    if (!(iter = calloc( 1, sizeof( *iter ) ))) return E_OUTOFMEMORY;
+    iter->IIterator_HSTRING_iface.lpVtbl = &iterator_hstring_vtbl;
+    iter->ref = 1;
+
+    IIterable_HSTRING_AddRef( iface );
+    iter->view = impl;
+
+    *value = &iter->IIterator_HSTRING_iface;
+    return S_OK;
+}
+
+static const struct IIterable_HSTRINGVtbl iterable_hstring_vtbl =
+{
+    /* IUnknown methods */
+    iterable_hstring_QueryInterface,
+    iterable_hstring_AddRef,
+    iterable_hstring_Release,
+    /* IInspectable methods */
+    iterable_hstring_GetIids,
+    iterable_hstring_GetRuntimeClassName,
+    iterable_hstring_GetTrustLevel,
+    /* IIterable<HSTRING> methods */
+    iterable_hstring_First,
+};
+
+static IIterable_HSTRING *iterable_hstring_create( const WCHAR **values, SIZE_T count )
+{
+    struct iterable_hstring *impl;
+    HRESULT hr;
+    SIZE_T i;
+
+    if (!(impl = malloc( offsetof( struct iterable_hstring, values[count] ) ))) return NULL;
+    impl->ref = 1;
+
+    impl->IIterable_HSTRING_iface.lpVtbl = &iterable_hstring_vtbl;
+    impl->count = count;
+    for (i = 0; i < count; i++)
+    {
+        if (FAILED(hr = WindowsCreateString( values[i], wcslen(values[i]), &impl->values[i] )))
+        {
+            while(i) WindowsDeleteString( impl->values[--i] );
+            free( impl );
+            return NULL;
+        }
+    }
+
+    return &impl->IIterable_HSTRING_iface;
+}
+
+
+/* Find the DEVPROPKEY associated with prop_name, ensure propval matches the value retrieved from DevGetObjectProperties.
+ * If propval is NULL, then check the retrieved DEVPROPERTY has Type DEVPROP_TYPE_EMPTY.
+ * This assumes that the DeviceInformationKind is DeviceInterface (DevObjectTypeDeviceInterfaceDisplay). */
+static void test_DeviceInformation_property( HSTRING device_id, const WCHAR *prop_name, IPropertyValue *propval )
+{
+    PropertyType type = 0xdeadbeef;
+    DEVPROPCOMPKEY comp_key = {0};
+    const DEVPROPERTY *prop;
+    DEVPROPKEY key = {0};
+    HRESULT hr;
+    ULONG len;
+
+    hr = PSGetPropertyKeyFromName( prop_name, (PROPERTYKEY *)&key );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+
+    comp_key.Key = key;
+    prop = NULL;
+    len = 0;
+    hr = DevGetObjectProperties( DevObjectTypeDeviceInterfaceDisplay, WindowsGetStringRawBuffer( device_id, NULL ), 0, 1, &comp_key, &len, &prop );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    ok( !!prop, "got prop %p\n", prop );
+    ok( len == 1, "got len %lu != 1\n", len );
+
+    if (propval)
+    {
+        hr = IPropertyValue_get_Type( propval, &type );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+
+        switch (type)
+        {
+        case PropertyType_Boolean:
+        {
+            boolean bool_val, exp_val;
+
+            hr = IPropertyValue_GetBoolean( propval, &bool_val );
+            ok( hr == S_OK, "got hr %#lx\n", hr );
+            ok( prop->Type == DEVPROP_TYPE_BOOLEAN, "got Type %#lx\n", prop->Type );
+            exp_val = !!*(DEVPROP_BOOLEAN *)prop->Buffer;
+            ok( bool_val == exp_val, "got bool_val %d != %d\n", bool_val, exp_val );
+            break;
+        }
+        case PropertyType_String:
+        {
+            HSTRING str;
+
+            hr = IPropertyValue_GetString( propval, &str );
+            ok( hr == S_OK, "got hr %#lx\n", hr );
+            ok( prop->Type == DEVPROP_TYPE_STRING || prop->Type == DEVPROP_TYPE_STRING_INDIRECT, "got Type %#lx\n", prop->Type );
+            /* TODO:
+             * For DEVPROP_TYPE_STRING_INDIRECT, WinRT extracts the locale-specific string from the referenced INF.
+             * System.ItemNameDisplay's value is formatted differently by WinRT. */
+            if (!wcsicmp( prop_name, L"System.ItemNameDisplay" ))
+                skip("Unhandled property %s, skipping.\n", debugstr_w( prop_name ) );
+            else if (prop->Type == DEVPROP_TYPE_STRING)
+                ok( !wcsicmp( WindowsGetStringRawBuffer( str, NULL ), prop->Buffer ), "got str %s != %s\n", debugstr_hstring( str ),
+                    debugstr_w( prop->Buffer ) );
+            WindowsDeleteString( str );
+            break;
+        }
+        case PropertyType_Guid:
+        {
+            GUID guid;
+
+            hr = IPropertyValue_GetGuid( propval, &guid );
+            ok( hr == S_OK, "got hr %#lx\n", hr );
+            ok( prop->Type == DEVPROP_TYPE_GUID, "got Type %#lx\n", prop->Type );
+            ok( IsEqualGUID( &guid, prop->Buffer ), "got guid %s != %s\n", debugstr_guid( &guid ), debugstr_guid( prop->Buffer ) );
+            break;
+        }
+        /* Used by System.Devices.PhysicalDeviceLocation */
+        case PropertyType_UInt8Array:
+        {
+            BYTE *arr = NULL;
+            UINT32 len = 0;
+
+            hr = IPropertyValue_GetUInt8Array( propval, &len, &arr );
+            ok( hr == S_OK, "got hr %#lx\n", hr );
+            ok( prop->Type == (DEVPROP_TYPEMOD_ARRAY | DEVPROP_TYPE_BYTE), "got Type %#lx\n", prop->Type );
+            ok( prop->BufferSize == sizeof( BYTE ) * len, "got BufferSize %lu\n", prop->BufferSize );
+            if (prop->BufferSize == sizeof( BYTE ) * len)
+                ok( !memcmp( arr, prop->Buffer, len ), "got arr %s != %s \n", debugstr_an( (char *)arr, len ), debugstr_an( (char *)prop->Buffer, len ) );
+            CoTaskMemFree( arr );
+            break;
+        }
+        default:
+            skip( "Unhandled type %d, skipping.\n", type );
+            break;
+        }
+    }
+    else
+        ok( prop->Type == DEVPROP_TYPE_EMPTY, "got Type %#lx\n", prop->Type );
+
+    DevFreeObjectProperties( len, prop );
+    winetest_pop_context();
+}
+
+
 static void test_DeviceInformation_obj( int line, IDeviceInformation *info )
 {
-    HRESULT hr;
-    HSTRING str;
+    HSTRING str = NULL, id = NULL;
     boolean bool_val;
+    HRESULT hr;
 
-    hr = IDeviceInformation_get_Id( info, &str );
-    ok_(__FILE__, line)( hr == S_OK, "got hr %#lx\n", hr );
-    WindowsDeleteString( str );
-    str = NULL;
+    hr = IDeviceInformation_get_Id( info, &id );
+    ok_(__FILE__, line)( hr == S_OK, "get_Id failed, got hr %#lx\n", hr );
     hr = IDeviceInformation_get_Name( info, &str );
-    todo_wine ok_(__FILE__, line)( hr == S_OK, "got hr %#lx\n", hr );
+    todo_wine ok_(__FILE__, line)( hr == S_OK, "get_Name failed, got hr %#lx\n", hr );
     WindowsDeleteString( str );
     hr = IDeviceInformation_get_IsEnabled( info, &bool_val );
-    todo_wine ok_(__FILE__, line)( hr == S_OK, "got hr %#lx\n", hr );
+    todo_wine ok_(__FILE__, line)( hr == S_OK, "get_IsEnabled failed, got hr %#lx\n", hr );
     hr = IDeviceInformation_get_IsDefault( info, &bool_val );
-    todo_wine ok_(__FILE__, line)( hr == S_OK, "got hr %#lx\n", hr );
+    todo_wine ok_(__FILE__, line)( hr == S_OK, "get_IsDefault failed, got hr %#lx\n", hr );
+}
+
+static void test_DeviceInformation_properties( IDeviceInformation *info, const struct device_property *exp_props, SIZE_T exp_props_len )
+{
+    IIterable_IKeyValuePair_HSTRING_IInspectable *iterable;
+    IIterator_IKeyValuePair_HSTRING_IInspectable *iterator;
+    IMapView_HSTRING_IInspectable *properties;
+    IInspectable *inspectable;
+    IPropertyValue *propval;
+    HSTRING str, id = NULL;
+    boolean valid;
+    HRESULT hr;
+    SIZE_T i;
+
+    hr = IDeviceInformation_get_Properties( info, &properties );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    hr = IDeviceInformation_get_Id( info, &id );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    for (i = 0; i < exp_props_len; i++)
+    {
+        PropertyType type = 0xdeadbeef;
+        HSTRING_HEADER hdr;
+
+        winetest_push_context( "exp_props[%Iu]", i );
+        hr = WindowsCreateStringReference( exp_props[i].name, wcslen( exp_props[i].name ), &hdr, &str );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+        hr = IMapView_HSTRING_IInspectable_Lookup( properties, str, &inspectable );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+        hr = IInspectable_QueryInterface( inspectable, &IID_IPropertyValue, (void **)&propval );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+        IInspectable_Release( inspectable );
+        hr = IPropertyValue_get_Type( propval, &type );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+        ok(type == exp_props[i].type, "got type %d != %d\n", type, exp_props[i].type );
+        IPropertyValue_Release( propval );
+        winetest_pop_context();
+    }
+
+    hr = IMapView_HSTRING_IInspectable_QueryInterface( properties, &IID_IIterable_IKeyValuePair_HSTRING_IInspectable, (void **)&iterable );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    IMapView_HSTRING_IInspectable_Release( properties );
+    hr = IIterable_IKeyValuePair_HSTRING_IInspectable_First( iterable, &iterator );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    IIterable_IKeyValuePair_HSTRING_IInspectable_Release( iterable );
+
+    i = 0;
+    valid = FALSE;
+    hr = IIterator_IKeyValuePair_HSTRING_IInspectable_get_HasCurrent( iterator, &valid );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    while (valid && SUCCEEDED( hr ))
+    {
+        IKeyValuePair_HSTRING_IInspectable *pair;
+        const WCHAR *prop_buf;
+
+        winetest_push_context( "i=%Iu", i++ );
+
+        hr = IIterator_IKeyValuePair_HSTRING_IInspectable_get_Current( iterator, &pair );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+
+        str = NULL;
+        hr = IKeyValuePair_HSTRING_IInspectable_get_Key( pair, &str );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+        prop_buf = WindowsGetStringRawBuffer( str, NULL );
+        inspectable = NULL;
+        hr = IKeyValuePair_HSTRING_IInspectable_get_Value( pair, &inspectable );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+        IKeyValuePair_HSTRING_IInspectable_Release( pair );
+
+        propval = NULL;
+        if (inspectable)
+        {
+            hr = IInspectable_QueryInterface( inspectable, &IID_IPropertyValue, (void **)&propval );
+            ok( hr == S_OK, "got hr %#lx\n", hr );
+            IInspectable_Release( inspectable );
+        }
+
+        winetest_push_context("%s: %s", debugstr_hstring( id ), debugstr_w( prop_buf ) );
+        test_DeviceInformation_property( id, prop_buf, propval );
+        WindowsDeleteString( str );
+        winetest_pop_context();
+
+        hr = IIterator_IKeyValuePair_HSTRING_IInspectable_MoveNext( iterator, &valid );
+        ok( hr == S_OK, " got hr %#lx\n", hr );
+
+        winetest_pop_context();
+    }
+    WindowsDeleteString( id );
+    IIterator_IKeyValuePair_HSTRING_IInspectable_Release( iterator );
+
+}
+
+static void test_DeviceInformationCollection( int line, IVectorView_DeviceInformation *info_collection, const struct device_property *exp_props,
+                                              SIZE_T exp_props_len )
+{
+    UINT32 size, i;
+    HRESULT hr;
+
+    hr = IVectorView_DeviceInformation_get_Size( info_collection, &size );
+    ok_(__FILE__, line)( hr == S_OK, "got %#lx\n", hr );
+    for (i = 0; i < size; i++)
+    {
+        IDeviceInformation *info;
+
+        winetest_push_context( "info_collection %u", i );
+        hr = IVectorView_DeviceInformation_GetAt( info_collection, i, &info );
+        ok_(__FILE__, line)( hr == S_OK, "got %#lx\n", hr );
+        test_DeviceInformation_obj( line, info );
+        winetest_push_context("%d", line );
+        test_DeviceInformation_properties( info, exp_props, exp_props_len );
+        IDeviceInformation_Release( info );
+        winetest_pop_context();
+        winetest_pop_context();
+    }
 }
 
 static void test_DeviceInformation( void )
 {
+    static const WCHAR *device_iface_additional_props[] = { L"System.Devices.InterfaceClassGuid", L"{026e516e-b814-414b-83cd-856d6fef4822} 3" };
+    static const WCHAR *device_invalid_props[] = { L"{026e516e-b814-414b-83cd-856d6fef4822}", L"{0-b814-414b-83cd-856d6fef4822} 3", L"{}" };
+    static const WCHAR *device_nonexistent_props[] = { L"foo", L"", L" " };
+    static const struct device_property device_iface_exp_props[] =  {
+        { L"System.Devices.InterfaceEnabled", PropertyType_Boolean },
+        { L"System.Devices.DeviceInstanceId", PropertyType_String },
+        /* Additional properties */
+        { L"System.Devices.InterfaceClassGuid", PropertyType_Guid }
+    };
     static const WCHAR *device_info_name = L"Windows.Devices.Enumeration.DeviceInformation";
 
     ITypedEventHandler_DeviceWatcher_IInspectable *stopped_handler, *enumerated_handler;
@@ -376,18 +829,18 @@ static void test_DeviceInformation( void )
     IActivationFactory *factory;
     IDeviceInformationStatics2 *device_info_statics2;
     IDeviceInformationStatics *device_info_statics;
+    IIterable_HSTRING *additional_props;
     IDeviceWatcher *device_watcher;
     DeviceWatcherStatus status = 0xdeadbeef;
     IAsyncOperation_DeviceInformationCollection *info_collection_async = NULL;
     IVectorView_DeviceInformation *info_collection = NULL;
-    IDeviceInformation *info;
     IWeakReferenceSource *weak_src;
     IWeakReference *weak_ref;
     IDeviceWatcher *watcher;
-    UINT32 i, size;
     HSTRING str;
     HRESULT hr;
     ULONG ref;
+    int i;
 
     enumerated_data.event = CreateEventW( NULL, FALSE, FALSE, NULL );
     ok( !!enumerated_data.event, "failed to create event, got error %lu\n", GetLastError() );
@@ -548,19 +1001,47 @@ static void test_DeviceInformation( void )
     await_device_information_collection( info_collection_async );
     check_device_information_collection_async( info_collection_async, 1, Completed, S_OK, &info_collection );
     IAsyncOperation_DeviceInformationCollection_Release( info_collection_async );
+    test_DeviceInformationCollection( __LINE__, info_collection, device_iface_exp_props, ARRAY_SIZE( device_iface_exp_props ) - 1 );
+    IVectorView_DeviceInformation_Release( info_collection );
 
-    hr = IVectorView_DeviceInformation_get_Size( info_collection, &size );
-    ok( hr == S_OK, "got %#lx\n", hr );
-    for (i = 0; i < size; i++)
+    hr = IDeviceInformationStatics_FindAllAsyncAqsFilterAndAdditionalProperties( device_info_statics, NULL, NULL, &info_collection_async );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+
+    await_device_information_collection( info_collection_async );
+    check_device_information_collection_async_no_id( info_collection_async, Completed, S_OK, &info_collection );
+    IAsyncOperation_DeviceInformationCollection_Release( info_collection_async );
+    test_DeviceInformationCollection( __LINE__, info_collection, device_iface_exp_props, ARRAY_SIZE( device_iface_exp_props ) - 1 );
+    IVectorView_DeviceInformation_Release( info_collection );
+
+    additional_props = iterable_hstring_create( device_iface_additional_props, ARRAY_SIZE( device_iface_additional_props ) );
+    hr = IDeviceInformationStatics_FindAllAsyncAqsFilterAndAdditionalProperties( device_info_statics, NULL, additional_props, &info_collection_async );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    IIterable_HSTRING_Release( additional_props );
+    await_device_information_collection( info_collection_async );
+    check_device_information_collection_async_no_id( info_collection_async, Completed, S_OK, &info_collection );
+    IAsyncOperation_DeviceInformationCollection_Release( info_collection_async );
+    test_DeviceInformationCollection( __LINE__, info_collection, device_iface_exp_props, ARRAY_SIZE( device_iface_exp_props ) );
+    IVectorView_DeviceInformation_Release( info_collection );
+
+    for (i = 0; i < ARRAY_SIZE( device_nonexistent_props ); i++ )
     {
-        winetest_push_context( "info_collection %u", i );
-        hr = IVectorView_DeviceInformation_GetAt( info_collection, i, &info );
-        ok( hr == S_OK, "got %#lx\n", hr );
-        test_DeviceInformation_obj( __LINE__, info );
-        IDeviceInformation_Release( info );
+        winetest_push_context( "device_nonexistent_props[%d]", i );
+        additional_props = iterable_hstring_create( &device_nonexistent_props[i], 1 );
+        hr = IDeviceInformationStatics_FindAllAsyncAqsFilterAndAdditionalProperties( device_info_statics, NULL, additional_props, &info_collection_async );
+        ok( hr == TYPE_E_ELEMENTNOTFOUND, "got hr %#lx\n", hr );
+        IIterable_HSTRING_Release( additional_props );
         winetest_pop_context();
     }
-    IVectorView_DeviceInformation_Release( info_collection );
+
+    for (i = 0; i < ARRAY_SIZE( device_invalid_props ); i++ )
+    {
+        winetest_push_context( "device_invalid_props[%d]", i );
+        additional_props = iterable_hstring_create( &device_invalid_props[i], 1 );
+        hr = IDeviceInformationStatics_FindAllAsyncAqsFilterAndAdditionalProperties( device_info_statics, NULL, additional_props, &info_collection_async );
+        ok( hr == E_INVALIDARG, "got hr %#lx\n", hr );
+        IIterable_HSTRING_Release( additional_props );
+        winetest_pop_context();
+    }
 
     IDeviceInformationStatics_Release( device_info_statics );
 
@@ -797,10 +1278,45 @@ static const struct test_case_filter filters_invalid_operand[] = {
     { L" System.StructuredQueryType.Boolean#True := System.StructuredQueryType.Boolean#True", E_INVALIDARG },
 };
 
+static void test_DeviceInformation_prop_guid( IDeviceInformation *info, const WCHAR *prop, const GUID *guid_val )
+{
+    IMapView_HSTRING_IInspectable *props;
+    IInspectable *inspectable;
+    IReference_GUID *val;
+    GUID guid = {0};
+    HSTRING str;
+    HRESULT hr;
+
+    hr = IDeviceInformation_get_Properties( info, &props );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+
+    hr = WindowsCreateString( prop, wcslen( prop ), &str );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    hr = IMapView_HSTRING_IInspectable_Lookup( props, str, &inspectable );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    WindowsDeleteString( str );
+    IMapView_HSTRING_IInspectable_Release( props );
+
+    hr = IInspectable_QueryInterface( inspectable, &IID_IReference_GUID, (void **)&val );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    IInspectable_Release( inspectable );
+    hr = IReference_GUID_get_Value( val, &guid );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    IReference_GUID_Release( val );
+
+    ok( IsEqualGUID( &guid, guid_val ), "got guid %s != %s\n", debugstr_guid( &guid ), debugstr_guid( guid_val ) );
+}
+
 static void test_aqs_filters( void )
 {
+    static const WCHAR *filter_iface_display = L"System.Devices.InterfaceClassGuid := {e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
     static const WCHAR *class_name = RuntimeClass_Windows_Devices_Enumeration_DeviceInformation;
+    static const WCHAR *prop_name_iface_guid = L"System.Devices.InterfaceClassGuid";
+    IAsyncOperation_DeviceInformationCollection *info_collection_async;
+    IVectorView_DeviceInformation *info_collection;
     IDeviceInformationStatics *statics;
+    IIterable_HSTRING *props_iterable;
+    UINT32 i, size;
     HSTRING str;
     HRESULT hr;
 
@@ -818,7 +1334,7 @@ static void test_aqs_filters( void )
     test_FindAllAsyncAqsFilter( statics, filters_empty, FALSE, FALSE );
     test_CreateWatcherAqsFilter( statics, filters_empty, FALSE, FALSE, FALSE, FALSE );
 
-    test_FindAllAsyncAqsFilter( statics, filters_boolean_op, FALSE, TRUE );
+    test_FindAllAsyncAqsFilter( statics, filters_boolean_op, FALSE, FALSE );
     test_CreateWatcherAqsFilter( statics, filters_boolean_op, FALSE, FALSE, FALSE, TRUE );
 
     test_FindAllAsyncAqsFilter( statics, filters_simple, FALSE, FALSE );
@@ -827,7 +1343,7 @@ static void test_aqs_filters( void )
     test_FindAllAsyncAqsFilter( statics, filters_case_insensitive, TRUE, FALSE );
     test_CreateWatcherAqsFilter( statics, filters_case_insensitive, TRUE, FALSE, FALSE, FALSE );
 
-    test_FindAllAsyncAqsFilter( statics, filters_precedence, FALSE, TRUE );
+    test_FindAllAsyncAqsFilter( statics, filters_precedence, FALSE, FALSE );
     test_CreateWatcherAqsFilter( statics, filters_precedence, FALSE, FALSE, FALSE, TRUE );
 
     test_FindAllAsyncAqsFilter( statics, filters_no_results, FALSE, FALSE );
@@ -844,6 +1360,35 @@ static void test_aqs_filters( void )
 
     test_FindAllAsyncAqsFilter( statics, filters_invalid_operand, FALSE, FALSE );
     test_CreateWatcherAqsFilter( statics, filters_invalid_operand, FALSE, FALSE, FALSE, FALSE );
+
+    props_iterable = iterable_hstring_create( &prop_name_iface_guid, 1 );
+    hr = WindowsCreateString( filter_iface_display, wcslen( filter_iface_display ), &str );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    hr = IDeviceInformationStatics_FindAllAsyncAqsFilterAndAdditionalProperties( statics, str, props_iterable, &info_collection_async );
+    ok( hr == S_OK, "got hr %#lx\n", hr );
+    WindowsDeleteString( str );
+    IIterable_HSTRING_Release( props_iterable );
+    if (SUCCEEDED( hr ))
+    {
+        await_device_information_collection( info_collection_async );
+        check_device_information_collection_async_no_id( info_collection_async, Completed, S_OK, &info_collection );
+        IAsyncOperation_DeviceInformationCollection_Release( info_collection_async );
+
+        hr = IVectorView_DeviceInformation_get_Size( info_collection, &size );
+        ok( hr == S_OK, "got hr %#lx\n", hr );
+        for (i = 0; i < size; i++)
+        {
+            IDeviceInformation *info;
+
+            winetest_push_context( "i=%u", i );
+            hr = IVectorView_DeviceInformation_GetAt( info_collection, i, &info );
+            ok( hr == S_OK, "got hr %#lx\n", hr );
+            test_DeviceInformation_prop_guid( info, prop_name_iface_guid, &GUID_DEVINTERFACE_MONITOR );
+            IDeviceInformation_Release( info );
+            winetest_pop_context();
+        }
+        IVectorView_DeviceInformation_Release( info_collection );
+    }
 
     IDeviceInformationStatics_Release( statics );
 }

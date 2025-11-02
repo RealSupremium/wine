@@ -310,7 +310,7 @@ BOOL register_imm_window( HWND hwnd )
 
         thread_data->default_hwnd = NtUserCreateWindowEx( 0, &class_name, NULL, &name,
                                                           WS_POPUP | WS_DISABLED | WS_CLIPSIBLINGS,
-                                                          0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, FALSE );
+                                                          0, 0, 1, 1, 0, 0, 0, 0, 0, 0, NULL, FALSE );
     }
 
     return TRUE;
@@ -683,7 +683,7 @@ LRESULT ime_driver_call( HWND hwnd, enum wine_ime_call call, WPARAM wparam, LPAR
             res = TRUE;
         }
 
-        TRACE( "processing scan %#x, vkey %#x -> %lu\n", LOWORD(wparam), HIWORD(lparam), res );
+        TRACE( "processing vkey %#x, scan %#x -> %lu\n", LOWORD(wparam), HIWORD(lparam), res );
         return res;
     }
     case WINE_IME_TO_ASCII_EX:

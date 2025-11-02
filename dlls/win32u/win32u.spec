@@ -199,8 +199,8 @@
 @ stub -syscall NtGdiDDCCISetVCPFeature
 @ stub -syscall NtGdiDdCreateFullscreenSprite
 @ stub -syscall NtGdiDdDDIAbandonSwapChain
-@ stub -syscall NtGdiDdDDIAcquireKeyedMutex
-@ stub -syscall NtGdiDdDDIAcquireKeyedMutex2
+@ stdcall -syscall NtGdiDdDDIAcquireKeyedMutex(ptr)
+@ stdcall -syscall NtGdiDdDDIAcquireKeyedMutex2(ptr)
 @ stub -syscall NtGdiDdDDIAcquireSwapChain
 @ stub -syscall NtGdiDdDDIAddSurfaceToSwapChain
 @ stub -syscall NtGdiDdDDIAdjustFullscreenGamma
@@ -341,8 +341,8 @@
 @ stdcall -syscall NtGdiDdDDIQueryVideoMemoryInfo(ptr)
 @ stub -syscall NtGdiDdDDIReclaimAllocations
 @ stub -syscall NtGdiDdDDIReclaimAllocations2
-@ stub -syscall NtGdiDdDDIReleaseKeyedMutex
-@ stub -syscall NtGdiDdDDIReleaseKeyedMutex2
+@ stdcall -syscall NtGdiDdDDIReleaseKeyedMutex(ptr)
+@ stdcall -syscall NtGdiDdDDIReleaseKeyedMutex2(ptr)
 @ stub -syscall NtGdiDdDDIReleaseProcessVidPnSourceOwners
 @ stub -syscall NtGdiDdDDIReleaseSwapChain
 @ stub -syscall NtGdiDdDDIRemoveSurfaceFromSwapChain
@@ -874,7 +874,7 @@
 @ stdcall -syscall NtUserCreatePopupMenu()
 @ stub -syscall NtUserCreateSyntheticPointerDevice2
 @ stub -syscall NtUserCreateSystemThreads
-@ stdcall -syscall NtUserCreateWindowEx(long ptr ptr ptr long long long long long long long long ptr long long long long)
+@ stdcall -syscall NtUserCreateWindowEx(long ptr ptr ptr long long long long long long long long ptr long long ptr long)
 @ stub -syscall NtUserCreateWindowGroup
 @ stdcall -syscall NtUserCreateWindowStation(ptr long long long long long long)
 @ stub -syscall NtUserCsDdeUninitialize
@@ -1118,7 +1118,7 @@
 @ stub -syscall NtUserGetWindowCompositionInfo
 @ stdcall -syscall NtUserGetWindowContextHelpId(long)
 @ stdcall -syscall NtUserGetWindowDC(long)
-@ stub -syscall NtUserGetWindowDisplayAffinity
+@ stdcall -syscall NtUserGetWindowDisplayAffinity(ptr ptr)
 @ stub -syscall NtUserGetWindowFeedbackSetting
 @ stub -syscall NtUserGetWindowGroupId
 @ stub -syscall NtUserGetWindowMinimizeRect

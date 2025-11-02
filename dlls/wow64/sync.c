@@ -1393,6 +1393,17 @@ NTSTATUS WINAPI wow64_NtSetEvent( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtSetEventBoostPriority
+ */
+NTSTATUS WINAPI wow64_NtSetEventBoostPriority( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+
+    return NtSetEventBoostPriority( handle );
+}
+
+
+/**********************************************************************
  *           wow64_NtSetInformationDebugObject
  */
 NTSTATUS WINAPI wow64_NtSetInformationDebugObject( UINT *args )
@@ -1777,7 +1788,7 @@ NTSTATUS WINAPI wow64_NtWaitForMultipleObjects( UINT *args )
 {
     DWORD count = get_ulong( &args );
     LONG *handles_ptr = get_ptr( &args );
-    BOOLEAN wait_any = get_ulong( &args );
+    WAIT_TYPE type = get_ulong( &args );
     BOOLEAN alertable = get_ulong( &args );
     const LARGE_INTEGER *timeout = get_ptr( &args );
 
@@ -1785,7 +1796,7 @@ NTSTATUS WINAPI wow64_NtWaitForMultipleObjects( UINT *args )
     DWORD i;
 
     for (i = 0; i < count && i < MAXIMUM_WAIT_OBJECTS; i++) handles[i] = LongToHandle( handles_ptr[i] );
-    return NtWaitForMultipleObjects( count, handles, wait_any, alertable, timeout );
+    return NtWaitForMultipleObjects( count, handles, type, alertable, timeout );
 }
 
 

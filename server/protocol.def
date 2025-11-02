@@ -34,6 +34,7 @@
 
 typedef unsigned int obj_handle_t;
 typedef unsigned int user_handle_t;
+typedef unsigned int d3dkmt_handle_t;
 typedef unsigned int atom_t;
 typedef unsigned int process_id_t;
 typedef unsigned int thread_id_t;
@@ -968,6 +969,17 @@ union udp_endpoint
     } ipv6;
 };
 
+enum d3dkmt_type
+{
+    D3DKMT_ADAPTER      = 1,
+    D3DKMT_DEVICE       = 2,
+    D3DKMT_SOURCE       = 3,
+    D3DKMT_MUTEX        = 4,
+    D3DKMT_SYNC         = 5,
+    D3DKMT_RESOURCE     = 6,
+    D3DKMT_ALLOCATION   = 7,
+};
+
 /****************************************************************/
 /* shared session mapping structures */
 
@@ -978,6 +990,8 @@ struct obj_locator
 };
 
 #define MAX_ATOM_LEN     255
+#define WH_WINEVENT      (WH_MAXHOOK + 1)
+#define NB_HOOKS         (WH_WINEVENT - WH_MINHOOK + 1)
 
 struct shared_cursor
 {
@@ -998,11 +1012,13 @@ typedef volatile struct
 
 typedef volatile struct
 {
-    int                  hooks_count[WH_MAX - WH_MIN + 2]; /* active hooks count */
+    timeout_t            access_time;      /* last time the queue was accessed */
     unsigned int         wake_mask;        /* wakeup mask */
     unsigned int         wake_bits;        /* wakeup bits */
     unsigned int         changed_mask;     /* changed wakeup mask */
     unsigned int         changed_bits;     /* changed wakeup bits */
+    unsigned int         internal_bits;    /* internal queue bits */
+    int                  hooks_count[NB_HOOKS];  /* active hooks count */
 } queue_shm_t;
 
 typedef volatile struct
@@ -1024,9 +1040,16 @@ typedef volatile struct
 
 typedef volatile struct
 {
+    atom_t               atom;               /* class atom */
+    unsigned int         style;              /* class style */
+    unsigned int         cls_extra;          /* number of class extra bytes */
+    unsigned int         win_extra;          /* number of window extra bytes */
+    mod_handle_t         instance;           /* module instance */
     data_size_t          name_offset;        /* offset in WCHAR of the unversioned class name, constant */
     data_size_t          name_len;           /* len in bytes of the class name, constant */
     WCHAR                name[MAX_ATOM_LEN]; /* class name, constant */
+    unsigned short       __pad;
+    char                 extra[];            /* extra bytes storage */
 } class_shm_t;
 
 typedef volatile struct
@@ -1798,9 +1821,11 @@ enum server_fd_type
     mem_size_t   size;          /* mapping size */
     unsigned int flags;         /* SEC_* flags */
     obj_handle_t shared_file;   /* shared mapping file handle */
+    data_size_t  name_len;      /* length of file name  */
     data_size_t  total;         /* total required buffer size in bytes */
     VARARG(image,pe_image_info);/* image info for SEC_IMAGE mappings */
-    VARARG(name,unicode_str);   /* filename for SEC_IMAGE mappings */
+    VARARG(name,unicode_str,name_len);  /* filename for SEC_IMAGE mappings */
+    VARARG(exp_name,string);    /* exported name for SEC_IMAGE mappings */
 @END
 
 
@@ -2005,6 +2030,8 @@ struct process_info
     obj_handle_t handle;       /* process handle */
     client_ptr_t addr;         /* addr to write to */
     VARARG(data,bytes);        /* data to write */
+@REPLY
+    data_size_t written;       /* number of bytes written */
 @END
 
 
@@ -2266,6 +2293,7 @@ struct process_info
 @REQ(get_msg_queue_handle)
 @REPLY
     obj_handle_t handle;       /* handle to the queue */
+    obj_handle_t idle_event;   /* handle to the process idle event */
 @END
 
 
@@ -2286,7 +2314,7 @@ struct process_info
 @REQ(set_queue_mask)
     unsigned int wake_mask;    /* wakeup bits mask */
     unsigned int changed_mask; /* changed bits mask */
-    int          skip_wait;    /* will we skip waiting if signaled? */
+    int          poll_events;  /* whether to poll queue fd */
 @REPLY
     unsigned int wake_bits;    /* current wake bits */
     unsigned int changed_bits; /* current changed bits */
@@ -3232,9 +3260,9 @@ enum caret_state
     atom_t         atom;           /* class atom */
     unsigned int   style;          /* class style */
     mod_handle_t   instance;       /* module instance */
-    int            extra;          /* number of extra class bytes */
-    int            win_extra;      /* number of window extra bytes */
     client_ptr_t   client_ptr;     /* pointer to class in client address space */
+    short int      cls_extra;      /* number of extra class bytes */
+    short int      win_extra;      /* number of window extra bytes */
     data_size_t    name_offset;    /* base class name offset for specified atom */
     VARARG(name,unicode_str);      /* class name */
 @REPLY
@@ -4126,8 +4154,11 @@ struct handle_info
 
 enum inproc_sync_type
 {
-    INPROC_SYNC_UNKNOWN = 0,
-    INPROC_SYNC_EVENT = 1,
+    INPROC_SYNC_UNKNOWN   = 0,
+    INPROC_SYNC_INTERNAL  = 1,
+    INPROC_SYNC_EVENT     = 2,
+    INPROC_SYNC_MUTEX     = 3,
+    INPROC_SYNC_SEMAPHORE = 4,
 };
 
 /* Get the in-process synchronization fd associated with the waitable handle */
@@ -4136,4 +4167,103 @@ enum inproc_sync_type
 @REPLY
     int           type;         /* inproc sync type */
     unsigned int access;        /* handle access rights */
+@END
+
+
+/* Get the in-process synchronization fd for the current thread user APC alerts */
+@REQ(get_inproc_alert_fd)
+@REPLY
+    obj_handle_t handle;        /* alert fd is in flight with this handle */
+@END
+
+
+/* Create a global d3dkmt object */
+@REQ(d3dkmt_object_create)
+    unsigned int        type;           /* d3dkmt object type */
+    int                 fd;             /* host specific fd */
+    unsigned int        value;          /* initial value for keyed mutex */
+    VARARG(runtime,bytes);              /* client runtime data */
+@REPLY
+    d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    obj_handle_t        handle;         /* internal handle of the server object */
+@END
+
+
+/* Update a global/shared d3dkmt object runtime data */
+@REQ(d3dkmt_object_update)
+    unsigned int        type;           /* d3dkmt object type */
+    d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    VARARG(runtime,bytes);              /* client runtime data */
+@END
+
+
+/* Query a global/shared d3dkmt object */
+@REQ(d3dkmt_object_query)
+    unsigned int        type;           /* d3dkmt object type */
+    d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    obj_handle_t        handle;         /* shared object handle */
+@REPLY
+    data_size_t         runtime_size;   /* size of client runtime data */
+@END
+
+
+/* Open a global/shared d3dkmt object */
+@REQ(d3dkmt_object_open)
+    unsigned int        type;           /* d3dkmt object type */
+    d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    obj_handle_t        handle;         /* shared object handle */
+@REPLY
+    d3dkmt_handle_t     global;         /* global d3dkmt handle */
+    obj_handle_t        handle;         /* internal handle of the server object */
+    data_size_t         runtime_size;   /* size of client runtime data */
+    VARARG(runtime,bytes);              /* client runtime data */
+@END
+
+
+/* Share d3dkmt objects together */
+@REQ(d3dkmt_share_objects)
+    d3dkmt_handle_t     resource;       /* resource global handle */
+    d3dkmt_handle_t     mutex;          /* mutex global handle */
+    d3dkmt_handle_t     sync;           /* sync global handle */
+    unsigned int        access;         /* wanted access rights */
+    VARARG(objattr,object_attributes);  /* object attributes */
+@REPLY
+    obj_handle_t        handle;         /* shared object handle */
+@END
+
+
+/* Open a shared d3dkmt object from a name */
+@REQ(d3dkmt_object_open_name)
+    unsigned int        type;           /* d3dkmt object type */
+    unsigned int        access;         /* wanted access rights */
+    unsigned int        attributes;     /* object attributes */
+    obj_handle_t        rootdir;        /* root directory */
+    VARARG(name,unicode_str);           /* object name */
+@REPLY
+    obj_handle_t        handle;         /* shared object handle */
+@END
+
+
+/* Acquire a global d3dkmt keyed mutex */
+@REQ(d3dkmt_mutex_acquire)
+    d3dkmt_handle_t     mutex;          /* mutex global handle */
+    unsigned int        key_value;      /* the key to acquire/wait for */
+    obj_handle_t        wait_handle;    /* previously returned wait handle */
+    unsigned int        wait_status;    /* status returned from previous wait */
+@REPLY
+    unsigned __int64    fence_value;    /* semaphore fence value */
+    data_size_t         runtime_size;   /* size of client runtime data */
+    obj_handle_t        wait_handle;    /* wait handle for pending acquire */
+    VARARG(runtime,bytes);              /* client runtime data */
+@END
+
+
+/* Release a global d3dkmt keyed mutex */
+@REQ(d3dkmt_mutex_release)
+    d3dkmt_handle_t     mutex;          /* mutex global handle */
+    int                 abandon;        /* mutex is being abandonned */
+    unsigned int        key_value;      /* the key to release */
+    unsigned __int64    fence_value;    /* semaphore fence value */
+    data_size_t         runtime_size;   /* size of client runtime data */
+    VARARG(runtime,bytes);              /* client runtime data */
 @END

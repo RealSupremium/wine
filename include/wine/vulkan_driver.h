@@ -47,7 +47,7 @@ struct vulkan_client_object
 #include "wine/rbtree.h"
 
 /* Wine internal vulkan driver version, needs to be bumped upon vulkan_funcs changes. */
-#define WINE_VULKAN_DRIVER_VERSION 46
+#define WINE_VULKAN_DRIVER_VERSION 47
 
 struct vulkan_object
 {
@@ -116,6 +116,7 @@ struct vulkan_device
 {
     VULKAN_OBJECT_HEADER( VkDevice, device );
     struct vulkan_physical_device *physical_device;
+    bool has_win32_keyed_mutex;
 #define USE_VK_FUNC(x) PFN_ ## x p_ ## x;
     ALL_VK_DEVICE_FUNCS
 #undef USE_VK_FUNC
@@ -239,6 +240,8 @@ struct vulkan_funcs
     PFN_vkGetPhysicalDeviceImageFormatProperties2 p_vkGetPhysicalDeviceImageFormatProperties2;
     PFN_vkGetPhysicalDeviceImageFormatProperties2KHR p_vkGetPhysicalDeviceImageFormatProperties2KHR;
     PFN_vkGetPhysicalDevicePresentRectanglesKHR p_vkGetPhysicalDevicePresentRectanglesKHR;
+    PFN_vkGetPhysicalDeviceProperties2 p_vkGetPhysicalDeviceProperties2;
+    PFN_vkGetPhysicalDeviceProperties2KHR p_vkGetPhysicalDeviceProperties2KHR;
     PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR p_vkGetPhysicalDeviceSurfaceCapabilities2KHR;
     PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR p_vkGetPhysicalDeviceSurfaceCapabilitiesKHR;
     PFN_vkGetPhysicalDeviceSurfaceFormats2KHR p_vkGetPhysicalDeviceSurfaceFormats2KHR;
@@ -257,7 +260,7 @@ struct vulkan_funcs
     PFN_vkUnmapMemory2KHR p_vkUnmapMemory2KHR;
 
     /* winevulkan specific functions */
-    const char *(*p_get_host_surface_extension)(void);
+    const char *(*p_get_host_extension)( const char *name );
 };
 
 /* interface between win32u and the user drivers */
@@ -266,7 +269,7 @@ struct vulkan_driver_funcs
 {
     VkResult (*p_vulkan_surface_create)(HWND, const struct vulkan_instance *, VkSurfaceKHR *, struct client_surface **);
     VkBool32 (*p_get_physical_device_presentation_support)(struct vulkan_physical_device *, uint32_t);
-    const char *(*p_get_host_surface_extension)(void);
+    const char *(*p_get_host_extension)( const char *name );
 };
 
 #endif /* WINE_UNIX_LIB */

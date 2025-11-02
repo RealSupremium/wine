@@ -66,6 +66,7 @@ struct strarray as_command = { 0 };
 struct strarray cc_command = { 0 };
 struct strarray ld_command = { 0 };
 struct strarray nm_command = { 0 };
+struct strarray strip_command = { 0 };
 char *cpu_option = NULL;
 char *fpu_option = NULL;
 char *arch_option = NULL;
@@ -206,6 +207,7 @@ static const char usage_str[] =
 "   -r, --res=RSRC.RES        Load resources from RSRC.RES\n"
 "       --safeseh             Mark object files as SEH compatible\n"
 "       --save-temps          Do not delete the generated intermediate files\n"
+"       --strip-cmd=STRIP     Command to use for stripping (default: none)\n"
 "       --subsystem=SUBSYS    Set the subsystem (one of native, windows, console, wince)\n"
 "   -u, --undefined=SYMBOL    Add an undefined reference to SYMBOL when linking\n"
 "   -v, --verbose             Display the programs invoked\n"
@@ -246,6 +248,7 @@ enum long_options_values
     LONG_OPT_SAFE_SEH,
     LONG_OPT_SAVE_TEMPS,
     LONG_OPT_STATICLIB,
+    LONG_OPT_STRIPCMD,
     LONG_OPT_SUBSYSTEM,
     LONG_OPT_VERSION,
     LONG_OPT_WITHOUT_DLLTOOL,
@@ -278,6 +281,7 @@ static const struct long_option long_options[] =
     { "prefer-native",       0, LONG_OPT_PREFER_NATIVE },
     { "safeseh",             0, LONG_OPT_SAFE_SEH },
     { "save-temps",          0, LONG_OPT_SAVE_TEMPS },
+    { "strip-cmd",           1, LONG_OPT_STRIPCMD },
     { "subsystem",           1, LONG_OPT_SUBSYSTEM },
     { "version",             0, LONG_OPT_VERSION },
     { "without-dlltool",     0, LONG_OPT_WITHOUT_DLLTOOL },
@@ -499,6 +503,9 @@ static void option_callback( int optc, char *optarg )
     case LONG_OPT_SAVE_TEMPS:
         save_temps = 1;
         break;
+    case LONG_OPT_STRIPCMD:
+        strip_command = strarray_fromstring( optarg, " " );
+        break;
     case LONG_OPT_SUBSYSTEM:
         set_subsystem( optarg, main_spec );
         break;
@@ -520,27 +527,22 @@ static void option_callback( int optc, char *optarg )
 static struct strarray load_resources( struct strarray files, DLLSPEC *spec )
 {
     struct strarray ret = empty_strarray;
-    int i;
 
     switch (spec->type)
     {
     case SPEC_WIN16:
-        for (i = 0; i < res_files.count; i++) load_res16_file( res_files.str[i], spec );
+        STRARRAY_FOR_EACH( file, &res_files ) load_res16_file( file, spec );
         return files;
 
     case SPEC_WIN32:
-        for (i = 0; i < res_files.count; i++)
-        {
-            if (!load_res32_file( res_files.str[i], spec ))
-                fatal_error( "%s is not a valid Win32 resource file\n", res_files.str[i] );
-        }
+        STRARRAY_FOR_EACH( file, &res_files )
+            if (!load_res32_file( file, spec ))
+                fatal_error( "%s is not a valid Win32 resource file\n", file );
 
         /* load any resource file found in the remaining arguments */
-        for (i = 0; i < files.count; i++)
-        {
-            if (!load_res32_file( files.str[i], spec ))
-                strarray_add( &ret, files.str[i] ); /* not a resource file, keep it in the list */
-        }
+        STRARRAY_FOR_EACH( file, &files )
+            if (!load_res32_file( file, spec ))
+                strarray_add( &ret, file ); /* not a resource file, keep it in the list */
         break;
     }
     return ret;

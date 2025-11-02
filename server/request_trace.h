@@ -883,9 +883,11 @@ static void dump_get_mapping_info_reply( const struct get_mapping_info_reply *re
     dump_uint64( " size=", &req->size );
     fprintf( stderr, ", flags=%08x", req->flags );
     fprintf( stderr, ", shared_file=%04x", req->shared_file );
+    fprintf( stderr, ", name_len=%u", req->name_len );
     fprintf( stderr, ", total=%u", req->total );
     dump_varargs_pe_image_info( ", image=", cur_size );
-    dump_varargs_unicode_str( ", name=", cur_size );
+    dump_varargs_unicode_str( ", name=", min( cur_size, req->name_len ));
+    dump_varargs_string( ", exp_name=", cur_size );
 }
 
 static void dump_get_image_map_address_request( const struct get_image_map_address_request *req )
@@ -1071,6 +1073,11 @@ static void dump_write_process_memory_request( const struct write_process_memory
     fprintf( stderr, " handle=%04x", req->handle );
     dump_uint64( ", addr=", &req->addr );
     dump_varargs_bytes( ", data=", cur_size );
+}
+
+static void dump_write_process_memory_reply( const struct write_process_memory_reply *req )
+{
+    fprintf( stderr, " written=%u", req->written );
 }
 
 static void dump_create_key_request( const struct create_key_request *req )
@@ -1362,6 +1369,7 @@ static void dump_get_msg_queue_handle_request( const struct get_msg_queue_handle
 static void dump_get_msg_queue_handle_reply( const struct get_msg_queue_handle_reply *req )
 {
     fprintf( stderr, " handle=%04x", req->handle );
+    fprintf( stderr, ", idle_event=%04x", req->idle_event );
 }
 
 static void dump_get_msg_queue_request( const struct get_msg_queue_request *req )
@@ -1382,7 +1390,7 @@ static void dump_set_queue_mask_request( const struct set_queue_mask_request *re
 {
     fprintf( stderr, " wake_mask=%08x", req->wake_mask );
     fprintf( stderr, ", changed_mask=%08x", req->changed_mask );
-    fprintf( stderr, ", skip_wait=%d", req->skip_wait );
+    fprintf( stderr, ", poll_events=%d", req->poll_events );
 }
 
 static void dump_set_queue_mask_reply( const struct set_queue_mask_reply *req )
@@ -2376,9 +2384,9 @@ static void dump_create_class_request( const struct create_class_request *req )
     fprintf( stderr, ", atom=%04x", req->atom );
     fprintf( stderr, ", style=%08x", req->style );
     dump_uint64( ", instance=", &req->instance );
-    fprintf( stderr, ", extra=%d", req->extra );
-    fprintf( stderr, ", win_extra=%d", req->win_extra );
     dump_uint64( ", client_ptr=", &req->client_ptr );
+    fprintf( stderr, ", cls_extra=%d", req->cls_extra );
+    fprintf( stderr, ", win_extra=%d", req->win_extra );
     fprintf( stderr, ", name_offset=%u", req->name_offset );
     dump_varargs_unicode_str( ", name=", cur_size );
 }
@@ -3382,6 +3390,117 @@ static void dump_get_inproc_sync_fd_reply( const struct get_inproc_sync_fd_reply
     fprintf( stderr, ", access=%08x", req->access );
 }
 
+static void dump_get_inproc_alert_fd_request( const struct get_inproc_alert_fd_request *req )
+{
+}
+
+static void dump_get_inproc_alert_fd_reply( const struct get_inproc_alert_fd_reply *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_d3dkmt_object_create_request( const struct d3dkmt_object_create_request *req )
+{
+    fprintf( stderr, " type=%08x", req->type );
+    fprintf( stderr, ", fd=%d", req->fd );
+    fprintf( stderr, ", value=%08x", req->value );
+    dump_varargs_bytes( ", runtime=", cur_size );
+}
+
+static void dump_d3dkmt_object_create_reply( const struct d3dkmt_object_create_reply *req )
+{
+    fprintf( stderr, " global=%08x", req->global );
+    fprintf( stderr, ", handle=%04x", req->handle );
+}
+
+static void dump_d3dkmt_object_update_request( const struct d3dkmt_object_update_request *req )
+{
+    fprintf( stderr, " type=%08x", req->type );
+    fprintf( stderr, ", global=%08x", req->global );
+    dump_varargs_bytes( ", runtime=", cur_size );
+}
+
+static void dump_d3dkmt_object_query_request( const struct d3dkmt_object_query_request *req )
+{
+    fprintf( stderr, " type=%08x", req->type );
+    fprintf( stderr, ", global=%08x", req->global );
+    fprintf( stderr, ", handle=%04x", req->handle );
+}
+
+static void dump_d3dkmt_object_query_reply( const struct d3dkmt_object_query_reply *req )
+{
+    fprintf( stderr, " runtime_size=%u", req->runtime_size );
+}
+
+static void dump_d3dkmt_object_open_request( const struct d3dkmt_object_open_request *req )
+{
+    fprintf( stderr, " type=%08x", req->type );
+    fprintf( stderr, ", global=%08x", req->global );
+    fprintf( stderr, ", handle=%04x", req->handle );
+}
+
+static void dump_d3dkmt_object_open_reply( const struct d3dkmt_object_open_reply *req )
+{
+    fprintf( stderr, " global=%08x", req->global );
+    fprintf( stderr, ", handle=%04x", req->handle );
+    fprintf( stderr, ", runtime_size=%u", req->runtime_size );
+    dump_varargs_bytes( ", runtime=", cur_size );
+}
+
+static void dump_d3dkmt_share_objects_request( const struct d3dkmt_share_objects_request *req )
+{
+    fprintf( stderr, " resource=%08x", req->resource );
+    fprintf( stderr, ", mutex=%08x", req->mutex );
+    fprintf( stderr, ", sync=%08x", req->sync );
+    fprintf( stderr, ", access=%08x", req->access );
+    dump_varargs_object_attributes( ", objattr=", cur_size );
+}
+
+static void dump_d3dkmt_share_objects_reply( const struct d3dkmt_share_objects_reply *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_d3dkmt_object_open_name_request( const struct d3dkmt_object_open_name_request *req )
+{
+    fprintf( stderr, " type=%08x", req->type );
+    fprintf( stderr, ", access=%08x", req->access );
+    fprintf( stderr, ", attributes=%08x", req->attributes );
+    fprintf( stderr, ", rootdir=%04x", req->rootdir );
+    dump_varargs_unicode_str( ", name=", cur_size );
+}
+
+static void dump_d3dkmt_object_open_name_reply( const struct d3dkmt_object_open_name_reply *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_d3dkmt_mutex_acquire_request( const struct d3dkmt_mutex_acquire_request *req )
+{
+    fprintf( stderr, " mutex=%08x", req->mutex );
+    fprintf( stderr, ", key_value=%08x", req->key_value );
+    fprintf( stderr, ", wait_handle=%04x", req->wait_handle );
+    fprintf( stderr, ", wait_status=%08x", req->wait_status );
+}
+
+static void dump_d3dkmt_mutex_acquire_reply( const struct d3dkmt_mutex_acquire_reply *req )
+{
+    dump_uint64( " fence_value=", &req->fence_value );
+    fprintf( stderr, ", runtime_size=%u", req->runtime_size );
+    fprintf( stderr, ", wait_handle=%04x", req->wait_handle );
+    dump_varargs_bytes( ", runtime=", cur_size );
+}
+
+static void dump_d3dkmt_mutex_release_request( const struct d3dkmt_mutex_release_request *req )
+{
+    fprintf( stderr, " mutex=%08x", req->mutex );
+    fprintf( stderr, ", abandon=%d", req->abandon );
+    fprintf( stderr, ", key_value=%08x", req->key_value );
+    dump_uint64( ", fence_value=", &req->fence_value );
+    fprintf( stderr, ", runtime_size=%u", req->runtime_size );
+    dump_varargs_bytes( ", runtime=", cur_size );
+}
+
 typedef void (*dump_func)( const void *req );
 
 static const dump_func req_dumpers[REQ_NB_REQUESTS] =
@@ -3683,6 +3802,15 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_get_next_thread_request,
     (dump_func)dump_set_keyboard_repeat_request,
     (dump_func)dump_get_inproc_sync_fd_request,
+    (dump_func)dump_get_inproc_alert_fd_request,
+    (dump_func)dump_d3dkmt_object_create_request,
+    (dump_func)dump_d3dkmt_object_update_request,
+    (dump_func)dump_d3dkmt_object_query_request,
+    (dump_func)dump_d3dkmt_object_open_request,
+    (dump_func)dump_d3dkmt_share_objects_request,
+    (dump_func)dump_d3dkmt_object_open_name_request,
+    (dump_func)dump_d3dkmt_mutex_acquire_request,
+    (dump_func)dump_d3dkmt_mutex_release_request,
 };
 
 static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
@@ -3772,7 +3900,7 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
     NULL,
     NULL,
     (dump_func)dump_read_process_memory_reply,
-    NULL,
+    (dump_func)dump_write_process_memory_reply,
     (dump_func)dump_create_key_reply,
     (dump_func)dump_open_key_reply,
     NULL,
@@ -3984,6 +4112,15 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_get_next_thread_reply,
     (dump_func)dump_set_keyboard_repeat_reply,
     (dump_func)dump_get_inproc_sync_fd_reply,
+    (dump_func)dump_get_inproc_alert_fd_reply,
+    (dump_func)dump_d3dkmt_object_create_reply,
+    NULL,
+    (dump_func)dump_d3dkmt_object_query_reply,
+    (dump_func)dump_d3dkmt_object_open_reply,
+    (dump_func)dump_d3dkmt_share_objects_reply,
+    (dump_func)dump_d3dkmt_object_open_name_reply,
+    (dump_func)dump_d3dkmt_mutex_acquire_reply,
+    NULL,
 };
 
 static const char * const req_names[REQ_NB_REQUESTS] =
@@ -4285,6 +4422,15 @@ static const char * const req_names[REQ_NB_REQUESTS] =
     "get_next_thread",
     "set_keyboard_repeat",
     "get_inproc_sync_fd",
+    "get_inproc_alert_fd",
+    "d3dkmt_object_create",
+    "d3dkmt_object_update",
+    "d3dkmt_object_query",
+    "d3dkmt_object_open",
+    "d3dkmt_share_objects",
+    "d3dkmt_object_open_name",
+    "d3dkmt_mutex_acquire",
+    "d3dkmt_mutex_release",
 };
 
 static const struct
@@ -4293,6 +4439,7 @@ static const struct
     unsigned int value;
 } status_names[] =
 {
+    { "ABANDONED",                   STATUS_ABANDONED },
     { "ABANDONED_WAIT_0",            STATUS_ABANDONED_WAIT_0 },
     { "ACCESS_DENIED",               STATUS_ACCESS_DENIED },
     { "ACCESS_VIOLATION",            STATUS_ACCESS_VIOLATION },
@@ -4395,6 +4542,7 @@ static const struct
     { "OBJECT_PATH_NOT_FOUND",       STATUS_OBJECT_PATH_NOT_FOUND },
     { "OBJECT_PATH_SYNTAX_BAD",      STATUS_OBJECT_PATH_SYNTAX_BAD },
     { "OBJECT_TYPE_MISMATCH",        STATUS_OBJECT_TYPE_MISMATCH },
+    { "PARTIAL_COPY",                STATUS_PARTIAL_COPY },
     { "PENDING",                     STATUS_PENDING },
     { "PIPE_BROKEN",                 STATUS_PIPE_BROKEN },
     { "PIPE_BUSY",                   STATUS_PIPE_BUSY },

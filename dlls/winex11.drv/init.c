@@ -202,7 +202,7 @@ static BOOL needs_client_window_clipping( HWND hwnd )
     HRGN region;
     HDC hdc;
 
-    NtUserGetClientRect( hwnd, &client, NtUserGetDpiForWindow( hwnd ) );
+    if (!NtUserGetClientRect( hwnd, &client, NtUserGetDpiForWindow( hwnd ) )) return FALSE;
     OffsetRect( &client, -client.left, -client.top );
 
     if (!(hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | DCX_USESTYLE ))) return FALSE;
@@ -261,6 +261,7 @@ static const struct client_surface_funcs x11drv_client_surface_funcs;
 struct x11drv_client_surface
 {
     struct client_surface client;
+    Colormap colormap;
     Window window;
     RECT rect;
 
@@ -280,6 +281,7 @@ static void x11drv_client_surface_destroy( struct client_surface *client )
 
     TRACE( "%s\n", debugstr_client_surface( client ) );
 
+    if (surface->colormap != default_colormap) XFreeColormap( gdi_display, surface->colormap );
     if (surface->window) destroy_client_window( hwnd, surface->window );
     if (surface->hdc_dst) NtGdiDeleteObjectApp( surface->hdc_dst );
     if (surface->hdc_src) NtGdiDeleteObjectApp( surface->hdc_src );
@@ -306,7 +308,7 @@ static void client_surface_update_size( HWND hwnd, struct x11drv_client_surface 
     XWindowChanges changes;
     RECT rect;
 
-    NtUserGetClientRect( hwnd, &rect, NtUserGetDpiForWindow( hwnd ) );
+    if (!NtUserGetClientRect( hwnd, &rect, NtUserGetDpiForWindow( hwnd ) )) return;
     if (EqualRect( &surface->rect, &rect )) return;
 
     changes.width  = min( max( 1, rect.right ), 65535 );
@@ -350,7 +352,7 @@ static void client_surface_update_offscreen( HWND hwnd, struct x11drv_client_sur
     }
     else
     {
-        static const WCHAR displayW[] = {'D','I','S','P','L','A','Y'};
+        static const WCHAR displayW[] = {'D','I','S','P','L','A','Y', 0};
         UNICODE_STRING device_str = RTL_CONSTANT_STRING(displayW);
         surface->hdc_dst = NtGdiOpenDCW( &device_str, NULL, NULL, 0, TRUE, NULL, NULL, NULL );
         surface->hdc_src = NtGdiOpenDCW( &device_str, NULL, NULL, 0, TRUE, NULL, NULL, NULL );
@@ -397,7 +399,7 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
     window = X11DRV_get_whole_window( toplevel );
     region = get_dc_monitor_region( hwnd, hdc );
 
-    NtUserGetClientRect( hwnd, &rect_dst, NtUserGetWinMonitorDpi( hwnd, MDT_RAW_DPI ) );
+    if (!NtUserGetClientRect( hwnd, &rect_dst, NtUserGetWinMonitorDpi( hwnd, MDT_RAW_DPI ) )) goto done;
     NtUserMapWindowPoints( hwnd, toplevel, (POINT *)&rect_dst, 2, NtUserGetWinMonitorDpi( hwnd, MDT_RAW_DPI ) );
 
     if ((data = get_win_data( toplevel )))
@@ -414,6 +416,7 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
     NtGdiStretchBlt( surface->hdc_dst, 0, 0, rect_dst.right - rect_dst.left, rect_dst.bottom - rect_dst.top,
                      surface->hdc_src, 0, 0, surface->rect.right, surface->rect.bottom, SRCCOPY, 0 );
 
+done:
     if (region) NtGdiDeleteObjectApp( region );
 }
 
@@ -425,21 +428,37 @@ static const struct client_surface_funcs x11drv_client_surface_funcs =
     .present = X11DRV_client_surface_present,
 };
 
-Window x11drv_client_surface_create( HWND hwnd, const XVisualInfo *visual, Colormap colormap, struct client_surface **client )
+static int visual_class_alloc( int class )
+{
+    return class == PseudoColor || class == GrayScale || class == DirectColor ? AllocAll : AllocNone;
+}
+
+Window x11drv_client_surface_create( HWND hwnd, int format, struct client_surface **client )
 {
     struct x11drv_client_surface *surface;
+    XVisualInfo visual = default_visual;
+    Colormap colormap;
 
-    if (!(surface = client_surface_create( sizeof(*surface), &x11drv_client_surface_funcs, hwnd ))) return None;
-    if (!(surface->window = create_client_window( hwnd, visual, colormap )))
-    {
-        client_surface_release( &surface->client );
-        return None;
-    }
-    NtUserGetClientRect( hwnd, &surface->rect, NtUserGetDpiForWindow( hwnd ) );
+    if (format && !visual_from_pixel_format( format, &visual )) return None;
+
+    if (visual.visualid == default_visual.visualid) colormap = default_colormap;
+    else colormap = XCreateColormap( gdi_display, get_dummy_parent(), visual.visual, visual_class_alloc( visual.class ) );
+    if (!colormap) return None;
+
+    if (!(surface = client_surface_create( sizeof(*surface), &x11drv_client_surface_funcs, hwnd ))) goto failed;
+    surface->colormap = colormap;
+
+    if (!(surface->window = create_client_window( hwnd, &visual, colormap ))) goto failed;
+    if (!NtUserGetClientRect( hwnd, &surface->rect, NtUserGetDpiForWindow( hwnd ) )) goto failed;
 
     TRACE( "Created %s for client window %lx\n", debugstr_client_surface( &surface->client ), surface->window );
     *client = &surface->client;
     return surface->window;
+
+failed:
+    if (surface) client_surface_release( &surface->client );
+    else if (colormap != default_colormap) XFreeColormap( gdi_display, colormap );
+    return None;
 }
 
 /**********************************************************************
@@ -635,7 +654,7 @@ static const struct user_driver_funcs x11drv_funcs =
     .pActivateWindow = X11DRV_ActivateWindow,
     .pSetLayeredWindowAttributes = X11DRV_SetLayeredWindowAttributes,
     .pSetParent = X11DRV_SetParent,
-    .pSetWindowIcon = X11DRV_SetWindowIcon,
+    .pSetWindowIcons = X11DRV_SetWindowIcons,
     .pSetWindowRgn = X11DRV_SetWindowRgn,
     .pSetWindowStyle = X11DRV_SetWindowStyle,
     .pSetWindowText = X11DRV_SetWindowText,

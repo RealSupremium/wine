@@ -140,7 +140,7 @@ static const struct fd_ops process_fd_ops =
 struct startup_info
 {
     struct object               obj;            /* object header */
-    struct event_sync          *sync;           /* sync object for wait/signal */
+    struct object              *sync;           /* sync object for wait/signal */
     struct process             *process;        /* created process */
     data_size_t                 info_size;      /* size of startup info */
     data_size_t                 data_size;      /* size of whole startup data */
@@ -200,7 +200,7 @@ static void job_destroy( struct object *obj );
 struct job
 {
     struct object        obj;               /* object header */
-    struct event_sync   *sync;              /* sync object for wait/signal */
+    struct object       *sync;              /* sync object for wait/signal */
     struct list          process_list;      /* list of processes */
     int                  num_processes;     /* count of running processes */
     int                  total_processes;   /* count of processes which have been assigned */
@@ -259,7 +259,7 @@ static struct job *create_job_object( struct object *root, const struct unicode_
             job->completion_key = 0;
             job->parent = NULL;
 
-            if (!(job->sync = create_event_sync( 1, 0 )))
+            if (!(job->sync = create_internal_sync( 1, 0 )))
             {
                 release_object( job );
                 return NULL;
@@ -722,7 +722,7 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
         goto error;
     }
     if (!(process->msg_fd = create_anonymous_fd( &process_fd_ops, fd, &process->obj, 0 ))) goto error;
-    if (!(process->sync = create_event_sync( 1, 0 ))) goto error;
+    if (!(process->sync = create_internal_sync( 1, 0 ))) goto error;
 
     /* create the handle table */
     if (!parent)
@@ -1142,8 +1142,8 @@ int set_process_debug_flag( struct process *process, int flag )
     if (is_wow64_process( process )) peb32 = process->peb + 0x1000;
 
     /* BeingDebugged flag is the byte at offset 2 in the PEB */
-    if (peb32 && !write_process_memory( process, peb32 + 2, 1, &data )) return 0;
-    return write_process_memory( process, process->peb + 2, 1, &data );
+    if (peb32 && !write_process_memory( process, peb32 + 2, 1, &data, NULL )) return 0;
+    return write_process_memory( process, process->peb + 2, 1, &data, NULL );
 }
 
 /* create a new process */
@@ -1222,7 +1222,7 @@ DECL_HANDLER(new_process)
     info->process  = NULL;
     info->data     = NULL;
 
-    if (!(info->sync = create_event_sync( 1, 0 )))
+    if (!(info->sync = create_internal_sync( 1, 0 )))
     {
         close( socket_fd );
         goto done;
@@ -1719,7 +1719,7 @@ static void set_process_disable_boost( struct process *process, int disable_boos
 
     LIST_FOR_EACH_ENTRY( thread, &process->thread_list, struct thread, proc_entry )
     {
-        thread->disable_boost = disable_boost;
+        set_thread_disable_boost( thread, disable_boost );
     }
 }
 
@@ -1796,7 +1796,8 @@ DECL_HANDLER(write_process_memory)
     if ((process = get_process_from_handle( req->handle, PROCESS_VM_WRITE )))
     {
         data_size_t len = get_req_data_size();
-        if (len) write_process_memory( process, req->addr, len, get_req_data() );
+        reply->written = 0;
+        if (len) write_process_memory( process, req->addr, len, get_req_data(), &reply->written );
         release_object( process );
     }
 }
@@ -1939,11 +1940,16 @@ DECL_HANDLER(process_in_job)
 /* retrieve information about a job */
 DECL_HANDLER(get_job_info)
 {
-    struct job *job = get_job_obj( current->process, req->handle, JOB_OBJECT_QUERY );
+    struct job *job;
     process_id_t *pids;
     data_size_t len;
 
-    if (!job) return;
+    if (!req->handle && current->process->job) job = (struct job *)grab_object( current->process->job );
+    else
+    {
+        job = get_job_obj( current->process, req->handle, JOB_OBJECT_QUERY );
+        if (!job) return;
+    }
 
     reply->total_processes = job->total_processes;
     reply->active_processes = job->num_processes;
@@ -2102,7 +2108,7 @@ DECL_HANDLER(list_processes)
             thread_info->start_time = thread->creation_time;
             thread_info->tid = thread->id;
             thread_info->base_priority = thread->base_priority;
-            thread_info->current_priority = thread->priority;
+            thread_info->current_priority = get_effective_thread_priority( thread );
             thread_info->unix_tid = thread->unix_tid;
             thread_info->entry_point = thread->entry_point;
             thread_info->teb = thread->teb;

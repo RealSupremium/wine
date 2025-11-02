@@ -64,6 +64,7 @@ typedef struct tagWND
     HICON              hIcon;         /* window's icon */
     HICON              hIconSmall;    /* window's small icon */
     HICON              hIconSmall2;   /* window's secondary small icon, derived from hIcon */
+    BOOL               has_icons;     /* window's icons have been initialized */
     HIMC               imc;           /* window's input context */
     struct window_surface *surface;   /* Window surface if any */
     struct opengl_drawable *current_drawable; /* current GL client surface for this window */
@@ -96,13 +97,22 @@ static inline BOOL is_broadcast( HWND hwnd )
     return hwnd == HWND_BROADCAST || hwnd == HWND_TOPMOST;
 }
 
+struct mouse_tracking_info
+{
+    TRACKMOUSEEVENT info;
+    POINT pos; /* center of hover rectangle */
+    HWND last_mouse_message_hwnd;
+    int last_mouse_message_hittest;
+    POINT last_mouse_message_pos;
+};
+
 /* this is the structure stored in TEB->Win32ClientInfo */
 /* no attempt is made to keep the layout compatible with the Windows one */
 struct user_thread_info
 {
     struct ntuser_thread_info     client_info;            /* Data shared with client */
     HANDLE                        server_queue;           /* Handle to server-side queue */
-    DWORD                         last_getmsg_time;       /* Get/PeekMessage last request time */
+    HANDLE                        idle_event;             /* Handle to the process idle event */
     LONGLONG                      last_driver_time;       /* Get/PeekMessage driver event time */
     WORD                          hook_call_depth;        /* Number of recursively called hook procs */
     WORD                          hook_unicode;           /* Is current hook unicode? */
@@ -116,6 +126,7 @@ struct user_thread_info
     BOOL                          clipping_cursor;        /* thread is currently clipping */
     DWORD                         clipping_reset;         /* time when clipping was last reset */
     struct session_thread_data   *session_data;           /* shared session thread data */
+    struct mouse_tracking_info   *mouse_tracking_info;    /* NtUserTrackMouseEvent handling */
 };
 
 C_ASSERT( sizeof(struct user_thread_info) <= sizeof(((TEB *)0)->Win32ClientInfo) );
@@ -202,17 +213,7 @@ extern void free_dce( struct dce *dce, HWND hwnd );
 extern void invalidate_dce( WND *win, const RECT *old_rect );
 
 /* message.c */
-struct peek_message_filter
-{
-    HWND hwnd;
-    UINT first;
-    UINT last;
-    UINT mask;
-    UINT flags;
-    BOOL internal;
-};
-
-extern int peek_message( MSG *msg, const struct peek_message_filter *filter );
+extern void check_for_events( UINT flags );
 
 /* systray.c */
 extern LRESULT system_tray_call( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void *data );

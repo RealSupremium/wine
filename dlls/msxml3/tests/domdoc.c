@@ -1412,7 +1412,6 @@ static const struct leading_spaces_t leading_spaces_classdata[] = {
     { &CLSID_DOMDocument26, "CLSID_DOMDocument26", {{VARIANT_FALSE, S_FALSE }, {VARIANT_TRUE,  S_OK } }},
     { &CLSID_DOMDocument30, "CLSID_DOMDocument30", {{VARIANT_FALSE, S_FALSE }, {VARIANT_FALSE, S_FALSE } }},
     { &CLSID_DOMDocument40, "CLSID_DOMDocument40", {{VARIANT_FALSE, S_FALSE }, {VARIANT_FALSE, S_FALSE } }},
-    { &CLSID_DOMDocument60, "CLSID_DOMDocument60", {{VARIANT_FALSE, S_FALSE }, {VARIANT_FALSE, S_FALSE } }},
     { NULL }
 };
 
@@ -2218,6 +2217,7 @@ static void test_domnode( void )
     IXMLDOMNode *node = NULL, *next = NULL;
     IXMLDOMNodeList *list = NULL;
     IXMLDOMAttribute *attr = NULL;
+    IXMLDOMAttribute *attr_out = NULL;
     DOMNodeType type = NODE_INVALID;
     VARIANT_BOOL b;
     HRESULT hr;
@@ -2324,7 +2324,54 @@ static void test_domnode( void )
             IXMLDOMAttribute_Release(attr);
         }
 
+        attr = NULL;
+        hr = IXMLDOMElement_getAttributeNode( element, str, &attr );
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(attr != NULL, "getAttributeNode returned NULL\n");
+        /* store attribute value to restore attribute after removal */
+        hr = IXMLDOMElement_getAttribute(element, str, &var);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        attr_out = NULL;
+        hr = IXMLDOMElement_removeAttributeNode(element, attr, &attr_out );
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(attr_out != NULL, "removeAttributeNode expected to set attr_out, but got NULL pointer\n");
+        if (attr_out)
+        {
+            /* remove the same attribute again returns invalid arg */
+            hr = IXMLDOMElement_removeAttributeNode( element, attr, NULL );
+            ok(hr == E_INVALIDARG, "removeAttributeNode removed an already removed node, unexpected hr %#lx.\n", hr);
+
+            /* readd removed attribute to recover previous state */
+            hr = IXMLDOMElement_setAttribute(element, str, var);
+            ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+            IXMLDOMAttribute_Release(attr_out);
+        }
+        IXMLDOMAttribute_Release(attr);
+
+        /* remove attribute with output set to NULL and check if properly removed */
+        attr = NULL;
+        hr = IXMLDOMElement_getAttributeNode( element, str, &attr );
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(attr != NULL, "getAttributeNode returned NULL\n");
+        hr = IXMLDOMElement_removeAttributeNode( element, attr, NULL );
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        attr_out = NULL;
+        hr = IXMLDOMElement_getAttributeNode( element, str, &attr_out );
+        ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
+        ok(attr_out == NULL, "getAttributeNode found attribute that should be removed\n");
+        /* readd removed attribute to recover previous state */
+        hr = IXMLDOMElement_setAttribute(element, str, var);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        IXMLDOMAttribute_Release(attr);
+
         SysFreeString( str );
+        VariantClear( &var );
+
+        attr_out = (IXMLDOMAttribute*)0xdeadbeef;
+        hr = IXMLDOMElement_removeAttributeNode( element, NULL, &attr_out );
+        ok(hr == E_INVALIDARG, "removeAttributeNode removed a NULL pointer hr: %#lx.\n", hr);
+        ok(attr_out == (IXMLDOMAttribute*)0xdeadbeef, "removeAttributeNode expected to not touch attr_out in error case, got (%p)\n", attr_out);
 
         hr = IXMLDOMElement_get_attributes( element, &map );
         ok(hr == S_OK, "get_attributes returned wrong code\n");

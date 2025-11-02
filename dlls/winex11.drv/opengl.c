@@ -198,7 +198,6 @@ struct gl_drawable
 {
     struct opengl_drawable         base;
     GLXDrawable                    drawable;     /* drawable for rendering with GL */
-    Colormap                       colormap;     /* colormap for the client window */
 };
 
 static struct gl_drawable *impl_from_opengl_drawable( struct opengl_drawable *base )
@@ -471,11 +470,40 @@ static void x11drv_init_egl_platform( struct egl_platform *platform )
     egl = platform;
 }
 
-static inline EGLConfig egl_config_for_format(int format)
+static EGLConfig egl_config_for_format( int format )
 {
     assert(format > 0 && format <= 2 * egl->config_count);
     if (format <= egl->config_count) return egl->configs[format - 1];
     return egl->configs[format - egl->config_count - 1];
+}
+
+static struct glx_pixel_format *glx_pixel_format_from_format( int format )
+{
+    assert( format > 0 && format <= nb_pixel_formats );
+    return &pixel_formats[format - 1];
+}
+
+BOOL visual_from_pixel_format( int format, XVisualInfo *visual )
+{
+    if (use_egl)
+    {
+        EGLConfig config = egl_config_for_format( format );
+        XVisualInfo *visuals;
+        int count;
+
+        memset( visual, 0, sizeof(*visual) );
+        funcs->p_eglGetConfigAttrib( egl->display, config, EGL_NATIVE_VISUAL_ID, (EGLint *)&visual->visualid );
+        if (!(visuals = XGetVisualInfo( gdi_display, VisualIDMask, visual, &count ))) return FALSE;
+        *visual = *visuals;
+        XFree( visuals );
+        return TRUE;
+    }
+    else
+    {
+        struct glx_pixel_format *fmt = glx_pixel_format_from_format( format );
+        *visual = *fmt->visual;
+        return TRUE;
+    }
 }
 
 static BOOL x11drv_egl_surface_create( HWND hwnd, int format, struct opengl_drawable **drawable )
@@ -489,10 +517,14 @@ static BOOL x11drv_egl_surface_create( HWND hwnd, int format, struct opengl_draw
     if ((previous = *drawable) && previous->format == format) return TRUE;
     NtUserGetClientRect( hwnd, &rect, NtUserGetDpiForWindow( hwnd ) );
 
-    if (!(window = x11drv_client_surface_create( hwnd, &default_visual, default_colormap, &client ))) return FALSE;
+    if (!(window = x11drv_client_surface_create( hwnd, format, &client ))) return FALSE;
     gl = opengl_drawable_create( sizeof(*gl), &x11drv_egl_surface_funcs, format, client );
     client_surface_release( client );
     if (!gl) return FALSE;
+    gl->base.buffer_map[0] = GL_BACK_LEFT;
+    gl->base.buffer_map[1] = GL_BACK_RIGHT;
+    gl->base.buffer_map[GL_FRONT - GL_FRONT_LEFT] = GL_BACK;
+    gl->base.buffer_map[GL_FRONT_AND_BACK - GL_FRONT_LEFT] = GL_BACK;
 
     if (!(gl->base.surface = funcs->p_eglCreateWindowSurface( egl->display, egl_config_for_format( format ),
                                                               (void *)window, NULL )))
@@ -523,10 +555,9 @@ UINT X11DRV_OpenGLInit( UINT version, const struct opengl_funcs *opengl_funcs, c
     }
     funcs = opengl_funcs;
 
-    if (use_egl)
+    if (use_egl && opengl_funcs->egl_handle)
     {
-        if (!opengl_funcs->egl_handle) return STATUS_NOT_SUPPORTED;
-        WARN( "Using experimental EGL OpenGL backend\n" );
+        TRACE( "Using EGL OpenGL backend\n" );
         x11drv_driver_funcs = **driver_funcs;
         x11drv_driver_funcs.p_init_egl_platform = x11drv_init_egl_platform;
         x11drv_driver_funcs.p_surface_create = x11drv_egl_surface_create;
@@ -850,12 +881,6 @@ static UINT x11drv_init_pixel_formats( UINT *onscreen_count )
     return size;
 }
 
-static struct glx_pixel_format *glx_pixel_format_from_format( int format )
-{
-    assert( format > 0 && format <= nb_pixel_formats );
-    return &pixel_formats[format - 1];
-}
-
 static void x11drv_surface_destroy( struct opengl_drawable *base )
 {
     struct gl_drawable *gl = impl_from_opengl_drawable( base );
@@ -863,7 +888,6 @@ static void x11drv_surface_destroy( struct opengl_drawable *base )
     TRACE( "drawable %s\n", debugstr_opengl_drawable( base ) );
 
     if (gl->drawable) pglXDestroyWindow( gdi_display, gl->drawable );
-    if (gl->colormap) XFreeColormap( gdi_display, gl->colormap );
 }
 
 static BOOL set_swap_interval( struct gl_drawable *gl, int interval )
@@ -923,23 +947,16 @@ static BOOL x11drv_surface_create( HWND hwnd, int format, struct opengl_drawable
     struct opengl_drawable *previous;
     struct client_surface *client;
     struct gl_drawable *gl;
-    Colormap colormap;
     Window window;
     RECT rect;
 
     if ((previous = *drawable) && previous->format == format) return TRUE;
     NtUserGetClientRect( hwnd, &rect, NtUserGetDpiForWindow( hwnd ) );
 
-    colormap = XCreateColormap( gdi_display, get_dummy_parent(), fmt->visual->visual,
-                                (fmt->visual->class == PseudoColor || fmt->visual->class == GrayScale ||
-                                 fmt->visual->class == DirectColor) ? AllocAll : AllocNone );
-    if (!colormap) return FALSE;
-
-    if (!(window = x11drv_client_surface_create( hwnd, fmt->visual, colormap, &client ))) goto failed;
+    if (!(window = x11drv_client_surface_create( hwnd, format, &client ))) return FALSE;
     gl = opengl_drawable_create( sizeof(*gl), &x11drv_surface_funcs, format, client );
     client_surface_release( client );
-    if (!gl) goto failed;
-    gl->colormap = colormap;
+    if (!gl) return FALSE;
 
     if (!(gl->drawable = pglXCreateWindow( gdi_display, fmt->fbconfig, window, NULL )))
     {
@@ -953,10 +970,6 @@ static BOOL x11drv_surface_create( HWND hwnd, int format, struct opengl_drawable
     if (previous) opengl_drawable_release( previous );
     *drawable = &gl->base;
     return TRUE;
-
-failed:
-    XFreeColormap( gdi_display, colormap );
-    return FALSE;
 }
 
 static BOOL x11drv_describe_pixel_format( int format, struct wgl_pixel_format *pf )
@@ -1235,11 +1248,6 @@ static BOOL x11drv_context_create( int format, void *share, const int *attribLis
                 break;
             case WGL_CONTEXT_PROFILE_MASK_ARB:
                 pContextAttribList[0] = GLX_CONTEXT_PROFILE_MASK_ARB;
-                pContextAttribList[1] = attribList[1];
-                pContextAttribList += 2;
-                break;
-            case WGL_RENDERER_ID_WINE:
-                pContextAttribList[0] = GLX_RENDERER_ID_MESA;
                 pContextAttribList[1] = attribList[1];
                 pContextAttribList += 2;
                 break;
@@ -1545,6 +1553,11 @@ void sync_gl_drawable( HWND hwnd )
 
 void destroy_gl_drawable( HWND hwnd )
 {
+}
+
+BOOL visual_from_pixel_format( int format, XVisualInfo *visual )
+{
+    return FALSE;
 }
 
 #endif /* defined(SONAME_LIBGL) */

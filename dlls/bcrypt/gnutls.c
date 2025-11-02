@@ -825,6 +825,27 @@ static NTSTATUS key_export_ecc_public( struct key *key, UCHAR *buf, ULONG len, U
 
     switch (key->alg_id)
     {
+    case ALG_ID_ECDH:
+        switch (key->u.a.curve_id)
+        {
+        case ECC_CURVE_P256R1:
+            magic = BCRYPT_ECDH_PUBLIC_P256_MAGIC;
+            size = 32;
+            break;
+        case ECC_CURVE_P384R1:
+            magic = BCRYPT_ECDH_PUBLIC_P384_MAGIC;
+            size = 48;
+            break;
+        case ECC_CURVE_P521R1:
+            magic = BCRYPT_ECDH_PUBLIC_P521_MAGIC;
+            size = 66;
+            break;
+        default:
+            FIXME( "unsupported curve %u\n", key->u.a.curve_id );
+            return STATUS_NOT_IMPLEMENTED;
+        }
+        break;
+
     case ALG_ID_ECDH_P256:
         magic = BCRYPT_ECDH_PUBLIC_P256_MAGIC;
         size = 32;
@@ -838,6 +859,27 @@ static NTSTATUS key_export_ecc_public( struct key *key, UCHAR *buf, ULONG len, U
     case ALG_ID_ECDH_P521:
         magic = BCRYPT_ECDH_PUBLIC_P521_MAGIC;
         size = 66;
+        break;
+
+    case ALG_ID_ECDSA:
+        switch (key->u.a.curve_id)
+        {
+        case ECC_CURVE_P256R1:
+            magic = BCRYPT_ECDSA_PUBLIC_P256_MAGIC;
+            size = 32;
+            break;
+        case ECC_CURVE_P384R1:
+            magic = BCRYPT_ECDSA_PUBLIC_P384_MAGIC;
+            size = 48;
+            break;
+        case ECC_CURVE_P521R1:
+            magic = BCRYPT_ECDSA_PUBLIC_P521_MAGIC;
+            size = 66;
+            break;
+        default:
+            FIXME( "unsupported curve %u\n", key->u.a.curve_id );
+            return STATUS_NOT_IMPLEMENTED;
+        }
         break;
 
     case ALG_ID_ECDSA_P256:
@@ -1129,6 +1171,26 @@ static NTSTATUS key_asymmetric_generate( void *args )
         bitlen = key->u.a.bitlen;
         break;
 
+    case ALG_ID_ECDH:
+    case ALG_ID_ECDSA:
+        pk_alg = GNUTLS_PK_ECC;
+        switch (key->u.a.curve_id)
+        {
+        case ECC_CURVE_P256R1:
+            bitlen = GNUTLS_CURVE_TO_BITS( GNUTLS_ECC_CURVE_SECP256R1 );
+            break;
+        case ECC_CURVE_P384R1:
+            bitlen = GNUTLS_CURVE_TO_BITS( GNUTLS_ECC_CURVE_SECP384R1 );
+            break;
+        case ECC_CURVE_P521R1:
+            bitlen = GNUTLS_CURVE_TO_BITS( GNUTLS_ECC_CURVE_SECP521R1 );
+            break;
+        default:
+            FIXME( "unsupported ECDH/ECDSA curve %u\n", key->u.a.curve_id );
+            return STATUS_INVALID_PARAMETER;
+        }
+        break;
+
     case ALG_ID_ECDH_P256:
     case ALG_ID_ECDSA_P256:
         pk_alg = GNUTLS_PK_ECC; /* compatible with ECDSA and ECDH */
@@ -1192,6 +1254,27 @@ static NTSTATUS key_export_ecc( struct key *key, UCHAR *buf, ULONG len, ULONG *r
 
     switch (key->alg_id)
     {
+    case ALG_ID_ECDH:
+        switch (key->u.a.curve_id)
+        {
+        case ECC_CURVE_P256R1:
+            magic = BCRYPT_ECDH_PRIVATE_P256_MAGIC;
+            size = 32;
+            break;
+        case ECC_CURVE_P384R1:
+            magic = BCRYPT_ECDH_PRIVATE_P384_MAGIC;
+            size = 48;
+            break;
+        case ECC_CURVE_P521R1:
+            magic = BCRYPT_ECDH_PRIVATE_P521_MAGIC;
+            size = 66;
+            break;
+        default:
+            FIXME( "unsupported curve %u\n", key->u.a.curve_id );
+            return STATUS_NOT_IMPLEMENTED;
+        }
+        break;
+
     case ALG_ID_ECDH_P256:
         magic = BCRYPT_ECDH_PRIVATE_P256_MAGIC;
         size = 32;
@@ -1205,6 +1288,27 @@ static NTSTATUS key_export_ecc( struct key *key, UCHAR *buf, ULONG len, ULONG *r
     case ALG_ID_ECDH_P521:
         magic = BCRYPT_ECDH_PRIVATE_P521_MAGIC;
         size = 66;
+        break;
+
+    case ALG_ID_ECDSA:
+        switch (key->u.a.curve_id)
+        {
+        case ECC_CURVE_P256R1:
+            magic = BCRYPT_ECDSA_PRIVATE_P256_MAGIC;
+            size = 32;
+            break;
+        case ECC_CURVE_P384R1:
+            magic = BCRYPT_ECDSA_PRIVATE_P384_MAGIC;
+            size = 48;
+            break;
+        case ECC_CURVE_P521R1:
+            magic = BCRYPT_ECDSA_PRIVATE_P521_MAGIC;
+            size = 66;
+            break;
+        default:
+            FIXME( "unsupported curve %u\n", key->u.a.curve_id );
+            return STATUS_NOT_IMPLEMENTED;
+        }
         break;
 
     case ALG_ID_ECDSA_P256:
@@ -1840,9 +1944,11 @@ static NTSTATUS key_asymmetric_export( void *args )
 
     switch (key->alg_id)
     {
+    case ALG_ID_ECDH:
     case ALG_ID_ECDH_P256:
     case ALG_ID_ECDH_P384:
     case ALG_ID_ECDH_P521:
+    case ALG_ID_ECDSA:
     case ALG_ID_ECDSA_P256:
     case ALG_ID_ECDSA_P384:
     case ALG_ID_ECDSA_P521:
@@ -2028,9 +2134,11 @@ static NTSTATUS key_asymmetric_import( void *args )
 
     switch (key->alg_id)
     {
+    case ALG_ID_ECDH:
     case ALG_ID_ECDH_P256:
     case ALG_ID_ECDH_P384:
     case ALG_ID_ECDH_P521:
+    case ALG_ID_ECDSA:
     case ALG_ID_ECDSA_P256:
     case ALG_ID_ECDSA_P384:
     case ALG_ID_ECDSA_P521:
@@ -2538,9 +2646,11 @@ static NTSTATUS dup_privkey( struct key *key_orig, struct key *key_copy )
         if (!ret) key_copy->u.a.dss_seed = key_orig->u.a.dss_seed;
         break;
     }
+    case ALG_ID_ECDH:
     case ALG_ID_ECDH_P256:
     case ALG_ID_ECDH_P384:
     case ALG_ID_ECDH_P521:
+    case ALG_ID_ECDSA:
     case ALG_ID_ECDSA_P256:
     case ALG_ID_ECDSA_P384:
     case ALG_ID_ECDSA_P521:
@@ -2619,9 +2729,11 @@ static NTSTATUS dup_pubkey( struct key *key_orig, struct key *key_copy )
         if (!ret) key_copy->u.a.dss_seed = key_orig->u.a.dss_seed;
         break;
     }
+    case ALG_ID_ECDH:
     case ALG_ID_ECDH_P256:
     case ALG_ID_ECDH_P384:
     case ALG_ID_ECDH_P521:
+    case ALG_ID_ECDSA:
     case ALG_ID_ECDSA_P256:
     case ALG_ID_ECDSA_P384:
     case ALG_ID_ECDSA_P521:
@@ -2890,6 +3002,7 @@ struct key_symmetric32
 struct key_asymmetric32
 {
     ULONG             bitlen;     /* ignored for ECC keys */
+    enum ecc_curve_id curve_id;
     ULONG             flags;
     DSSSEED           dss_seed;
 };
@@ -2979,6 +3092,7 @@ static struct key *get_asymmetric_key( struct key32 *key32, struct key *key )
     key->alg_id         = key32->alg_id;
     memcpy( key->private, key32->private, sizeof(key->private) );
     key->u.a.bitlen     = key32->u.a.bitlen;
+    key->u.a.curve_id   = key32->u.a.curve_id;
     key->u.a.flags      = key32->u.a.flags;
     key->u.a.dss_seed   = key32->u.a.dss_seed;
     return key;
@@ -2992,6 +3106,7 @@ static void put_symmetric_key32( struct key *key, struct key32 *key32 )
 static void put_asymmetric_key32( struct key *key, struct key32 *key32 )
 {
     memcpy( key32->private, key->private, sizeof(key32->private) );
+    key32->u.a.curve_id   = key->u.a.curve_id;
     key32->u.a.flags      = key->u.a.flags;
     key32->u.a.dss_seed   = key->u.a.dss_seed;
 }

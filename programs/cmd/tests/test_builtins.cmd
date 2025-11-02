@@ -426,8 +426,6 @@ echo ---
 call :cfail r1||(call :cfail r2||call :cfail r3)
 echo --- chain pipe
 rem Piped commands run at the same time, so the print order varies.
-rem Additionally, they don't run in the batch script context, as shown by
-rem 'call :existing_label|echo read the error message'.
 (echo a 1>&2|echo a 1>&2) 2>&1
 echo ---
 echo b1|echo b2
@@ -527,6 +525,53 @@ if 1==0 (echo o1) else echo o2&&echo o3
 if 1==0 (echo p1) else echo p2||echo p3
 echo ---
 if 1==0 (echo q1) else echo q2&echo q3
+echo ------------- Testing for variables expansion in pipes
+rem * need to use @echo as subprocess doesn't inherit parent's echo on/off status
+rem * .exp file uses @spaces@ (instead of individual @space@) as rebuilding command line
+rem   differs somehow between native & builtin
+rem * need to turn echo off in lots of commands as 1) echo mode isn't inherited in subcmd
+rem   2) builtin handling of @ on blocks is buggy
+@(@for %%i in (a b) do @echo %%i)|more
+echo ---
+@(for %%i in (a b) do @for %%j in (c d) do @echo %%i-%%j)|more
+echo ---
+@(for %%i in (a b) do @for %%j in (a b) do @if %%i==%%j (@echo %%i same %%j) else (@echo %%i diff %%j))|more
+echo ---
+rem Show that builtin commands inside pipes are run in another context.
+rem This can be seen too with 'call :existing_label|echo self' which error message
+rem states call is invoked in non batch context.
+set "WINE_VAR=foo"
+echo a | set "WINE_VAR=bar"
+echo %WINE_VAR%
+set "WINE_VAR=foo"
+set "WINE_VAR=bar" | set "="
+echo %WINE_VAR%
+echo ---
+rem delayed expansion is not inherited in child command, but applied to LHS/RHS
+set "WINE_VAR=foo"
+echo a | echo yy!WINE_VAR!yy
+echo yy!WINE_VAR!yy | more
+setlocal EnableDelayedExpansion
+echo a | echo yy!WINE_VAR!yy
+echo yy!WINE_VAR!yy | more
+(echo a | echo yy!WINE_VAR!yy) | more
+(echo yy!WINE_VAR!yy | more) | more
+endlocal
+echo ---
+rem redirection of top level command is handled in current context
+rem but redirection in subcommands in handled in child cmd process
+mkdir foobarbar && cd foobarbar
+set "WINE_VAR=foo"
+setlocal EnableDelayedExpansion
+echo bar1bar | more > !WINE_VAR!
+type %WINE_VAR%
+erase /q %WINE_VAR%
+echo bar2bar | (more > !WINE_VAR!)
+endlocal
+setlocal DisableDelayedExpansion
+if exist !WINE_VAR! (type !WINE_VAR!) else echo BADBAD
+endlocal
+cd .. && rmdir /s/q foobarbar
 echo ------------- Testing internal commands return codes
 setlocal EnableDelayedExpansion
 
@@ -857,9 +902,12 @@ call :setError 666 & ((echo A | choice /C:BA) >NUL &&echo SUCCESS !errorlevel!||
 call :setError 666 & (choice /C:BA <NUL >NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem syntax errors in command return INVALID_FUNCTION, need to find a test for returning 255
 echo --- success/failure for MORE command
+echo a>filea
 call :setError 666 & (more NUL &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
-call :setError 666 & (more I\dont\exist.txt > NUL 2>&1 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 call :setError 666 & (echo foo | more &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+rem native 'MORE file' outputs to CONOUT$, not stdout!
+call :setError 666 & (more filea I\dont\exist.txt &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
+erase filea
 echo --- success/failure for PAUSE command
 call :setError 666 & (pause < NUL > NUL 2>&1 &&echo SUCCESS !errorlevel!||echo FAILURE !errorlevel!)
 rem TODO: pause is harder to test when fd 1 is a console handle as we don't control output
@@ -1405,6 +1453,20 @@ echo ---6
 type foobaw
 echo ---7
 del foobaz foobay foobax foobaw
+echo ---8
+rem generating sequence ab<ctrl-Z>c\n\r
+echo 61621A630D0A>seq.hex
+certutil -decodehex seq.hex seq.bin > nul
+type seq.bin > foo0
+call :CompareFileSizes seq.bin foo0
+erase seq.hex seq.bin foo0
+echo ---9
+rem generating sequence ab<NUL>c\n\r
+echo 616200630D0A>seq.hex
+certutil -decodehex seq.hex seq.bin > nul
+type seq.bin > foo0
+call :CompareFileSizes seq.bin foo0
+erase seq.hex seq.bin foo0
 
 echo ------------ Testing NUL ------------
 md foobar & cd foobar
@@ -3065,6 +3127,10 @@ echo ---
 dir /B /O:G-NE
 echo ---
 dir /B /O:G-E-N
+echo ---
+set DIRCMD=/O:GN
+dir /B /O:G-N
+set DIRCMD=
 cd .. & rd /s/q foobar
 echo ------------ Testing attrib ------------
 rem FIXME Add tests for archive, hidden and system attributes + mixed attributes modifications
@@ -3514,6 +3580,10 @@ if "%WINE_filesize%"=="%2" (
 shift
 shift
 if not "%1"=="" goto :CheckFileSize
+goto :eof
+
+:CompareFileSizes
+if "%~z1"=="%~z2" (echo passed) else (echo failed)
 goto :eof
 
 :testcopy

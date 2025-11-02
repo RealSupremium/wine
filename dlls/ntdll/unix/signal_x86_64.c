@@ -88,6 +88,11 @@ WINE_DECLARE_DEBUG_CHANNEL(seh);
 
 #include "dwarf.h"
 
+static USHORT cs32_sel;  /* selector for %cs in 32-bit mode */
+static USHORT cs64_sel;  /* selector for %cs in 64-bit mode */
+static USHORT ds64_sel;  /* selector for %ds/%es/%ss in 64-bit mode */
+static USHORT fs32_sel;  /* selector for %fs in 32-bit mode */
+
 /***********************************************************************
  * signal context platform-specific definitions
  */
@@ -121,6 +126,43 @@ __ASM_GLOBAL_FUNC( alloc_fs_sel,
                    "popq %rbx\n\t"
                    "ret" );
 
+struct modify_ldt_s
+{
+    unsigned int  entry_number;
+    unsigned int  base_addr;
+    unsigned int  limit;
+    unsigned int  seg_32bit : 1;
+    unsigned int  contents : 2;
+    unsigned int  read_exec_only : 1;
+    unsigned int  limit_in_pages : 1;
+    unsigned int  seg_not_present : 1;
+    unsigned int  usable : 1;
+    unsigned int  garbage : 25;
+};
+
+extern int modify_ldt( struct modify_ldt_s *ldt );
+__ASM_GLOBAL_FUNC( modify_ldt,
+                   /* switch to 32-bit stack */
+                   "pushq %rbx\n\t"
+                   "pushq %r12\n\t"
+                   "movq %rsp,%r12\n\t"
+                   "movq %gs:0x30,%rax\n\t"
+                   "leal 0x2000(%eax),%esp\n\t"  /* teb32 */
+                   /* copy modify_ldt struct to 32-bit stack */
+                   "pushq 8(%rdi)\n\t"
+                   "pushq 0(%rdi)\n\t"
+                   /* invoke 32-bit syscall */
+                   "movl $0x7b,%eax\n\t"  /* SYS_modify_ldt */
+                   "movl $0x11,%ebx\n\t"  /* func */
+                   "movl %esp,%ecx\n\t"   /* ldt_ptr */
+                   "movl $0x10,%edx\n\t"  /* sizeof(*ldt_ptr) */
+                   "int $0x80\n\t"
+                   /* restore stack */
+                   "movq %r12,%rsp\n\t"
+                   "popq %r12\n\t"
+                   "popq %rbx\n\t"
+                   "ret" );
+
 #ifndef FP_XSTATE_MAGIC1
 #define FP_XSTATE_MAGIC1 0x46505853
 #endif
@@ -143,6 +185,7 @@ __ASM_GLOBAL_FUNC( alloc_fs_sel,
 #define CS_sig(context)      (*((WORD *)&(context)->uc_mcontext.gregs[REG_CSGSFS] + 0))
 #define GS_sig(context)      (*((WORD *)&(context)->uc_mcontext.gregs[REG_CSGSFS] + 1))
 #define FS_sig(context)      (*((WORD *)&(context)->uc_mcontext.gregs[REG_CSGSFS] + 2))
+#define SS_sig(context)      (*((WORD *)&(context)->uc_mcontext.gregs[REG_CSGSFS] + 3))
 #define RSP_sig(context)     ((context)->uc_mcontext.gregs[REG_RSP])
 #define RIP_sig(context)     ((context)->uc_mcontext.gregs[REG_RIP])
 #define EFL_sig(context)     ((context)->uc_mcontext.gregs[REG_EFL])
@@ -299,6 +342,18 @@ static inline XMM_SAVE_AREA32 *FPU_sig( const ucontext_t *context )
     return (XMM_SAVE_AREA32 *)&(context)->uc_mcontext->__fs.__fpu_fcw;
 }
 
+static inline const WORD *SS_sig_ptr( const ucontext_t *context )
+{
+    if (context->uc_mcsize == sizeof(_STRUCT_MCONTEXT64_FULL) ||
+        context->uc_mcsize == sizeof(_STRUCT_MCONTEXT_AVX64_FULL) ||
+        context->uc_mcsize == SIZEOF_STRUCT_MCONTEXT_AVX512_64_FULL)
+    {
+        return (WORD *)&((_STRUCT_MCONTEXT64_FULL *)context->uc_mcontext)->__ss.__ss;
+    }
+    return &ds64_sel;
+}
+#define SS_sig(context) (*SS_sig_ptr(context))
+
 #define XState_sig(context)  NULL
 
 #else
@@ -401,7 +456,8 @@ struct callback_stack_layout
 C_ASSERT( offsetof(struct callback_stack_layout, machine_frame) == 0x30 );
 C_ASSERT( sizeof(struct callback_stack_layout) == 0x58 );
 
-#define RESTORE_FLAGS_INSTRUMENTATION CONTEXT_i386
+#define RESTORE_FLAGS_INSTRUMENTATION          0x00010000
+#define RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT 0x00020000
 
 struct syscall_frame
 {
@@ -535,11 +591,6 @@ static inline void context_init_xstate( CONTEXT *context, void *xstate_buffer )
 
     xctx->All.Offset = -(LONG)sizeof(CONTEXT);
 }
-
-static USHORT cs32_sel;  /* selector for %cs in 32-bit mode */
-static USHORT cs64_sel;  /* selector for %cs in 64-bit mode */
-static USHORT ds64_sel;  /* selector for %ds/%es/%ss in 64-bit mode */
-static USHORT fs32_sel;  /* selector for %fs in 32-bit mode */
 
 
 /***********************************************************************
@@ -835,11 +886,28 @@ static inline void set_sigcontext( const CONTEXT *context, ucontext_t *sigcontex
 }
 
 
+static inline BOOL is_16bit( const ucontext_t *sigcontext )
+{
+    return SS_sig(sigcontext) != ds64_sel;
+}
+
+
+extern void clear_alignment_flag(void);
+__ASM_GLOBAL_FUNC( clear_alignment_flag,
+                   "pushfq\n\t"
+                   __ASM_CFI(".cfi_adjust_cfa_offset 8\n\t")
+                   "andl $~0x40000,(%rsp)\n\t"
+                   "popfq\n\t"
+                   __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
+                   "ret" )
+
+
 /***********************************************************************
  *           init_handler
  */
 static inline ucontext_t *init_handler( void *sigcontext )
 {
+    clear_alignment_flag();
 #ifdef __linux__
     if (fs32_sel)
     {
@@ -847,17 +915,19 @@ static inline ucontext_t *init_handler( void *sigcontext )
         arch_prctl( ARCH_SET_FS, ((struct amd64_thread_data *)thread_data->cpu_data)->pthread_teb );
     }
 #elif defined __APPLE__
-    struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)&get_current_teb()->GdiTebBatch;
-    _thread_set_tsd_base( (uint64_t)((struct amd64_thread_data *)thread_data->cpu_data)->pthread_teb );
+    {
+        struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)&get_current_teb()->GdiTebBatch;
+        _thread_set_tsd_base( (uint64_t)((struct amd64_thread_data *)thread_data->cpu_data)->pthread_teb );
 
-    /* When in a syscall, CS will be the kernel's selector (0x07, SYSCALL_CS in xnu source)
-     * instead of the user selector (cs64_sel: 0x2b, USER64_CS).
-     * Fix up sigcontext so later code can compare it to cs64_sel.
-     *
-     * Only applies on Intel, not under Rosetta.
-     */
-    if (CS_sig((ucontext_t *)sigcontext) == 0x07 /* SYSCALL_CS */)
-        CS_sig((ucontext_t *)sigcontext) = cs64_sel;
+        /* When in a syscall, CS will be the kernel's selector (0x07, SYSCALL_CS in xnu source)
+         * instead of the user selector (cs64_sel: 0x2b, USER64_CS).
+         * Fix up sigcontext so later code can compare it to cs64_sel.
+         *
+         * Only applies on Intel, not under Rosetta.
+         */
+        if (CS_sig((ucontext_t *)sigcontext) == 0x07 /* SYSCALL_CS */)
+            CS_sig((ucontext_t *)sigcontext) = cs64_sel;
+    }
 #endif
     return sigcontext;
 }
@@ -878,6 +948,7 @@ static inline void leave_handler( ucontext_t *sigcontext )
         !is_inside_syscall( RSP_sig(sigcontext )))
         _thread_set_tsd_base( (uint64_t)NtCurrentTeb() );
 #endif
+    if (is_16bit( sigcontext )) return;
 #ifdef DS_sig
     DS_sig(sigcontext) = ds64_sel;
 #else
@@ -946,6 +1017,42 @@ static void save_context( struct xcontext *xcontext, const ucontext_t *sigcontex
             assert( xcontext->c_ex.XState.Offset == (BYTE *)xs - (BYTE *)&xcontext->c_ex );
         }
     }
+    if (is_16bit( sigcontext ))  /* get the actual selector values */
+    {
+        context->SegSs = SS_sig(sigcontext);
+#ifdef DS_sig
+        context->SegDs = DS_sig(sigcontext);
+#else
+        __asm__( "movw %%ds,%0" : "=r" (context->SegDs) );
+#endif
+#ifdef ES_sig
+        context->SegEs = ES_sig(sigcontext);
+#else
+        __asm__( "movw %%es,%0" : "=r" (context->SegEs) );
+#endif
+    }
+}
+
+
+/***********************************************************************
+ *           fixup_frame_fpu_state
+ *
+ * Set FP frame state not saved in __wine_unix_call_dispatcher from sigcontext.
+ */
+static void fixup_frame_fpu_state( struct syscall_frame *frame, const ucontext_t *sigcontext )
+{
+    XSAVE_FORMAT xsave;
+
+    memset( &frame->xstate, 0, sizeof(frame->xstate) );
+    if (user_shared_data->XState.CompactionEnabled)
+        frame->xstate.CompactionMask = 0x8000000000000000 | user_shared_data->XState.EnabledFeatures;
+
+    if (!FPU_sig(sigcontext)) return;
+    xsave = *FPU_sig(sigcontext);
+    memcpy( &xsave.XmmRegisters[6], &frame->xsave.XmmRegisters[6], 10 * sizeof(*xsave.XmmRegisters) );
+    xsave.MxCsr = frame->xsave.MxCsr;
+    frame->xsave = xsave;
+    frame->xstate.Mask = XSTATE_MASK_LEGACY;
 }
 
 
@@ -1296,8 +1403,8 @@ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
         wow_frame->Ebp    = context->Ebp;
         wow_frame->Eip    = context->Eip;
         wow_frame->EFlags = context->EFlags;
-        wow_frame->SegCs  = cs32_sel;
-        wow_frame->SegSs  = ds64_sel;
+        wow_frame->SegCs  = context->SegCs;
+        wow_frame->SegSs  = context->SegSs;
         cpu->Flags |= WOW64_CPURESERVED_FLAG_RESET_STATE;
     }
     if (flags & CONTEXT_I386_SEGMENTS)
@@ -1394,8 +1501,8 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
         context->Ebp    = wow_frame->Ebp;
         context->Eip    = wow_frame->Eip;
         context->EFlags = wow_frame->EFlags;
-        context->SegCs  = cs32_sel;
-        context->SegSs  = ds64_sel;
+        context->SegCs  = LOWORD(wow_frame->SegCs);
+        context->SegSs  = LOWORD(wow_frame->SegSs);
         context->ContextFlags |= CONTEXT_I386_CONTROL;
     }
     if (needed_flags & CONTEXT_I386_SEGMENTS)
@@ -1459,7 +1566,7 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
  */
 static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec, struct xcontext *xcontext )
 {
-    void *stack_ptr = (void *)(RSP_sig(sigcontext) & ~15);
+    ULONG_PTR rsp;
     CONTEXT *context = &xcontext->c;
     struct exc_stack_layout *stack;
     size_t stack_size;
@@ -1494,8 +1601,10 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     /* fix up instruction pointer in context for EXCEPTION_BREAKPOINT */
     if (rec->ExceptionCode == EXCEPTION_BREAKPOINT) context->Rip--;
 
-    stack_size = (ULONG_PTR)stack_ptr - (((ULONG_PTR)stack_ptr - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63);
-    stack = virtual_setup_exception( stack_ptr, stack_size, rec );
+    rsp = is_16bit(sigcontext) ? get_wow_teb( NtCurrentTeb() )->SystemReserved1[0] : RSP_sig(sigcontext);
+    rsp &= ~(ULONG_PTR)15;
+    stack_size = rsp - ((rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63);
+    stack = virtual_setup_exception( (void *)rsp, stack_size, rec );
     stack->rec               = *rec;
     stack->context           = *context;
     stack->machine_frame.rip = context->Rip;
@@ -1672,6 +1781,8 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
                    "andq $~63,%rsp\n\t"
                    "leaq 0x10(%rbp),%rax\n\t"
                    "movq %rax,0xa8(%rsp)\n\t"  /* frame->syscall_cfa */
+                   "movw %cs,0x78(%rsp)\n\t"   /* frame->cs */
+                   "movw %ss,0x90(%rsp)\n\t"   /* frame->ss */
                    "movq 0x378(%r13),%r14\n\t" /* thread_data->syscall_frame */
                    "movq %r14,0xa0(%rsp)\n\t"  /* frame->prev_frame */
                    "movq %rsp,0x378(%r13)\n\t" /* thread_data->syscall_frame */
@@ -2022,6 +2133,7 @@ static BOOL handle_syscall_trap( ucontext_t *sigcontext, siginfo_t *siginfo )
 
         RIP_sig( sigcontext ) = (ULONG64)__wine_unix_call_dispatcher_prolog_end_ptr;
         R10_sig( sigcontext ) = RCX_sig( sigcontext );
+        fixup_frame_fpu_state( frame, sigcontext );
     }
     else if (siginfo->si_code == 4 /* TRAP_HWBKPT */ && is_inside_syscall( RSP_sig(sigcontext) ))
     {
@@ -2052,6 +2164,10 @@ static BOOL handle_syscall_trap( ucontext_t *sigcontext, siginfo_t *siginfo )
  */
 static inline BOOL check_invalid_gsbase( ucontext_t *ucontext )
 {
+    extern const void *__wine_syscall_dispatcher_gs_load_ptr;
+    extern const void *__wine_unix_call_dispatcher_gs_load_ptr;
+
+    const void *rip = (void *)RIP_sig(ucontext);
     BYTE instr[16];
     unsigned int i, len, prefix_count = 0;
     TEB *teb = NtCurrentTeb();
@@ -2074,48 +2190,51 @@ static inline BOOL check_invalid_gsbase( ucontext_t *ucontext )
 
     if (cur_gsbase == (ULONG_PTR)teb) return FALSE;
 
-    len = virtual_uninterrupted_read_memory( (BYTE *)RIP_sig(ucontext), instr, sizeof(instr) );
-    if (!len) return FALSE;
-
-    for (i = 0; i < len; i++)
+    if (rip != __wine_syscall_dispatcher_gs_load_ptr && rip != __wine_unix_call_dispatcher_gs_load_ptr)
     {
-        switch (instr[i])
+        len = virtual_uninterrupted_read_memory( rip, instr, sizeof(instr) );
+        if (!len) return FALSE;
+
+        for (i = 0; i < len; i++)
         {
-        /* instruction prefixes */
-        case 0x2e:  /* %cs: */
-        case 0x36:  /* %ss: */
-        case 0x3e:  /* %ds: */
-        case 0x26:  /* %es: */
-        case 0x40:  /* rex */
-        case 0x41:  /* rex */
-        case 0x42:  /* rex */
-        case 0x43:  /* rex */
-        case 0x44:  /* rex */
-        case 0x45:  /* rex */
-        case 0x46:  /* rex */
-        case 0x47:  /* rex */
-        case 0x48:  /* rex */
-        case 0x49:  /* rex */
-        case 0x4a:  /* rex */
-        case 0x4b:  /* rex */
-        case 0x4c:  /* rex */
-        case 0x4d:  /* rex */
-        case 0x4e:  /* rex */
-        case 0x4f:  /* rex */
-        case 0x64:  /* %fs: */
-        case 0x66:  /* opcode size */
-        case 0x67:  /* addr size */
-        case 0xf0:  /* lock */
-        case 0xf2:  /* repne */
-        case 0xf3:  /* repe */
-            if (++prefix_count >= 15) return FALSE;
-            continue;
-        case 0x65:  /* %gs: */
+            switch (instr[i])
+            {
+            /* instruction prefixes */
+            case 0x2e:  /* %cs: */
+            case 0x36:  /* %ss: */
+            case 0x3e:  /* %ds: */
+            case 0x26:  /* %es: */
+            case 0x40:  /* rex */
+            case 0x41:  /* rex */
+            case 0x42:  /* rex */
+            case 0x43:  /* rex */
+            case 0x44:  /* rex */
+            case 0x45:  /* rex */
+            case 0x46:  /* rex */
+            case 0x47:  /* rex */
+            case 0x48:  /* rex */
+            case 0x49:  /* rex */
+            case 0x4a:  /* rex */
+            case 0x4b:  /* rex */
+            case 0x4c:  /* rex */
+            case 0x4d:  /* rex */
+            case 0x4e:  /* rex */
+            case 0x4f:  /* rex */
+            case 0x64:  /* %fs: */
+            case 0x66:  /* opcode size */
+            case 0x67:  /* addr size */
+            case 0xf0:  /* lock */
+            case 0xf2:  /* repne */
+            case 0xf3:  /* repe */
+                if (++prefix_count >= 15) return FALSE;
+                continue;
+            case 0x65:  /* %gs: */
+                break;
+            default:
+                return FALSE;
+            }
             break;
-        default:
-            return FALSE;
         }
-        break;
     }
 
     TRACE( "gsbase %016lx teb %p at instr %p, fixing up\n", cur_gsbase, teb, instr );
@@ -2170,7 +2289,9 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             rec.ExceptionCode = EXCEPTION_ACCESS_VIOLATION;
             rec.NumberParameters = 2;
             rec.ExceptionInformation[0] = 0;
-            rec.ExceptionInformation[1] = 0xffffffffffffffff;
+            /* if error contains a LDT selector, use that as fault address */
+            if ((err & 7) == 4) rec.ExceptionInformation[1] = err & ~7;
+            else rec.ExceptionInformation[1] = 0xffffffffffffffff;
         }
         break;
     case TRAP_x86_PAGEFLT:  /* Page fault */
@@ -2376,6 +2497,12 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             return;
         }
         context->c.ContextFlags = CONTEXT_FULL | CONTEXT_SEGMENTS | CONTEXT_EXCEPTION_REQUEST;
+        if (frame->restore_flags & RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT)
+        {
+            frame->restore_flags &= ~RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT;
+            frame->eflags = 0x200;
+            fixup_frame_fpu_state( frame, ucontext );
+        }
         NtGetContextThread( GetCurrentThread(), &context->c );
         if (xstate_extended_features)
         {
@@ -2451,7 +2578,20 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  */
 void ldt_set_entry( WORD sel, LDT_ENTRY entry )
 {
-#if defined(__APPLE__)
+#ifdef linux
+    struct modify_ldt_s ldt_info = { .entry_number = sel >> 3 };
+    int ret;
+
+    ldt_info.base_addr       = ldt_get_base( entry );
+    ldt_info.limit           = entry.LimitLow | (entry.HighWord.Bits.LimitHi << 16);
+    ldt_info.seg_32bit       = entry.HighWord.Bits.Default_Big;
+    ldt_info.contents        = (entry.HighWord.Bits.Type >> 2) & 3;
+    ldt_info.read_exec_only  = !(entry.HighWord.Bits.Type & 2);
+    ldt_info.limit_in_pages  = entry.HighWord.Bits.Granularity;
+    ldt_info.seg_not_present = !entry.HighWord.Bits.Pres;
+    ldt_info.usable          = entry.HighWord.Bits.Sys;
+    if ((ret = modify_ldt( &ldt_info ))) ERR( "modify_ldt failed %d\n", ret );
+#elif defined(__APPLE__)
     if (i386_set_ldt(sel >> 3, (union ldt_entry *)&entry, 1) < 0) perror("i386_set_ldt");
 #else
     fprintf( stderr, "No LDT support on this platform\n" );
@@ -2463,9 +2603,24 @@ void ldt_set_entry( WORD sel, LDT_ENTRY entry )
 /**********************************************************************
  *           get_thread_ldt_entry
  */
-NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_len )
+NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATION *info, ULONG len )
 {
-    return STATUS_NOT_IMPLEMENTED;
+    THREAD_BASIC_INFORMATION tbi;
+    NTSTATUS status;
+    TEB *teb = NtCurrentTeb();
+
+    if (len != sizeof(*info)) return STATUS_INFO_LENGTH_MISMATCH;
+    if (info->Selector >> 16) return STATUS_UNSUCCESSFUL;
+    if (is_gdt_sel( info->Selector )) return STATUS_UNSUCCESSFUL;
+
+    if (handle != GetCurrentThread())
+    {
+        status = NtQueryInformationThread( handle, ThreadBasicInformation, &tbi, sizeof(tbi), NULL );
+        if (status) return status;
+    }
+    else tbi.ClientId = teb->ClientId;
+
+    return ldt_get_entry( info->Selector, tbi.ClientId, &info->Entry );
 }
 
 
@@ -2729,6 +2884,7 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
  *           __wine_syscall_dispatcher
  */
 __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+                   __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_gs_load") ":\n\t"
                    "movq %gs:0x378,%rcx\n\t"       /* thread_data->syscall_frame */
                    "popq 0x70(%rcx)\n\t"           /* frame->rip */
                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
@@ -3055,11 +3211,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_instrumentation,
  */
 __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
                    "movq %rcx,%r10\n\t"
+                   __ASM_LOCAL_LABEL("__wine_unix_call_dispatcher_gs_load") ":\n\t"
                    "movq %gs:0x378,%rcx\n\t"       /* thread_data->syscall_frame */
                    "popq 0x70(%rcx)\n\t"           /* frame->rip */
                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
                    __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
-                   "movl $0,0xb4(%rcx)\n\t"        /* frame->restore_flags */
+                   "movl $0x20000,0xb4(%rcx)\n\t"  /* frame->restore_flags <- RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT */
                    __ASM_LOCAL_LABEL("__wine_unix_call_dispatcher_prolog_end") ":\n\t"
                    "movq %rbx,0x08(%rcx)\n\t"
                    __ASM_CFI_REG_IS_AT1(rbx, rcx, 0x08)
@@ -3168,7 +3325,11 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
 
 __ASM_GLOBAL_POINTER( __ASM_NAME("__wine_syscall_dispatcher_prolog_end_ptr"),
                       __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_prolog_end") )
+__ASM_GLOBAL_POINTER( __ASM_NAME("__wine_syscall_dispatcher_gs_load_ptr"),
+                      __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_gs_load") )
 __ASM_GLOBAL_POINTER( __ASM_NAME("__wine_unix_call_dispatcher_prolog_end_ptr"),
                       __ASM_LOCAL_LABEL("__wine_unix_call_dispatcher_prolog_end") )
+__ASM_GLOBAL_POINTER( __ASM_NAME("__wine_unix_call_dispatcher_gs_load_ptr"),
+                      __ASM_LOCAL_LABEL("__wine_unix_call_dispatcher_gs_load") )
 
 #endif  /* __x86_64__ */

@@ -505,6 +505,8 @@ struct syscall_frame
 
 C_ASSERT( sizeof(struct syscall_frame) == 0x280 );
 
+#define RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT 0x00008000
+
 struct x86_thread_data
 {
     UINT               fs;            /* 1d4 TEB selector */
@@ -716,7 +718,7 @@ static inline void *init_handler( const ucontext_t *sigcontext )
  *
  * Save the thread FPU context.
  */
-static inline void save_fpu( CONTEXT *context )
+static inline void save_fpu( I386_FLOATING_SAVE_AREA *fsave )
 {
     struct
     {
@@ -730,11 +732,10 @@ static inline void save_fpu( CONTEXT *context )
     }
     float_status;
 
-    context->ContextFlags |= CONTEXT_FLOATING_POINT;
-    __asm__ __volatile__( "fnsave %0; fwait" : "=m" (context->FloatSave) );
+    __asm__ __volatile__( "fnsave %0; fwait" : "=m" (*fsave) );
 
     /* Reset unmasked exceptions status to avoid firing an exception. */
-    memcpy(&float_status, &context->FloatSave, sizeof(float_status));
+    memcpy(&float_status, fsave, sizeof(float_status));
     float_status.StatusWord &= float_status.ControlWord | 0xffffff80;
 
     __asm__ __volatile__( "fldenv %0" : : "m" (float_status) );
@@ -805,7 +806,58 @@ static inline void save_context( struct xcontext *xcontext, const ucontext_t *si
         if (!fpu) fpux_to_fpu( &context->FloatSave, fpux );
         if (xstate_extended_features && (xs = XState_sig(fpux))) context_init_xstate( context, xs );
     }
-    if (!fpu && !fpux) save_fpu( context );
+    if (!fpu && !fpux)
+    {
+        save_fpu( &context->FloatSave );
+        context->ContextFlags |= CONTEXT_FLOATING_POINT;
+    }
+}
+
+
+/***********************************************************************
+ *           fixup_frame_fpu_state
+ *
+ * Set FP frame state not saved in __wine_unix_call_dispatcher from sigcontext.
+ */
+static void fixup_frame_fpu_state( struct syscall_frame *frame, const ucontext_t *sigcontext )
+{
+    memset( &frame->xstate, 0, sizeof(frame->xstate) );
+    if (user_shared_data->XState.CompactionEnabled)
+        frame->xstate.CompactionMask = 0x8000000000000000 | user_shared_data->XState.EnabledFeatures;
+    if (FPUX_sig(sigcontext))
+    {
+        if (user_shared_data->ProcessorFeatures[PF_XMMI_INSTRUCTIONS_AVAILABLE])
+            frame->u.xsave = *FPUX_sig(sigcontext);
+        else
+            fpux_to_fpu( &frame->u.fsave, FPUX_sig(sigcontext) );
+        frame->xstate.Mask = XSTATE_MASK_LEGACY;
+    }
+    else
+    {
+        I386_FLOATING_SAVE_AREA *fsave, fsave_buf;
+
+        if (FPU_sig(sigcontext)) fsave = FPU_sig(sigcontext);
+        else
+        {
+            save_fpu( &fsave_buf );
+            fsave = &fsave_buf;
+        }
+        if (user_shared_data->ProcessorFeatures[PF_XMMI_INSTRUCTIONS_AVAILABLE])
+            fpu_to_fpux( &frame->u.xsave, fsave );
+        else
+            frame->u.fsave = *fsave;
+    }
+    /* Clear register stack. */
+    if (user_shared_data->ProcessorFeatures[PF_XMMI_INSTRUCTIONS_AVAILABLE])
+    {
+        frame->u.xsave.TagWord = 0;
+        frame->u.xsave.StatusWord = 0;
+    }
+    else
+    {
+        frame->u.fsave.TagWord = 0xffffffff;
+        frame->u.fsave.StatusWord = 0xffff0000;
+    }
 }
 
 
@@ -1865,6 +1917,7 @@ static BOOL handle_syscall_trap( ucontext_t *sigcontext, siginfo_t *siginfo )
         extern void __wine_unix_call_dispatcher_prolog_end(void);
 
         EIP_sig( sigcontext ) = (ULONG)__wine_unix_call_dispatcher_prolog_end;
+        fixup_frame_fpu_state( frame, sigcontext );
     }
     else if (siginfo->si_code == 4 /* TRAP_HWBKPT */ && is_inside_syscall( ESP_sig(sigcontext) ))
     {
@@ -2135,6 +2188,12 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             return;
         }
         context->c.ContextFlags = CONTEXT_FULL | CONTEXT_EXCEPTION_REQUEST;
+        if (frame->restore_flags & RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT)
+        {
+            frame->restore_flags &= ~RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT;
+            frame->eflags = 0x202;
+            fixup_frame_fpu_state( frame, ucontext );
+        }
         NtGetContextThread( GetCurrentThread(), &context->c );
         if (xstate_extended_features)
         {
@@ -2233,11 +2292,10 @@ static void ldt_set_fs( WORD sel, TEB *teb )
 /**********************************************************************
  *           get_thread_ldt_entry
  */
-NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_len )
+NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATION *info, ULONG len )
 {
     THREAD_BASIC_INFORMATION tbi;
-    THREAD_DESCRIPTOR_INFORMATION *info = data;
-    unsigned int status = STATUS_SUCCESS;
+    NTSTATUS status = STATUS_SUCCESS;
     TEB *teb = NtCurrentTeb();
 
     if (len != sizeof(*info)) return STATUS_INFO_LENGTH_MISMATCH;
@@ -2262,50 +2320,7 @@ NTSTATUS get_thread_ldt_entry( HANDLE handle, void *data, ULONG len, ULONG *ret_
         else if ((info->Selector | 3) == get_fs()) info->Entry = ldt_make_fs32_entry( tbi.TebBaseAddress );
         else return STATUS_UNSUCCESSFUL;
     }
-    else
-    {
-        HANDLE process;
-        struct ldt_copy *ldt_copy;
-        unsigned int base = 0;
-        struct ldt_bits bits = { 0 };
-        unsigned int idx = info->Selector >> 3;
-
-        if (tbi.ClientId.UniqueProcess == teb->ClientId.UniqueProcess)
-        {
-            if ((ldt_copy = (struct ldt_copy *)ULongToPtr( peb->SpareUlongs[0] )))
-            {
-                base = ldt_copy->base[idx];
-                bits = ldt_copy->bits[idx];
-            }
-        }
-        else
-        {
-            PROCESS_BASIC_INFORMATION pbi;
-            ULONG ldt_ptr = 0;
-
-            if ((status = NtOpenProcess( &process, PROCESS_ALL_ACCESS, NULL, &tbi.ClientId )))
-                return status;
-            NtQueryInformationProcess( process, ProcessBasicInformation, &pbi, sizeof(pbi), NULL );
-            status = NtReadVirtualMemory( process, &pbi.PebBaseAddress->SpareUlongs[0],
-                                          &ldt_ptr, sizeof(ldt_ptr), NULL );
-            if (!status && ldt_ptr)
-            {
-                ldt_copy = (struct ldt_copy *)ULongToPtr( ldt_ptr );
-                NtReadVirtualMemory( process, &ldt_copy->base[idx], &base, sizeof(base), NULL );
-                NtReadVirtualMemory( process, &ldt_copy->bits[idx], &bits, sizeof(bits), NULL );
-            }
-            NtClose( process );
-        }
-
-        if (base || bits.limit || bits.type)
-            info->Entry = ldt_make_entry( base, bits );
-        else
-            status = STATUS_UNSUCCESSFUL;
-    }
-
-    if (status == STATUS_SUCCESS && ret_len)
-        /* yes, that's a bit strange, but it's the way it is */
-        *ret_len = sizeof(info->Entry);
+    else status = ldt_get_entry( info->Selector, tbi.ClientId, &info->Entry );
 
     return status;
 }
@@ -2741,7 +2756,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_return,
  */
 __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
                    "movl %fs:0x218,%ecx\n\t"   /* thread_data->syscall_frame */
-                   "movl $0,(%ecx)\n\t"        /* frame->restore_flags */
+                   "movl $0x8000,(%ecx)\n\t"   /* frame->restore_flags <- RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT */
                    "popl 0x08(%ecx)\n\t"       /* frame->eip */
                    __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
                    __ASM_CFI_REG_IS_AT1(eip, ecx, 0x08)
@@ -2778,7 +2793,7 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
                    __ASM_CFI(".cfi_offset %edi,-20\n\t")
                    "call *(%eax,%edx,4)\n\t"
                    "leal 16(%esp),%esp\n\t"
-                   "testl $0xffff,(%esp)\n\t"  /* frame->restore_flags */
+                   "testl $0x7fff,(%esp)\n\t"  /* frame->restore_flags */
                    "jnz " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") "\n\t"
                    "movl 0x08(%esp),%ecx\n\t"  /* frame->eip */
                    /* switch to user stack */

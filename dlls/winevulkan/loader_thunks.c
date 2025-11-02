@@ -861,6 +861,14 @@ void WINAPI vkCmdCopyImageToBuffer2KHR(VkCommandBuffer commandBuffer, const VkCo
     UNIX_CALL(vkCmdCopyImageToBuffer2KHR, &params);
 }
 
+void WINAPI vkCmdCopyMemoryIndirectKHR(VkCommandBuffer commandBuffer, const VkCopyMemoryIndirectInfoKHR *pCopyMemoryIndirectInfo)
+{
+    struct vkCmdCopyMemoryIndirectKHR_params params;
+    params.commandBuffer = commandBuffer;
+    params.pCopyMemoryIndirectInfo = pCopyMemoryIndirectInfo;
+    UNIX_CALL(vkCmdCopyMemoryIndirectKHR, &params);
+}
+
 void WINAPI vkCmdCopyMemoryIndirectNV(VkCommandBuffer commandBuffer, VkDeviceAddress copyBufferAddress, uint32_t copyCount, uint32_t stride)
 {
     struct vkCmdCopyMemoryIndirectNV_params params;
@@ -877,6 +885,14 @@ void WINAPI vkCmdCopyMemoryToAccelerationStructureKHR(VkCommandBuffer commandBuf
     params.commandBuffer = commandBuffer;
     params.pInfo = pInfo;
     UNIX_CALL(vkCmdCopyMemoryToAccelerationStructureKHR, &params);
+}
+
+void WINAPI vkCmdCopyMemoryToImageIndirectKHR(VkCommandBuffer commandBuffer, const VkCopyMemoryToImageIndirectInfoKHR *pCopyMemoryToImageIndirectInfo)
+{
+    struct vkCmdCopyMemoryToImageIndirectKHR_params params;
+    params.commandBuffer = commandBuffer;
+    params.pCopyMemoryToImageIndirectInfo = pCopyMemoryToImageIndirectInfo;
+    UNIX_CALL(vkCmdCopyMemoryToImageIndirectKHR, &params);
 }
 
 void WINAPI vkCmdCopyMemoryToImageIndirectNV(VkCommandBuffer commandBuffer, VkDeviceAddress copyBufferAddress, uint32_t copyCount, uint32_t stride, VkImage dstImage, VkImageLayout dstImageLayout, const VkImageSubresourceLayers *pImageSubresources)
@@ -5646,6 +5662,26 @@ void WINAPI vkGetPhysicalDeviceProperties(VkPhysicalDevice physicalDevice, VkPhy
     assert(!status && "vkGetPhysicalDeviceProperties");
 }
 
+void WINAPI vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice, VkPhysicalDeviceProperties2 *pProperties)
+{
+    struct vkGetPhysicalDeviceProperties2_params params;
+    NTSTATUS status;
+    params.physicalDevice = physicalDevice;
+    params.pProperties = pProperties;
+    status = UNIX_CALL(vkGetPhysicalDeviceProperties2, &params);
+    assert(!status && "vkGetPhysicalDeviceProperties2");
+}
+
+void WINAPI vkGetPhysicalDeviceProperties2KHR(VkPhysicalDevice physicalDevice, VkPhysicalDeviceProperties2 *pProperties)
+{
+    struct vkGetPhysicalDeviceProperties2KHR_params params;
+    NTSTATUS status;
+    params.physicalDevice = physicalDevice;
+    params.pProperties = pProperties;
+    status = UNIX_CALL(vkGetPhysicalDeviceProperties2KHR, &params);
+    assert(!status && "vkGetPhysicalDeviceProperties2KHR");
+}
+
 void WINAPI vkGetPhysicalDeviceQueueFamilyDataGraphProcessingEnginePropertiesARM(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceQueueFamilyDataGraphProcessingEngineInfoARM *pQueueFamilyDataGraphProcessingEngineInfo, VkQueueFamilyDataGraphProcessingEnginePropertiesARM *pQueueFamilyDataGraphProcessingEngineProperties)
 {
     struct vkGetPhysicalDeviceQueueFamilyDataGraphProcessingEnginePropertiesARM_params params;
@@ -7211,8 +7247,10 @@ static const struct vulkan_func vk_device_dispatch_table[] =
     {"vkCmdCopyImageToBuffer", vkCmdCopyImageToBuffer},
     {"vkCmdCopyImageToBuffer2", vkCmdCopyImageToBuffer2},
     {"vkCmdCopyImageToBuffer2KHR", vkCmdCopyImageToBuffer2KHR},
+    {"vkCmdCopyMemoryIndirectKHR", vkCmdCopyMemoryIndirectKHR},
     {"vkCmdCopyMemoryIndirectNV", vkCmdCopyMemoryIndirectNV},
     {"vkCmdCopyMemoryToAccelerationStructureKHR", vkCmdCopyMemoryToAccelerationStructureKHR},
+    {"vkCmdCopyMemoryToImageIndirectKHR", vkCmdCopyMemoryToImageIndirectKHR},
     {"vkCmdCopyMemoryToImageIndirectNV", vkCmdCopyMemoryToImageIndirectNV},
     {"vkCmdCopyMemoryToMicromapEXT", vkCmdCopyMemoryToMicromapEXT},
     {"vkCmdCopyMicromapEXT", vkCmdCopyMicromapEXT},

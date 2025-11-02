@@ -60,7 +60,7 @@ struct event_sync
 static void event_sync_dump( struct object *obj, int verbose );
 static int event_sync_signaled( struct object *obj, struct wait_queue_entry *entry );
 static void event_sync_satisfied( struct object *obj, struct wait_queue_entry *entry );
-static int event_sync_signal( struct object *obj, unsigned int access );
+static int event_sync_signal( struct object *obj, unsigned int access, int signal );
 
 static const struct object_ops event_sync_ops =
 {
@@ -87,7 +87,20 @@ static const struct object_ops event_sync_ops =
     no_destroy                 /* destroy */
 };
 
-struct event_sync *create_event_sync( int manual, int signaled )
+static struct object *create_event_sync( int manual, int signaled )
+{
+    struct event_sync *event;
+
+    if (get_inproc_device_fd() >= 0) return (struct object *)create_inproc_event_sync( manual, signaled );
+
+    if (!(event = alloc_object( &event_sync_ops ))) return NULL;
+    event->manual   = manual;
+    event->signaled = signaled;
+
+    return &event->obj;
+}
+
+struct event_sync *create_server_internal_sync( int manual, int signaled )
 {
     struct event_sync *event;
 
@@ -96,6 +109,12 @@ struct event_sync *create_event_sync( int manual, int signaled )
     event->signaled = signaled;
 
     return event;
+}
+
+struct object *create_internal_sync( int manual, int signaled )
+{
+    if (get_inproc_device_fd() >= 0) return (struct object *)create_inproc_internal_sync( manual, signaled );
+    return (struct object *)create_server_internal_sync( manual, signaled );
 }
 
 static void event_sync_dump( struct object *obj, int verbose )
@@ -113,44 +132,34 @@ static int event_sync_signaled( struct object *obj, struct wait_queue_entry *ent
     return event->signaled;
 }
 
-void signal_sync( struct event_sync *event )
-{
-    event->signaled = 1;
-    /* wake up all waiters if manual reset, a single one otherwise */
-    wake_up( &event->obj, !event->manual );
-}
-
-void reset_sync( struct event_sync *event )
-{
-    event->signaled = 0;
-}
-
 static void event_sync_satisfied( struct object *obj, struct wait_queue_entry *entry )
 {
     struct event_sync *event = (struct event_sync *)obj;
     assert( obj->ops == &event_sync_ops );
     /* Reset if it's an auto-reset event */
-    if (!event->manual) reset_sync( event );
+    if (!event->manual) event->signaled = 0;
 }
 
-static int event_sync_signal( struct object *obj, unsigned int access )
+static int event_sync_signal( struct object *obj, unsigned int access, int signal )
 {
     struct event_sync *event = (struct event_sync *)obj;
     assert( obj->ops == &event_sync_ops );
-    signal_sync( event );
+
+    /* wake up all waiters if manual reset, a single one otherwise */
+    if ((event->signaled = !!signal)) wake_up( &event->obj, !event->manual );
     return 1;
 }
 
 struct event
 {
     struct object      obj;             /* object header */
-    struct event_sync *sync;            /* event sync object */
+    struct object     *sync;            /* event sync object */
     struct list        kernel_object;   /* list of kernel object pointers */
 };
 
 static void event_dump( struct object *obj, int verbose );
 static struct object *event_get_sync( struct object *obj );
-static int event_signal( struct object *obj, unsigned int access);
+static int event_signal( struct object *obj, unsigned int access, int signal );
 static struct list *event_get_kernel_obj_list( struct object *obj );
 static void event_destroy( struct object *obj );
 
@@ -271,7 +280,7 @@ static void event_dump( struct object *obj, int verbose )
 {
     struct event *event = (struct event *)obj;
     assert( obj->ops == &event_ops );
-    event->sync->obj.ops->dump( &event->sync->obj, verbose );
+    event->sync->ops->dump( event->sync, verbose );
 }
 
 static struct object *event_get_sync( struct object *obj )
@@ -281,18 +290,21 @@ static struct object *event_get_sync( struct object *obj )
     return grab_object( event->sync );
 }
 
-static int event_signal( struct object *obj, unsigned int access )
+static int event_signal( struct object *obj, unsigned int access, int signal )
 {
     struct event *event = (struct event *)obj;
     assert( obj->ops == &event_ops );
+
+    assert( event->sync->ops == &event_sync_ops ); /* never called with inproc syncs */
+    assert( signal == -1 ); /* always called from signal_object */
 
     if (!(access & EVENT_MODIFY_STATE))
     {
         set_error( STATUS_ACCESS_DENIED );
         return 0;
     }
-    set_event( event );
-    return 1;
+
+    return event_sync_signal( event->sync, 0, 1 );
 }
 
 static struct list *event_get_kernel_obj_list( struct object *obj )
@@ -399,11 +411,14 @@ DECL_HANDLER(open_event)
 /* do an event operation */
 DECL_HANDLER(event_op)
 {
+    struct event_sync *sync;
     struct event *event;
 
     if (!(event = get_event_obj( current->process, req->handle, EVENT_MODIFY_STATE ))) return;
+    assert( event->sync->ops == &event_sync_ops ); /* never called with inproc syncs */
+    sync = (struct event_sync *)event->sync;
 
-    reply->state = event->sync->signaled;
+    reply->state = sync->signaled;
     switch(req->op)
     {
     case PULSE_EVENT:
@@ -426,12 +441,15 @@ DECL_HANDLER(event_op)
 /* return details about the event */
 DECL_HANDLER(query_event)
 {
+    struct event_sync *sync;
     struct event *event;
 
     if (!(event = get_event_obj( current->process, req->handle, EVENT_QUERY_STATE ))) return;
+    assert( event->sync->ops == &event_sync_ops ); /* never called with inproc syncs */
+    sync = (struct event_sync *)event->sync;
 
-    reply->manual_reset = event->sync->manual;
-    reply->state = event->sync->signaled;
+    reply->manual_reset = sync->manual;
+    reply->state = sync->signaled;
 
     release_object( event );
 }

@@ -2475,6 +2475,33 @@ static void test_SystemRestore( IWbemServices *services )
     SysFreeString( class );
 }
 
+static void test_Win32_LocalTime( IWbemServices *services )
+{
+    BSTR wql = SysAllocString( L"wql" ), query = SysAllocString( L"SELECT * FROM Win32_LocalTime" );
+    IEnumWbemClassObject *result;
+    IWbemClassObject *obj;
+    HRESULT hr;
+    DWORD count;
+
+    hr = IWbemServices_ExecQuery( services, wql, query, 0, NULL, &result );
+    ok( hr == S_OK, "got %#lx\n", hr );
+
+    hr = IEnumWbemClassObject_Next( result, 10000, 1, &obj, &count );
+    ok( hr == S_OK, "got %#lx\n", hr );
+
+    check_property( obj, L"Day", VT_I4, CIM_UINT32 );
+    check_property( obj, L"DayOfWeek", VT_I4, CIM_UINT32 );
+    check_property( obj, L"Month", VT_I4, CIM_UINT32 );
+    check_property( obj, L"Quarter", VT_I4, CIM_UINT32 );
+    check_property( obj, L"WeekInMonth", VT_I4, CIM_UINT32 );
+    check_property( obj, L"Year", VT_I4, CIM_UINT32 );
+
+    IWbemClassObject_Release( obj );
+    IEnumWbemClassObject_Release( result );
+    SysFreeString( query );
+    SysFreeString( wql );
+}
+
 static void test_Win32_LogicalDisk( IWbemServices *services )
 {
     BSTR wql = SysAllocString( L"wql" ), query = SysAllocString( L"SELECT * FROM Win32_LogicalDisk" );
@@ -2567,8 +2594,6 @@ static void test_MSSMBios_RawSMBiosTables( IWbemLocator *locator )
     IWbemServices *services;
     IEnumWbemClassObject *iter;
     IWbemClassObject *obj;
-    VARIANT val;
-    CIMTYPE type;
     ULONG count;
     HRESULT hr;
 
@@ -2581,12 +2606,14 @@ static void test_MSSMBios_RawSMBiosTables( IWbemLocator *locator )
     hr = IEnumWbemClassObject_Next( iter, WBEM_INFINITE, 1, &obj, &count );
     ok( hr == S_OK, "got %#lx\n", hr );
 
-    type = 0;
-    VariantInit( &val );
-    hr = IWbemClassObject_Get( obj, L"SMBiosData", 0, &val, &type, NULL );
-    ok( hr == S_OK, "got %#lx\n", hr );
-    ok( V_VT( &val ) == (VT_UI1 | VT_ARRAY), "got %#x\n", V_VT(&val) );
-    ok( type == (CIM_UINT8 | CIM_FLAG_ARRAY), "got %#lx\n", type );
+    check_property( obj, L"Active", VT_BOOL, CIM_BOOLEAN );
+    check_property( obj, L"DmiRevision", VT_UI1, CIM_UINT8 );
+    check_property( obj, L"InstanceName", VT_BSTR, CIM_STRING );
+    check_property( obj, L"Size", VT_I4, CIM_UINT32 );
+    check_property( obj, L"SMBiosData", VT_ARRAY | VT_UI1, CIM_FLAG_ARRAY | CIM_UINT8 );
+    check_property( obj, L"SmbiosMajorVersion", VT_UI1, CIM_UINT8 );
+    check_property( obj, L"SmbiosMinorVersion", VT_UI1, CIM_UINT8 );
+    check_property( obj, L"Used20CallingMethod", VT_BOOL, CIM_BOOLEAN );
 
     IWbemClassObject_Release( obj );
     IEnumWbemClassObject_Release( iter );
@@ -2726,6 +2753,7 @@ START_TEST(query)
     test_Win32_DiskDrive( services );
     test_Win32_DisplayControllerConfiguration( services );
     test_Win32_IP4RouteTable( services );
+    test_Win32_LocalTime( services );
     test_Win32_LogicalDisk( services );
     test_Win32_NetworkAdapter( services );
     test_Win32_NetworkAdapterConfiguration( services );

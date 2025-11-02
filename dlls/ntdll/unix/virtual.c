@@ -182,7 +182,7 @@ static const UINT_PTR host_page_mask = 0xfff;
 #endif
 
 /* Note: these are Windows limits, you cannot change them. */
-#ifdef __i386__
+#if defined(__i386__) || defined(__x86_64__)
 static void *address_space_start = (void *)0x110000; /* keep DOS area clear */
 #else
 static void *address_space_start = (void *)0x10000;
@@ -1375,7 +1375,7 @@ static void dump_view( struct file_view *view )
     char *addr = view->base;
     BYTE prot = get_page_vprot( addr );
 
-    TRACE( "View: %p - %p", addr, addr + view->size - 1 );
+    TRACE( "View: %p - %p %s", addr, addr + view->size - 1, get_prot_str(view->protect) );
     if (view->protect & VPROT_SYSTEM)
         TRACE( " (builtin image)\n" );
     else if (view->protect & VPROT_FREE_PLACEHOLDER)
@@ -2368,6 +2368,11 @@ static NTSTATUS map_file_into_view( struct file_view *view, int fd, size_t start
 #endif
     }
 
+    /* macOS since 10.15 fails to map files with PROT_EXEC
+     * (and will show the user an annoying warning if the file has a quarantine xattr set).
+     * But it works to map without PROT_EXEC and then use mprotect().
+     */
+#ifndef __APPLE__
     if ((vprot & VPROT_EXEC) || force_exec_prot)
     {
         if (!(vprot & VPROT_EXEC))
@@ -2375,6 +2380,7 @@ static NTSTATUS map_file_into_view( struct file_view *view, int fd, size_t start
                    (char *)view->base + start, (char *)view->base + start + size - 1 );
         prot |= PROT_EXEC;
     }
+#endif
 
     map_size = ROUND_SIZE( start, size, page_mask );
     map_addr = ROUND_ADDR( (char *)view->base + start, page_mask );
@@ -2745,8 +2751,7 @@ static NTSTATUS map_pe_header( void *ptr, size_t size, size_t map_size, int fd, 
 
     if (!*removable && map_size)
     {
-        if (mmap( ptr, map_size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                  MAP_FIXED | MAP_PRIVATE, fd, 0 ) != MAP_FAILED)
+        if (mmap( ptr, map_size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE, fd, 0 ) != MAP_FAILED)
         {
             if (size > map_size) pread( fd, (char *)ptr + map_size, size - map_size, map_size );
             return STATUS_SUCCESS;
@@ -3038,7 +3043,7 @@ static IMAGE_BASE_RELOCATION *process_relocation_block( char *page, IMAGE_BASE_R
  * Map an executable (PE format) image into an existing view.
  * virtual_mutex must be held by caller.
  */
-static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filename, int fd,
+static NTSTATUS map_image_into_view( struct file_view *view, const UNICODE_STRING *nt_name, int fd,
                                      struct pe_image_info *image_info, USHORT machine,
                                      int shared_fd, BOOL removable )
 {
@@ -3056,7 +3061,7 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
     SIZE_T align_mask = max( image_info->alignment - 1, page_mask );
     INT_PTR delta;
 
-    TRACE_(module)( "mapping PE file %s at %p-%p\n", debugstr_w(filename), ptr, ptr + total_size );
+    TRACE_(module)( "mapping PE file %s at %p-%p\n", debugstr_us(nt_name), ptr, ptr + total_size );
 
     /* map the header */
 
@@ -3134,7 +3139,7 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
         if (sec[i].VirtualAddress > total_size || end > total_size || end < sec[i].VirtualAddress)
         {
             WARN_(module)( "%s section %.8s too large (%x+%lx/%lx)\n",
-                           debugstr_w(filename), sec[i].Name, sec[i].VirtualAddress, map_size, total_size );
+                           debugstr_us(nt_name), sec[i].Name, sec[i].VirtualAddress, map_size, total_size );
             goto done;
         }
 
@@ -3142,13 +3147,13 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
             (sec[i].Characteristics & IMAGE_SCN_MEM_WRITE))
         {
             TRACE_(module)( "%s mapping shared section %.8s at %p off %x (%x) size %lx (%lx) flags %x\n",
-                            debugstr_w(filename), sec[i].Name, ptr + sec[i].VirtualAddress,
+                            debugstr_us(nt_name), sec[i].Name, ptr + sec[i].VirtualAddress,
                             sec[i].PointerToRawData, (int)pos, file_size, map_size,
                             sec[i].Characteristics );
             if (map_file_into_view( view, shared_fd, sec[i].VirtualAddress, map_size, pos,
                                     VPROT_COMMITTED | VPROT_READ | VPROT_WRITE, FALSE ) != STATUS_SUCCESS)
             {
-                ERR_(module)( "Could not map %s shared section %.8s\n", debugstr_w(filename), sec[i].Name );
+                ERR_(module)( "Could not map %s shared section %.8s\n", debugstr_us(nt_name), sec[i].Name );
                 goto done;
             }
 
@@ -3169,7 +3174,7 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
         }
 
         TRACE_(module)( "mapping %s section %.8s at %p off %x size %x virt %x flags %x\n",
-                        debugstr_w(filename), sec[i].Name, ptr + sec[i].VirtualAddress,
+                        debugstr_us(nt_name), sec[i].Name, ptr + sec[i].VirtualAddress,
                         sec[i].PointerToRawData, sec[i].SizeOfRawData,
                         sec[i].Misc.VirtualSize, sec[i].Characteristics );
 
@@ -3187,7 +3192,7 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
                                 removable ) != STATUS_SUCCESS)
         {
             ERR_(module)( "Could not map %s section %.8s, file probably truncated\n",
-                          debugstr_w(filename), sec[i].Name );
+                          debugstr_us(nt_name), sec[i].Name );
             goto done;
         }
 
@@ -3227,7 +3232,7 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
 
     if (image_info->map_addr && (delta = image_info->map_addr - image_info->base))
     {
-        TRACE_(module)( "relocating %s dynamic base %lx -> %lx mapped at %p\n", debugstr_w(filename),
+        TRACE_(module)( "relocating %s dynamic base %lx -> %lx mapped at %p\n", debugstr_us(nt_name),
                         (ULONG_PTR)image_info->base, (ULONG_PTR)image_info->map_addr, ptr );
 
         if (nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
@@ -3265,7 +3270,7 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
 
         if (!set_vprot( view, ptr + sec[i].VirtualAddress, size, vprot ) && (vprot & VPROT_EXEC))
             ERR( "failed to set %08x protection on %s section %.8s, noexec filesystem?\n",
-                 sec[i].Characteristics, debugstr_w(filename), sec[i].Name );
+                 sec[i].Characteristics, debugstr_us(nt_name), sec[i].Name );
     }
 
 #ifdef VALGRIND_LOAD_PDB_DEBUGINFO
@@ -3283,10 +3288,12 @@ done:
  *             get_mapping_info
  */
 static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigned int *sec_flags,
-                                      mem_size_t *full_size, HANDLE *shared_file, struct pe_image_info **info )
+                                      mem_size_t *full_size, HANDLE *shared_file,
+                                      struct pe_image_info **info, UNICODE_STRING *nt_name,
+                                      ANSI_STRING *exp_name )
 {
     struct pe_image_info *image_info;
-    SIZE_T total, size = 1024;
+    SIZE_T namelen, total, size = 1024;
     unsigned int status;
 
     for (;;)
@@ -3301,24 +3308,26 @@ static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigne
             status = wine_server_call( req );
             *sec_flags   = reply->flags;
             *full_size   = reply->size;
+            namelen      = reply->name_len;
             total        = reply->total;
             *shared_file = wine_server_ptr_handle( reply->shared_file );
         }
         SERVER_END_REQ;
-        if (!status && total <= size - sizeof(WCHAR)) break;
+        if (!status && total <= size) break;
         free( image_info );
         if (status) return status;
         if (*shared_file) NtClose( *shared_file );
-        size = total + sizeof(WCHAR);
+        size = total;
     }
 
     if (total)
     {
-        WCHAR *filename = (WCHAR *)(image_info + 1);
-
         assert( total >= sizeof(*image_info) );
         total -= sizeof(*image_info);
-        filename[total / sizeof(WCHAR)] = 0;
+        nt_name->Buffer = (WCHAR *)(image_info + 1);
+        nt_name->Length = nt_name->MaximumLength = namelen;
+        exp_name->Buffer = (char *)nt_name->Buffer + namelen;
+        exp_name->Length = exp_name->MaximumLength = total - namelen;
         *info = image_info;
     }
     else free( image_info );
@@ -3395,7 +3404,7 @@ static NTSTATUS map_image_view( struct file_view **view_ret, struct pe_image_inf
 static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size_ptr, HANDLE shared_file,
                                    ULONG_PTR limit_low, ULONG_PTR limit_high, ULONG alloc_type,
                                    USHORT machine, struct pe_image_info *image_info,
-                                   WCHAR *filename, BOOL is_builtin )
+                                   UNICODE_STRING *nt_name, BOOL is_builtin )
 {
     int unix_fd = -1, needs_close;
     int shared_fd = -1, shared_needs_close = 0;
@@ -3431,7 +3440,7 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
     status = map_image_view( &view, image_info, size, limit_low, limit_high, alloc_type );
     if (status) goto done;
 
-    status = map_image_into_view( view, filename, unix_fd, image_info, machine, shared_fd, needs_close );
+    status = map_image_into_view( view, nt_name, unix_fd, image_info, machine, shared_fd, needs_close );
     if (status == STATUS_SUCCESS)
     {
         image_info->base = wine_server_client_ptr( view->base );
@@ -3478,7 +3487,8 @@ static unsigned int virtual_map_section( HANDLE handle, PVOID *addr_ptr, ULONG_P
     ACCESS_MASK access;
     SIZE_T size;
     struct pe_image_info *image_info = NULL;
-    WCHAR *filename;
+    UNICODE_STRING nt_name;
+    ANSI_STRING exp_name;
     void *base;
     int unix_handle = -1, needs_close;
     unsigned int vprot, sec_flags;
@@ -3509,7 +3519,8 @@ static unsigned int virtual_map_section( HANDLE handle, PVOID *addr_ptr, ULONG_P
         return STATUS_INVALID_PAGE_PROTECTION;
     }
 
-    res = get_mapping_info( handle, access, &sec_flags, &full_size, &shared_file, &image_info );
+    res = get_mapping_info( handle, access, &sec_flags, &full_size, &shared_file,
+                            &image_info, &nt_name, &exp_name );
     if (res) return res;
 
     if (image_info)
@@ -3522,13 +3533,12 @@ static unsigned int virtual_map_section( HANDLE handle, PVOID *addr_ptr, ULONG_P
             prev = NtCurrentTeb64()->Tib.ArbitraryUserPointer;
             NtCurrentTeb64()->Tib.ArbitraryUserPointer = PtrToUlong(NtCurrentTeb()->Tib.ArbitraryUserPointer);
         }
-        filename = (WCHAR *)(image_info + 1);
         /* check if we can replace that mapping with the builtin */
-        res = load_builtin( image_info, filename, machine, &info,
+        res = load_builtin( image_info, &nt_name, &exp_name, machine, &info,
                             addr_ptr, size_ptr, limit_low, limit_high );
         if (res == STATUS_IMAGE_ALREADY_LOADED)
             res = virtual_map_image( handle, addr_ptr, size_ptr, shared_file, limit_low, limit_high,
-                                     alloc_type, machine, image_info, filename, FALSE );
+                                     alloc_type, machine, image_info, &nt_name, FALSE );
         if (shared_file) NtClose( shared_file );
         free( image_info );
         if (NtCurrentTeb64()) NtCurrentTeb64()->Tib.ArbitraryUserPointer = prev;
@@ -3779,32 +3789,32 @@ NTSTATUS virtual_map_builtin_module( HANDLE mapping, void **module, SIZE_T *size
     HANDLE shared_file;
     struct pe_image_info *image_info = NULL;
     NTSTATUS status;
-    WCHAR *filename;
+    UNICODE_STRING nt_name;
+    ANSI_STRING exp_name;
 
-    if ((status = get_mapping_info( mapping, SECTION_MAP_READ,
-                                    &sec_flags, &full_size, &shared_file, &image_info )))
+    if ((status = get_mapping_info( mapping, SECTION_MAP_READ, &sec_flags, &full_size, &shared_file,
+                                    &image_info, &nt_name, &exp_name )))
         return status;
 
     if (!image_info) return STATUS_INVALID_PARAMETER;
 
     *module = NULL;
     *size = 0;
-    filename = (WCHAR *)(image_info + 1);
 
     if (!image_info->wine_builtin) /* ignore non-builtins */
     {
-        WARN_(module)( "%s found in WINEDLLPATH but not a builtin, ignoring\n", debugstr_w(filename) );
+        WARN_(module)( "%s found in WINEDLLPATH but not a builtin, ignoring\n", debugstr_us(&nt_name) );
         status = STATUS_DLL_NOT_FOUND;
     }
     else if (prefer_native && (image_info->dll_charact & IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE))
     {
-        TRACE_(module)( "%s has prefer-native flag, ignoring builtin\n", debugstr_w(filename) );
+        TRACE_(module)( "%s has prefer-native flag, ignoring builtin\n", debugstr_us(&nt_name) );
         status = STATUS_IMAGE_ALREADY_LOADED;
     }
     else
     {
         status = virtual_map_image( mapping, module, size, shared_file, limit_low, limit_high, 0,
-                                    machine, image_info, filename, TRUE );
+                                    machine, image_info, &nt_name, TRUE );
         virtual_fill_image_information( image_info, info );
     }
 
@@ -3825,24 +3835,25 @@ NTSTATUS virtual_map_module( HANDLE mapping, void **module, SIZE_T *size, SECTIO
     unsigned int sec_flags;
     HANDLE shared_file;
     struct pe_image_info *image_info = NULL;
-    WCHAR *filename;
+    UNICODE_STRING nt_name;
+    ANSI_STRING exp_name;
 
-    if ((status = get_mapping_info( mapping, SECTION_MAP_READ,
-                                    &sec_flags, &full_size, &shared_file, &image_info )))
+    if ((status = get_mapping_info( mapping, SECTION_MAP_READ, &sec_flags, &full_size, &shared_file,
+                                    &image_info, &nt_name, &exp_name )))
         return status;
 
     if (!image_info) return STATUS_INVALID_PARAMETER;
 
     *module = NULL;
     *size = 0;
-    filename = (WCHAR *)(image_info + 1);
 
     /* check if we can replace that mapping with the builtin */
-    status = load_builtin( image_info, filename, machine, info, module, size, limit_low, limit_high );
+    status = load_builtin( image_info, &nt_name, &exp_name, machine, info,
+                           module, size, limit_low, limit_high );
     if (status == STATUS_IMAGE_ALREADY_LOADED)
     {
         status = virtual_map_image( mapping, module, size, shared_file, limit_low, limit_high, 0,
-                                    machine, image_info, filename, FALSE );
+                                    machine, image_info, &nt_name, FALSE );
         virtual_fill_image_information( image_info, info );
     }
     if (shared_file) NtClose( shared_file );
@@ -4026,6 +4037,7 @@ static TEB *init_teb( void *ptr, BOOL is_wow )
     thread_data->reply_fd   = -1;
     thread_data->wait_fd[0] = -1;
     thread_data->wait_fd[1] = -1;
+    thread_data->alert_fd   = -1;
     list_add_head( &teb_list, &thread_data->entry );
     return teb;
 }
@@ -4164,6 +4176,13 @@ void virtual_free_teb( TEB *teb )
 
 #if defined(__i386__) || defined(__x86_64__)
 
+struct ldt_copy
+{
+    unsigned int    base[LDT_SIZE];
+    struct ldt_bits bits[LDT_SIZE];
+};
+C_ASSERT( sizeof(struct ldt_copy) == 8 * LDT_SIZE );
+
 static struct ldt_copy *ldt_copy;
 
 UINT ldt_bitmap[LDT_SIZE / 32] = { ~0u };
@@ -4197,7 +4216,55 @@ WORD ldt_update_entry( WORD sel, LDT_ENTRY entry )
     return sel;
 }
 
-#endif /* defined(__i386__) || defined(__x86_64__) */
+/***********************************************************************
+ *           ldt_get_entry
+ */
+NTSTATUS ldt_get_entry( WORD sel, CLIENT_ID client_id, LDT_ENTRY *entry )
+{
+    NTSTATUS status = STATUS_SUCCESS;
+    unsigned int base = 0;
+    struct ldt_bits bits = { 0 };
+    unsigned int idx = sel >> 3;
+
+    if (client_id.UniqueProcess == NtCurrentTeb()->ClientId.UniqueProcess)
+    {
+        if (ldt_copy)
+        {
+            base = ldt_copy->base[idx];
+            bits = ldt_copy->bits[idx];
+        }
+    }
+    else
+    {
+        HANDLE process;
+        ULONG ptr = 0;
+        PEB32 *peb32 = NULL;
+
+        if ((status = NtOpenProcess( &process, PROCESS_ALL_ACCESS, NULL, &client_id ))) return status;
+
+        if (!is_win64)
+        {
+            PROCESS_BASIC_INFORMATION pbi;
+
+            NtQueryInformationProcess( process, ProcessBasicInformation, &pbi, sizeof(pbi), NULL );
+            peb32 = (PEB32 *)pbi.PebBaseAddress;
+        }
+        else NtQueryInformationProcess( process, ProcessWow64Information, &peb32, sizeof(peb32), NULL );
+
+        if (!NtReadVirtualMemory( process, &peb32->SpareUlongs[0], &ptr, sizeof(ptr), NULL ) && ptr)
+        {
+            struct ldt_copy *ldt = ULongToPtr( ptr );
+            NtReadVirtualMemory( process, &ldt->base[idx], &base, sizeof(base), NULL );
+            NtReadVirtualMemory( process, &ldt->bits[idx], &bits, sizeof(bits), NULL );
+        }
+        NtClose( process );
+    }
+
+    if (base || bits.limit || bits.type) *entry = ldt_make_entry( base, bits );
+    else status = STATUS_UNSUCCESSFUL;
+
+    return status;
+}
 
 /******************************************************************************
  *           NtSetLdtEntries   (NTDLL.@)
@@ -4205,9 +4272,9 @@ WORD ldt_update_entry( WORD sel, LDT_ENTRY entry )
  */
 NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_ENTRY entry2 )
 {
-#ifdef __i386__
     sigset_t sigset;
 
+    if (is_win64 && !is_wow64()) return STATUS_NOT_IMPLEMENTED;
     if (sel1 >> 16 || sel2 >> 16) return STATUS_INVALID_LDT_DESCRIPTOR;
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
@@ -4215,10 +4282,20 @@ NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_E
     if (sel2) ldt_update_entry( sel2, entry2 );
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
     return STATUS_SUCCESS;
-#else
-    return STATUS_NOT_IMPLEMENTED;
-#endif
 }
+
+#else /* defined(__i386__) || defined(__x86_64__) */
+
+/******************************************************************************
+ *           NtSetLdtEntries   (NTDLL.@)
+ *           ZwSetLdtEntries   (NTDLL.@)
+ */
+NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, LDT_ENTRY entry1, ULONG sel2, LDT_ENTRY entry2 )
+{
+    return STATUS_NOT_IMPLEMENTED;
+}
+
+#endif /* defined(__i386__) || defined(__x86_64__) */
 
 
 /***********************************************************************
@@ -4959,13 +5036,16 @@ void virtual_set_large_address_space(void)
 {
     if (is_win64)
     {
-        if (is_wow64())
-            user_space_wow_limit = ((main_image_info.ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) ? limit_4g : limit_2g) - 1;
+        if (!is_wow64())
+        {
+            address_space_start = (void *)0x10000;
 #ifndef __APPLE__  /* don't free the zerofill section on macOS */
-        else if ((main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA) &&
-                 (main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE))
-            free_reserved_memory( 0, (char *)0x7ffe0000 );
+            if ((main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA) &&
+                (main_image_info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE))
+                free_reserved_memory( 0, (char *)0x7ffe0000 );
 #endif
+        }
+        else user_space_wow_limit = ((main_image_info.ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) ? limit_4g : limit_2g) - 1;
     }
     else
     {
@@ -6663,7 +6743,8 @@ NTSTATUS WINAPI NtWriteVirtualMemory( HANDLE process, void *addr, const void *bu
             req->handle     = wine_server_obj_handle( process );
             req->addr       = wine_server_client_ptr( addr );
             wine_server_add_data( req, buffer, size );
-            if ((status = wine_server_call( req ))) size = 0;
+            status = wine_server_call( req );
+            size = reply->written;
         }
         SERVER_END_REQ;
     }

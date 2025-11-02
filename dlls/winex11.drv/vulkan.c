@@ -58,7 +58,7 @@ static VkResult X11DRV_vulkan_surface_create( HWND hwnd, const struct vulkan_ins
 
     TRACE( "%p %p %p %p\n", hwnd, instance, handle, client );
 
-    if (!(info.window = x11drv_client_surface_create( hwnd, &default_visual, default_colormap, client ))) return VK_ERROR_OUT_OF_HOST_MEMORY;
+    if (!(info.window = x11drv_client_surface_create( hwnd, 0, client ))) return VK_ERROR_OUT_OF_HOST_MEMORY;
     if (instance->p_vkCreateXlibSurfaceKHR( instance->host.instance, &info, NULL /* allocator */, handle ))
     {
         ERR("Failed to create Xlib surface\n");
@@ -78,16 +78,20 @@ static VkBool32 X11DRV_get_physical_device_presentation_support( struct vulkan_p
                                                                       default_visual.visual->visualid );
 }
 
-static const char *X11DRV_get_host_surface_extension(void)
+static const char *X11DRV_get_host_extension( const char *name )
 {
-    return "VK_KHR_xlib_surface";
+    if (!strcmp( name, "VK_KHR_win32_surface" )) return "VK_KHR_xlib_surface";
+    if (!strcmp( name, "VK_KHR_external_memory_win32" )) return "VK_KHR_external_memory_fd";
+    if (!strcmp( name, "VK_KHR_external_semaphore_win32" )) return "VK_KHR_external_semaphore_fd";
+    if (!strcmp( name, "VK_KHR_external_fence_win32" )) return "VK_KHR_external_fence_fd";
+    return name;
 }
 
 static const struct vulkan_driver_funcs x11drv_vulkan_driver_funcs =
 {
     .p_vulkan_surface_create = X11DRV_vulkan_surface_create,
     .p_get_physical_device_presentation_support = X11DRV_get_physical_device_presentation_support,
-    .p_get_host_surface_extension = X11DRV_get_host_surface_extension,
+    .p_get_host_extension = X11DRV_get_host_extension,
 };
 
 UINT X11DRV_VulkanInit( UINT version, void *vulkan_handle, const struct vulkan_driver_funcs **driver_funcs )

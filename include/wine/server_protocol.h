@@ -18,6 +18,7 @@
 
 typedef unsigned int obj_handle_t;
 typedef unsigned int user_handle_t;
+typedef unsigned int d3dkmt_handle_t;
 typedef unsigned int atom_t;
 typedef unsigned int process_id_t;
 typedef unsigned int thread_id_t;
@@ -952,6 +953,17 @@ union udp_endpoint
     } ipv6;
 };
 
+enum d3dkmt_type
+{
+    D3DKMT_ADAPTER      = 1,
+    D3DKMT_DEVICE       = 2,
+    D3DKMT_SOURCE       = 3,
+    D3DKMT_MUTEX        = 4,
+    D3DKMT_SYNC         = 5,
+    D3DKMT_RESOURCE     = 6,
+    D3DKMT_ALLOCATION   = 7,
+};
+
 
 
 
@@ -962,6 +974,8 @@ struct obj_locator
 };
 
 #define MAX_ATOM_LEN     255
+#define WH_WINEVENT      (WH_MAXHOOK + 1)
+#define NB_HOOKS         (WH_WINEVENT - WH_MINHOOK + 1)
 
 struct shared_cursor
 {
@@ -982,11 +996,13 @@ typedef volatile struct
 
 typedef volatile struct
 {
-    int                  hooks_count[WH_MAX - WH_MIN + 2];
+    timeout_t            access_time;
     unsigned int         wake_mask;
     unsigned int         wake_bits;
     unsigned int         changed_mask;
     unsigned int         changed_bits;
+    unsigned int         internal_bits;
+    int                  hooks_count[NB_HOOKS];
 } queue_shm_t;
 
 typedef volatile struct
@@ -1008,9 +1024,16 @@ typedef volatile struct
 
 typedef volatile struct
 {
+    atom_t               atom;
+    unsigned int         style;
+    unsigned int         cls_extra;
+    unsigned int         win_extra;
+    mod_handle_t         instance;
     data_size_t          name_offset;
     data_size_t          name_len;
     WCHAR                name[MAX_ATOM_LEN];
+    unsigned short       __pad;
+    char                 extra[];
 } class_shm_t;
 
 typedef volatile struct
@@ -2187,10 +2210,11 @@ struct get_mapping_info_reply
     mem_size_t   size;
     unsigned int flags;
     obj_handle_t shared_file;
+    data_size_t  name_len;
     data_size_t  total;
     /* VARARG(image,pe_image_info); */
-    /* VARARG(name,unicode_str); */
-    char __pad_28[4];
+    /* VARARG(name,unicode_str,name_len); */
+    /* VARARG(exp_name,string); */
 };
 
 
@@ -2522,6 +2546,8 @@ struct write_process_memory_request
 struct write_process_memory_reply
 {
     struct reply_header __header;
+    data_size_t written;
+    char __pad_12[4];
 };
 
 
@@ -2959,7 +2985,7 @@ struct get_msg_queue_handle_reply
 {
     struct reply_header __header;
     obj_handle_t handle;
-    char __pad_12[4];
+    obj_handle_t idle_event;
 };
 
 
@@ -2994,7 +3020,7 @@ struct set_queue_mask_request
     struct request_header __header;
     unsigned int wake_mask;
     unsigned int changed_mask;
-    int          skip_wait;
+    int          poll_events;
 };
 struct set_queue_mask_reply
 {
@@ -4470,12 +4496,11 @@ struct create_class_request
     atom_t         atom;
     unsigned int   style;
     mod_handle_t   instance;
-    int            extra;
-    int            win_extra;
     client_ptr_t   client_ptr;
+    short int      cls_extra;
+    short int      win_extra;
     data_size_t    name_offset;
     /* VARARG(name,unicode_str); */
-    char __pad_52[4];
 };
 struct create_class_reply
 {
@@ -5951,8 +5976,11 @@ struct set_keyboard_repeat_reply
 
 enum inproc_sync_type
 {
-    INPROC_SYNC_UNKNOWN = 0,
-    INPROC_SYNC_EVENT = 1,
+    INPROC_SYNC_UNKNOWN   = 0,
+    INPROC_SYNC_INTERNAL  = 1,
+    INPROC_SYNC_EVENT     = 2,
+    INPROC_SYNC_MUTEX     = 3,
+    INPROC_SYNC_SEMAPHORE = 4,
 };
 
 
@@ -5966,6 +5994,163 @@ struct get_inproc_sync_fd_reply
     struct reply_header __header;
     int           type;
     unsigned int access;
+};
+
+
+
+struct get_inproc_alert_fd_request
+{
+    struct request_header __header;
+    char __pad_12[4];
+};
+struct get_inproc_alert_fd_reply
+{
+    struct reply_header __header;
+    obj_handle_t handle;
+    char __pad_12[4];
+};
+
+
+
+struct d3dkmt_object_create_request
+{
+    struct request_header __header;
+    unsigned int        type;
+    int                 fd;
+    unsigned int        value;
+    /* VARARG(runtime,bytes); */
+};
+struct d3dkmt_object_create_reply
+{
+    struct reply_header __header;
+    d3dkmt_handle_t     global;
+    obj_handle_t        handle;
+};
+
+
+
+struct d3dkmt_object_update_request
+{
+    struct request_header __header;
+    unsigned int        type;
+    d3dkmt_handle_t     global;
+    /* VARARG(runtime,bytes); */
+    char __pad_20[4];
+};
+struct d3dkmt_object_update_reply
+{
+    struct reply_header __header;
+};
+
+
+
+struct d3dkmt_object_query_request
+{
+    struct request_header __header;
+    unsigned int        type;
+    d3dkmt_handle_t     global;
+    obj_handle_t        handle;
+};
+struct d3dkmt_object_query_reply
+{
+    struct reply_header __header;
+    data_size_t         runtime_size;
+    char __pad_12[4];
+};
+
+
+
+struct d3dkmt_object_open_request
+{
+    struct request_header __header;
+    unsigned int        type;
+    d3dkmt_handle_t     global;
+    obj_handle_t        handle;
+};
+struct d3dkmt_object_open_reply
+{
+    struct reply_header __header;
+    d3dkmt_handle_t     global;
+    obj_handle_t        handle;
+    data_size_t         runtime_size;
+    /* VARARG(runtime,bytes); */
+    char __pad_20[4];
+};
+
+
+
+struct d3dkmt_share_objects_request
+{
+    struct request_header __header;
+    d3dkmt_handle_t     resource;
+    d3dkmt_handle_t     mutex;
+    d3dkmt_handle_t     sync;
+    unsigned int        access;
+    /* VARARG(objattr,object_attributes); */
+    char __pad_28[4];
+};
+struct d3dkmt_share_objects_reply
+{
+    struct reply_header __header;
+    obj_handle_t        handle;
+    char __pad_12[4];
+};
+
+
+
+struct d3dkmt_object_open_name_request
+{
+    struct request_header __header;
+    unsigned int        type;
+    unsigned int        access;
+    unsigned int        attributes;
+    obj_handle_t        rootdir;
+    /* VARARG(name,unicode_str); */
+    char __pad_28[4];
+};
+struct d3dkmt_object_open_name_reply
+{
+    struct reply_header __header;
+    obj_handle_t        handle;
+    char __pad_12[4];
+};
+
+
+
+struct d3dkmt_mutex_acquire_request
+{
+    struct request_header __header;
+    d3dkmt_handle_t     mutex;
+    unsigned int        key_value;
+    obj_handle_t        wait_handle;
+    unsigned int        wait_status;
+    char __pad_28[4];
+};
+struct d3dkmt_mutex_acquire_reply
+{
+    struct reply_header __header;
+    unsigned __int64    fence_value;
+    data_size_t         runtime_size;
+    obj_handle_t        wait_handle;
+    /* VARARG(runtime,bytes); */
+};
+
+
+
+struct d3dkmt_mutex_release_request
+{
+    struct request_header __header;
+    d3dkmt_handle_t     mutex;
+    int                 abandon;
+    unsigned int        key_value;
+    unsigned __int64    fence_value;
+    data_size_t         runtime_size;
+    /* VARARG(runtime,bytes); */
+    char __pad_36[4];
+};
+struct d3dkmt_mutex_release_reply
+{
+    struct reply_header __header;
 };
 
 
@@ -6268,6 +6453,15 @@ enum request
     REQ_get_next_thread,
     REQ_set_keyboard_repeat,
     REQ_get_inproc_sync_fd,
+    REQ_get_inproc_alert_fd,
+    REQ_d3dkmt_object_create,
+    REQ_d3dkmt_object_update,
+    REQ_d3dkmt_object_query,
+    REQ_d3dkmt_object_open,
+    REQ_d3dkmt_share_objects,
+    REQ_d3dkmt_object_open_name,
+    REQ_d3dkmt_mutex_acquire,
+    REQ_d3dkmt_mutex_release,
     REQ_NB_REQUESTS
 };
 
@@ -6572,6 +6766,15 @@ union generic_request
     struct get_next_thread_request get_next_thread_request;
     struct set_keyboard_repeat_request set_keyboard_repeat_request;
     struct get_inproc_sync_fd_request get_inproc_sync_fd_request;
+    struct get_inproc_alert_fd_request get_inproc_alert_fd_request;
+    struct d3dkmt_object_create_request d3dkmt_object_create_request;
+    struct d3dkmt_object_update_request d3dkmt_object_update_request;
+    struct d3dkmt_object_query_request d3dkmt_object_query_request;
+    struct d3dkmt_object_open_request d3dkmt_object_open_request;
+    struct d3dkmt_share_objects_request d3dkmt_share_objects_request;
+    struct d3dkmt_object_open_name_request d3dkmt_object_open_name_request;
+    struct d3dkmt_mutex_acquire_request d3dkmt_mutex_acquire_request;
+    struct d3dkmt_mutex_release_request d3dkmt_mutex_release_request;
 };
 union generic_reply
 {
@@ -6874,8 +7077,17 @@ union generic_reply
     struct get_next_thread_reply get_next_thread_reply;
     struct set_keyboard_repeat_reply set_keyboard_repeat_reply;
     struct get_inproc_sync_fd_reply get_inproc_sync_fd_reply;
+    struct get_inproc_alert_fd_reply get_inproc_alert_fd_reply;
+    struct d3dkmt_object_create_reply d3dkmt_object_create_reply;
+    struct d3dkmt_object_update_reply d3dkmt_object_update_reply;
+    struct d3dkmt_object_query_reply d3dkmt_object_query_reply;
+    struct d3dkmt_object_open_reply d3dkmt_object_open_reply;
+    struct d3dkmt_share_objects_reply d3dkmt_share_objects_reply;
+    struct d3dkmt_object_open_name_reply d3dkmt_object_open_name_reply;
+    struct d3dkmt_mutex_acquire_reply d3dkmt_mutex_acquire_reply;
+    struct d3dkmt_mutex_release_reply d3dkmt_mutex_release_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 897
+#define SERVER_PROTOCOL_VERSION 927
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */

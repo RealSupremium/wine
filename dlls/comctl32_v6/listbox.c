@@ -29,8 +29,6 @@
 #include "wingdi.h"
 #include "winuser.h"
 #include "commctrl.h"
-#include "uxtheme.h"
-#include "vssym32.h"
 #include "wine/exception.h"
 #include "wine/debug.h"
 
@@ -460,18 +458,31 @@ static void LISTBOX_UpdateSize( LB_DESCR *descr )
     descr->height = rect.bottom - rect.top;
     if (!(descr->style & LBS_NOINTEGRALHEIGHT) && !(descr->style & LBS_OWNERDRAWVARIABLE))
     {
+        int height = descr->height;
         INT remaining;
         RECT rect;
 
+        /* The whole point of integral height is to ensure that partial items
+         * aren't displayed. Native seems to fail to take the horizontal
+         * scrollbar into account (while successfully taking into account e.g.
+         * WS_EX_CLIENTEDGE), so it ends up obscuring partial items anyway.
+         *
+         * It's not clear if native is trying to work from
+         * the window rect as opposed to the client rect [and badly
+         * reimplementing AdjustWindowRect()] or poorly working around the case
+         * where the horizontal scrollbar is repeatedly toggled (which could
+         * unnecessarily shrink the scrollbar every time it happens). */
+        if (GetWindowLongW( descr->self, GWL_STYLE ) & WS_HSCROLL)
+            height += GetSystemMetrics( SM_CYHSCROLL );
+
         GetWindowRect( descr->self, &rect );
         if(descr->item_height != 0)
-            remaining = descr->height % descr->item_height;
+            remaining = height % descr->item_height;
         else
             remaining = 0;
-        if ((descr->height > descr->item_height) && remaining)
+        if ((height > descr->item_height) && remaining)
         {
-            TRACE("[%p]: changing height %d -> %d\n",
-                  descr->self, descr->height, descr->height - remaining );
+            TRACE( "[%p]: changing height %d -> %d\n", descr->self, height, height - remaining );
             SetWindowPos( descr->self, 0, 0, 0, rect.right - rect.left,
                           rect.bottom - rect.top - remaining,
                           SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE );
@@ -1182,43 +1193,6 @@ static LRESULT LISTBOX_Paint( LB_DESCR *descr, HDC hdc )
     }
     if (oldFont) SelectObject( hdc, oldFont );
     if (oldBrush) SelectObject( hdc, oldBrush );
-    return 0;
-}
-
-static LRESULT LISTBOX_NCPaint( LB_DESCR *descr, HRGN region )
-{
-    DWORD exstyle = GetWindowLongW( descr->self, GWL_EXSTYLE);
-    HTHEME theme = GetWindowTheme( descr->self );
-    HRGN cliprgn = region;
-    int cxEdge, cyEdge;
-    HDC hdc;
-    RECT r;
-
-    if (!theme || !(exstyle & WS_EX_CLIENTEDGE))
-        return DefWindowProcW(descr->self, WM_NCPAINT, (WPARAM)region, 0);
-
-    cxEdge = GetSystemMetrics(SM_CXEDGE);
-    cyEdge = GetSystemMetrics(SM_CYEDGE);
-
-    GetWindowRect(descr->self, &r);
-
-    /* New clipping region passed to default proc to exclude border */
-    cliprgn = CreateRectRgn(r.left + cxEdge, r.top + cyEdge,
-        r.right - cxEdge, r.bottom - cyEdge);
-    if (region != (HRGN)1)
-        CombineRgn(cliprgn, cliprgn, region, RGN_AND);
-    OffsetRect(&r, -r.left, -r.top);
-
-    hdc = GetDCEx(descr->self, region, DCX_WINDOW|DCX_INTERSECTRGN);
-
-    if (IsThemeBackgroundPartiallyTransparent (theme, 0, 0))
-        DrawThemeParentBackground(descr->self, hdc, &r);
-    DrawThemeBackground (theme, hdc, 0, 0, &r, 0);
-    ReleaseDC(descr->self, hdc);
-
-    /* Call default proc to get the scrollbars etc. also painted */
-    DefWindowProcW(descr->self, WM_NCPAINT, (WPARAM)cliprgn, 0);
-    DeleteObject(cliprgn);
     return 0;
 }
 
@@ -2642,7 +2616,7 @@ static BOOL LISTBOX_Create( HWND hwnd, LPHEADCOMBO lphc )
 	}
     }
 
-    OpenThemeData( descr->self, WC_LISTBOXW );
+    COMCTL32_OpenThemeForWindow( descr->self, WC_LISTBOXW );
 
     TRACE("owner: %p, style: %08x, width: %d, height: %d\n", descr->owner, descr->style, descr->width, descr->height);
     return TRUE;
@@ -2654,8 +2628,7 @@ static BOOL LISTBOX_Create( HWND hwnd, LPHEADCOMBO lphc )
  */
 static BOOL LISTBOX_Destroy( LB_DESCR *descr )
 {
-    HTHEME theme = GetWindowTheme( descr->self );
-    CloseThemeData( theme );
+    COMCTL32_CloseThemeForWindow( descr->self );
     LISTBOX_ResetContent( descr );
     SetWindowLongPtrW( descr->self, 0, 0 );
     HeapFree( GetProcessHeap(), 0, descr );
@@ -2670,7 +2643,6 @@ static LRESULT CALLBACK LISTBOX_WindowProc( HWND hwnd, UINT msg, WPARAM wParam, 
 {
     LB_DESCR *descr = (LB_DESCR *)GetWindowLongPtrW( hwnd, 0 );
     HEADCOMBO *lphc = NULL;
-    HTHEME theme;
     LRESULT ret;
 
     if (!descr)
@@ -2989,7 +2961,7 @@ static LRESULT CALLBACK LISTBOX_WindowProc( HWND hwnd, UINT msg, WPARAM wParam, 
         return ret;
 
     case WM_NCPAINT:
-        return LISTBOX_NCPaint( descr, (HRGN)wParam );
+        return COMCTL32_NCPaint( descr->self, wParam, lParam, NULL );
 
     case WM_GETOBJECT:
         if ((LONG)lParam == OBJID_QUERYCLASSNAMEIDX)
@@ -3147,11 +3119,7 @@ static LRESULT CALLBACK LISTBOX_WindowProc( HWND hwnd, UINT msg, WPARAM wParam, 
 	break;
 
     case WM_THEMECHANGED:
-        theme = GetWindowTheme( hwnd );
-        CloseThemeData( theme );
-        OpenThemeData( hwnd, WC_LISTBOXW );
-        InvalidateRect( hwnd, NULL, TRUE );
-        break;
+        return COMCTL32_ThemeChanged( hwnd, WC_LISTBOXW, TRUE, TRUE );
 
     default:
         if ((msg >= WM_USER) && (msg < 0xc000))

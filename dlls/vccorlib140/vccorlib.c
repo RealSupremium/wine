@@ -30,7 +30,12 @@
 #include "wine/asm.h"
 #include "wine/debug.h"
 
+#include "cxx.h"
+#include "private.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(vccorlib);
+
+CREATE_TYPE_INFO_VTABLE
 
 HRESULT __cdecl InitializeData(int type)
 {
@@ -96,11 +101,37 @@ void *__cdecl Allocate(size_t size)
     return addr;
 }
 
+struct exception_alloc
+{
+    void *unknown;
+    void *exception_inner;
+    char data[0];
+};
+
+void *__cdecl AllocateException(size_t size)
+{
+    struct exception_alloc *base;
+
+    TRACE("(%Iu)\n", size);
+
+    base = Allocate(offsetof(struct exception_alloc, data[size]));
+    return &base->data;
+}
+
 void __cdecl Free(void *addr)
 {
     TRACE("(%p)\n", addr);
 
     free(addr);
+}
+
+void __cdecl FreeException(void *addr)
+{
+    struct exception_alloc *base = CONTAINING_RECORD(addr, struct exception_alloc, data);
+
+    TRACE("(%p)\n", addr);
+
+    Free(base);
 }
 
 struct control_block
@@ -110,9 +141,10 @@ struct control_block
     LONG ref_strong;
     IUnknown *object;
     bool is_inline;
-    UINT16 unknown;
+    bool unknown;
+    bool is_exception;
 #ifdef _WIN32
-    char _padding[4];
+    char _padding[5];
 #endif
 };
 
@@ -212,8 +244,30 @@ void *__cdecl AllocateWithWeakRef(ptrdiff_t offset, size_t size)
     weakref->object = object;
     weakref->ref_strong = weakref->ref_weak = 1;
     weakref->unknown = 0;
+    weakref->is_exception = FALSE;
 
     return weakref->object;
+}
+
+void *__cdecl AllocateExceptionWithWeakRef(ptrdiff_t offset, size_t size)
+{
+    struct control_block *weakref;
+    void *excp;
+
+    TRACE("(%Iu, %Iu)\n", offset, size);
+
+    /* AllocateExceptionWithWeakRef does not store the control block inline, regardless of size. */
+    weakref = Allocate(sizeof(*weakref));
+    excp = AllocateException(size);
+    *(struct control_block **)((char *)excp + offset) = weakref;
+    weakref->IWeakReference_iface.lpVtbl = &control_block_vtbl;
+    weakref->object = excp;
+    weakref->ref_strong = weakref->ref_weak = 1;
+    weakref->is_inline = FALSE;
+    weakref->unknown = 0;
+    weakref->is_exception = TRUE;
+
+    return excp;
 }
 
 DEFINE_THISCALL_WRAPPER(control_block_ReleaseTarget, 4)
@@ -225,7 +279,12 @@ void __thiscall control_block_ReleaseTarget(struct control_block *weakref)
 
     if (weakref->is_inline || ReadNoFence(&weakref->ref_strong) >= 0) return;
     if ((object = InterlockedCompareExchangePointer((void *)&weakref->object, NULL, weakref->object)))
-        Free(object);
+    {
+        if (weakref->is_exception)
+            FreeException(object);
+        else
+            Free(object);
+    }
 }
 
 struct __abi_type_descriptor
@@ -236,27 +295,32 @@ struct __abi_type_descriptor
 
 struct platform_type
 {
+    IInspectable IInspectable_iface;
     IClosable IClosable_iface;
     IUnknown *marshal;
     const struct __abi_type_descriptor *desc;
     LONG ref;
 };
 
-static inline struct platform_type *impl_from_IClosable(IClosable *iface)
+static inline struct platform_type *impl_from_IInspectable(IInspectable *iface)
 {
-    return CONTAINING_RECORD(iface, struct platform_type, IClosable_iface);
+    return CONTAINING_RECORD(iface, struct platform_type, IInspectable_iface);
 }
 
-static HRESULT WINAPI platform_type_QueryInterface(IClosable *iface, const GUID *iid, void **out)
+HRESULT WINAPI platform_type_QueryInterface(IInspectable *iface, const GUID *iid, void **out)
 {
-    struct platform_type *impl = impl_from_IClosable(iface);
+    struct platform_type *impl = impl_from_IInspectable(iface);
 
     TRACE("(%p, %s, %p)\n", iface, debugstr_guid(iid), out);
 
     if (IsEqualGUID(iid, &IID_IUnknown) ||
         IsEqualGUID(iid, &IID_IInspectable) ||
-        IsEqualGUID(iid, &IID_IClosable) ||
         IsEqualGUID(iid, &IID_IAgileObject))
+    {
+        IInspectable_AddRef((*out = &impl->IInspectable_iface));
+        return S_OK;
+    }
+    if (IsEqualGUID(iid, &IID_IClosable))
     {
         IClosable_AddRef((*out = &impl->IClosable_iface));
         return S_OK;
@@ -269,16 +333,16 @@ static HRESULT WINAPI platform_type_QueryInterface(IClosable *iface, const GUID 
     return E_NOINTERFACE;
 }
 
-static ULONG WINAPI platform_type_AddRef(IClosable *iface)
+static ULONG WINAPI platform_type_AddRef(IInspectable *iface)
 {
-    struct platform_type *impl = impl_from_IClosable(iface);
+    struct platform_type *impl = impl_from_IInspectable(iface);
     TRACE("(%p)\n", iface);
     return InterlockedIncrement(&impl->ref);
 }
 
-static ULONG WINAPI platform_type_Release(IClosable *iface)
+static ULONG WINAPI platform_type_Release(IInspectable *iface)
 {
-    struct platform_type *impl = impl_from_IClosable(iface);
+    struct platform_type *impl = impl_from_IInspectable(iface);
     ULONG ref = InterlockedDecrement(&impl->ref);
 
     TRACE("(%p)\n", iface);
@@ -291,13 +355,13 @@ static ULONG WINAPI platform_type_Release(IClosable *iface)
     return ref;
 }
 
-static HRESULT WINAPI platform_type_GetIids(IClosable *iface, ULONG *count, GUID **iids)
+static HRESULT WINAPI platform_type_GetIids(IInspectable *iface, ULONG *count, GUID **iids)
 {
     FIXME("(%p, %p, %p) stub\n", iface, count, iids);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI platform_type_GetRuntimeClassName(IClosable *iface, HSTRING *name)
+static HRESULT WINAPI platform_type_GetRuntimeClassName(IInspectable *iface, HSTRING *name)
 {
     static const WCHAR *str = L"Platform.Type";
 
@@ -305,31 +369,47 @@ static HRESULT WINAPI platform_type_GetRuntimeClassName(IClosable *iface, HSTRIN
     return WindowsCreateString(str, wcslen(str), name);
 }
 
-static HRESULT WINAPI platform_type_GetTrustLevel(IClosable *iface, TrustLevel *level)
+static HRESULT WINAPI platform_type_GetTrustLevel(IInspectable *iface, TrustLevel *level)
 {
     FIXME("(%p, %p) stub\n", iface, level);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI platform_type_Close(IClosable *iface)
+DEFINE_RTTI_DATA(platform_type, 0, ".?AVType@Platform@@");
+COM_VTABLE_RTTI_START(IInspectable, platform_type)
+COM_VTABLE_ENTRY(platform_type_QueryInterface)
+COM_VTABLE_ENTRY(platform_type_AddRef)
+COM_VTABLE_ENTRY(platform_type_Release)
+COM_VTABLE_ENTRY(platform_type_GetIids)
+COM_VTABLE_ENTRY(platform_type_GetRuntimeClassName)
+COM_VTABLE_ENTRY(platform_type_GetTrustLevel)
+COM_VTABLE_RTTI_END;
+
+DEFINE_IINSPECTABLE(platform_type_closable, IClosable, struct platform_type, IInspectable_iface);
+
+static HRESULT WINAPI platform_type_closable_Close(IClosable *iface)
 {
     FIXME("(%p) stub\n", iface);
     return E_NOTIMPL;
 }
 
-static const IClosableVtbl platform_type_closable_vtbl =
+DEFINE_RTTI_DATA(platform_type_closable, offsetof(struct platform_type, IClosable_iface), ".?AVType@Platform@@");
+COM_VTABLE_RTTI_START(IClosable, platform_type_closable)
+COM_VTABLE_ENTRY(platform_type_closable_QueryInterface)
+COM_VTABLE_ENTRY(platform_type_closable_AddRef)
+COM_VTABLE_ENTRY(platform_type_closable_Release)
+COM_VTABLE_ENTRY(platform_type_closable_GetIids)
+COM_VTABLE_ENTRY(platform_type_closable_GetRuntimeClassName)
+COM_VTABLE_ENTRY(platform_type_closable_GetTrustLevel)
+COM_VTABLE_ENTRY(platform_type_closable_Close)
+COM_VTABLE_RTTI_END;
+
+static void init_platform_type(void *base)
 {
-    /* IUnknown */
-    platform_type_QueryInterface,
-    platform_type_AddRef,
-    platform_type_Release,
-    /* IInspectable */
-    platform_type_GetIids,
-    platform_type_GetRuntimeClassName,
-    platform_type_GetTrustLevel,
-    /* ICloseable */
-    platform_type_Close
-};
+    INIT_RTTI(type_info, base);
+    INIT_RTTI(platform_type, base);
+    INIT_RTTI(platform_type_closable, base);
+}
 
 static const char *debugstr_abi_type_descriptor(const struct __abi_type_descriptor *desc)
 {
@@ -341,7 +421,6 @@ static const char *debugstr_abi_type_descriptor(const struct __abi_type_descript
 void *WINAPI __abi_make_type_id(const struct __abi_type_descriptor *desc)
 {
     /* TODO:
-     * Emit RTTI for Platform::Type.
      * Implement IEquatable and IPrintable.
      * Throw a COMException if CoCreateFreeThreadedMarshaler fails. */
     struct platform_type *obj;
@@ -350,17 +429,18 @@ void *WINAPI __abi_make_type_id(const struct __abi_type_descriptor *desc)
     TRACE("(%s)\n", debugstr_abi_type_descriptor(desc));
 
     obj = Allocate(sizeof(*obj));
-    obj->IClosable_iface.lpVtbl = &platform_type_closable_vtbl;
+    obj->IInspectable_iface.lpVtbl = &platform_type_vtable.vtable;
+    obj->IClosable_iface.lpVtbl = &platform_type_closable_vtable.vtable;
     obj->desc = desc;
     obj->ref = 1;
-    hr = CoCreateFreeThreadedMarshaler((IUnknown *)&obj->IClosable_iface, &obj->marshal);
+    hr = CoCreateFreeThreadedMarshaler((IUnknown *)&obj->IInspectable_iface, &obj->marshal);
     if (FAILED(hr))
     {
         FIXME("CoCreateFreeThreadedMarshaler failed: %#lx\n", hr);
         Free(obj);
         return NULL;
     }
-    return &obj->IClosable_iface;
+    return &obj->IInspectable_iface;
 }
 
 bool __cdecl platform_type_Equals_Object(struct platform_type *this, struct platform_type *object)
@@ -529,4 +609,93 @@ void *WINAPI CreateValue(int typecode, const void *val)
         return NULL;
     }
     return obj;
+}
+
+void *__cdecl CreateExceptionWithMessage(HRESULT hr, HSTRING msg)
+{
+    FIXME("(%#lx, %s): stub!\n", hr, debugstr_hstring(msg));
+    return NULL;
+}
+
+void *__cdecl CreateException(HRESULT hr)
+{
+    FIXME("(%#lx): stub!\n", hr);
+    return NULL;
+}
+
+void WINAPI __abi_WinRTraiseCOMException(HRESULT hr)
+{
+    FIXME("(%#lx): stub!\n", hr);
+}
+
+#define WINRT_EXCEPTIONS                                     \
+    WINRT_EXCEPTION(AccessDenied, E_ACCESSDENIED)            \
+    WINRT_EXCEPTION(ChangedState, E_CHANGED_STATE)           \
+    WINRT_EXCEPTION(ClassNotRegistered, REGDB_E_CLASSNOTREG) \
+    WINRT_EXCEPTION(Disconnected, RPC_E_DISCONNECTED)        \
+    WINRT_EXCEPTION(Failure, E_FAIL)                         \
+    WINRT_EXCEPTION(InvalidArgument, E_INVALIDARG)           \
+    WINRT_EXCEPTION(InvalidCast, E_NOINTERFACE)              \
+    WINRT_EXCEPTION(NotImplemented, E_NOTIMPL)               \
+    WINRT_EXCEPTION(NullReference, E_POINTER)                \
+    WINRT_EXCEPTION(ObjectDisposed, RO_E_CLOSED)             \
+    WINRT_EXCEPTION(OperationCanceled, E_ABORT)              \
+    WINRT_EXCEPTION(OutOfBounds, E_BOUNDS)                   \
+    WINRT_EXCEPTION(OutOfMemory, E_OUTOFMEMORY)              \
+    WINRT_EXCEPTION(WrongThread, RPC_E_WRONG_THREAD)
+
+#define WINRT_EXCEPTION(name, hr)                                                  \
+    void WINAPI __abi_WinRTraise##name##Exception(void)                            \
+    {                                                                              \
+        FIXME("(): stub!\n");                                                      \
+    }                                                                              \
+    void *__cdecl platform_##name##Exception_ctor(void *this)                      \
+    {                                                                              \
+        FIXME("(%p): stub!\n", this);                                              \
+        return this;                                                               \
+    }                                                                              \
+    void *__cdecl platform_##name##Exception_hstring_ctor(void *this, HSTRING msg) \
+    {                                                                              \
+        FIXME("(%p, %s): stub!\n", this, debugstr_hstring(msg));                   \
+        return this;                                                               \
+    }
+
+WINRT_EXCEPTIONS
+#undef WINRT_EXCEPTION
+
+void *__cdecl platform_Exception_ctor(void *this, HRESULT hr)
+{
+    FIXME("(%p, %#lx): stub!\n", this, hr);
+    return this;
+}
+
+void *__cdecl platform_Exception_hstring_ctor(void *this, HRESULT hr, HSTRING msg)
+{
+    FIXME("(%p, %#lx, %s): stub!\n", this, hr, debugstr_hstring(msg));
+    return this;
+}
+
+void *__cdecl platform_COMException_ctor(void *this, HRESULT hr)
+{
+    FIXME("(%p, %#lx): stub!\n", this, hr);
+    return this;
+}
+
+void *__cdecl platform_COMException_hstring_ctor(void *this, HRESULT hr, HSTRING msg)
+{
+    FIXME("(%p, %#lx, %s): stub!\n", this, hr, debugstr_hstring(msg));
+    return this;
+}
+
+HSTRING __cdecl platform_exception_get_Message(void *excp)
+{
+    FIXME("(%p): stub!\n", excp);
+    return NULL;
+}
+
+BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void *reserved)
+{
+    if (reason == DLL_PROCESS_ATTACH)
+        init_platform_type(inst);
+    return TRUE;
 }

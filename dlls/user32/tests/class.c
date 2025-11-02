@@ -1290,7 +1290,7 @@ static void test_comctl32_class( const char *name )
 
         /* Some systems load modules during context activation. In this case skip the rest of the test. */
         module = GetModuleHandleA( "comctl32" );
-        ok( !module || broken(module != NULL) /* Vista/Win7 */, "comctl32 already loaded\n" );
+        ok( !module, "comctl32 already loaded\n" );
         if (module)
         {
             win_skip("Module loaded during context activation. Skipping tests.\n");
@@ -1298,7 +1298,7 @@ static void test_comctl32_class( const char *name )
         }
 
         ret = GetClassInfoA( 0, name, &wcA );
-        ok( ret || broken(!ret) /* WinXP */, "GetClassInfoA failed for %s\n", name );
+        ok( ret, "GetClassInfoA failed for %s\n", name );
         if (!ret)
             goto skiptest;
 
@@ -1309,7 +1309,7 @@ static void test_comctl32_class( const char *name )
         ok( module != 0, "comctl32 not loaded\n" );
         FreeLibrary( module );
         module = GetModuleHandleA( "comctl32" );
-        ok( !module || broken(module != NULL) /* Vista */, "comctl32 still loaded\n" );
+        ok( !module, "comctl32 still loaded\n" );
         hwnd = CreateWindowA( name, "test", WS_OVERLAPPEDWINDOW, 0, 0, 10, 10, NULL, NULL, NULL, 0 );
         ok( hwnd != 0, "failed to create window for %s\n", name );
         module = GetModuleHandleA( "comctl32" );
@@ -1326,7 +1326,7 @@ static void test_comctl32_class( const char *name )
         module = GetModuleHandleA( "comctl32" );
         ok( !module, "comctl32 already loaded\n" );
         ret = GetClassInfoA( 0, name, &wcA );
-        ok( ret || broken(!ret) /* <= winxp */, "GetClassInfoA failed for %s\n", name );
+        ok( ret, "GetClassInfoA failed for %s\n", name );
         if (!ret) return;
         MultiByteToWideChar( CP_ACP, 0, name, -1, nameW, ARRAY_SIZE(nameW));
         ret = GetClassInfoW( 0, nameW, &wcW );
@@ -1368,7 +1368,6 @@ static void test_comctl32_classes(void)
         PROGRESS_CLASSA,
         REBARCLASSNAMEA,
         STATUSCLASSNAMEA,
-        "SysLink",
         WC_TABCONTROLA,
         TOOLBARCLASSNAMEA,
         TOOLTIPS_CLASSA,
@@ -1391,9 +1390,7 @@ static void test_comctl32_classes(void)
         sprintf( path_name, "%s class %s", argv[0], classes[i] );
         ok( CreateProcessA( NULL, path_name, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &info ),
             "CreateProcess failed.\n" );
-        wait_child_process( info.hProcess );
-        CloseHandle( info.hProcess );
-        CloseHandle( info.hThread );
+        wait_child_process( &info );
     }
 }
 
@@ -1509,8 +1506,8 @@ static LRESULT WINAPI test_class_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LP
     if (msg == WM_NCCREATE)
     {
         CREATESTRUCTA *cs = (CREATESTRUCTA *)lparam;
-        if (IS_INTRESOURCE(cs->lpszClass)) todo_wine check_atom_name_a( (UINT_PTR)cs->lpszClass, "WineTestClass" );
-        else todo_wine ok( !strcmp( cs->lpszClass, "WineTestClass" ), "got %s\n", debugstr_a(cs->lpszClass) );
+        if (IS_INTRESOURCE(cs->lpszClass)) check_atom_name_a( (UINT_PTR)cs->lpszClass, "WineTestClass" );
+        else ok( !strcmp( cs->lpszClass, "WineTestClass" ), "got %s\n", debugstr_a(cs->lpszClass) );
         return 1;
     }
 
@@ -1535,8 +1532,8 @@ static LRESULT WINAPI test_class_integral_wndproc( HWND hwnd, UINT msg, WPARAM w
     if (msg == WM_NCCREATE)
     {
         CREATESTRUCTA *cs = (CREATESTRUCTA *)lparam;
-        if (IS_INTRESOURCE(cs->lpszClass)) todo_wine ok( (UINT_PTR)cs->lpszClass == 1234, "got %p\n", cs->lpszClass );
-        else todo_wine ok( !strcmp( cs->lpszClass, "#1234" ), "got %s\n", debugstr_a(cs->lpszClass) );
+        if (IS_INTRESOURCE(cs->lpszClass)) ok( (UINT_PTR)cs->lpszClass == 1234, "got %p\n", cs->lpszClass );
+        else ok( !strcmp( cs->lpszClass, "#1234" ), "got %s\n", debugstr_a(cs->lpszClass) );
         return 1;
     }
 
