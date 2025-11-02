@@ -736,8 +736,8 @@ HRESULT WINAPI SetRestrictedErrorInfo(IRestrictedErrorInfo *info)
  */
 BOOL WINAPI RoOriginateLanguageException(HRESULT error, HSTRING message, IUnknown *language_exception)
 {
-    FIXME("%#lx, %s, %p: stub\n", error, debugstr_hstring(message), language_exception);
-    return FALSE;
+    FIXME("%#lx, %s, %p: semi-stub\n", error, debugstr_hstring(message), language_exception);
+    return RoOriginateError(error, message);
 }
 
 /***********************************************************************

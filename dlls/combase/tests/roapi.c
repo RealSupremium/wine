@@ -1021,11 +1021,11 @@ static void test_error_reporting(void)
        test_IRestrictedErrorInfo(r_info, test_codes[i], NULL, NULL);
        exception_caught = FALSE;
        ret = RoOriginateLanguageException(test_codes[i], NULL, NULL);
-       todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
+       ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
        todo_wine_if(debugger)
        ok(exception_caught == debugger, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
        if (hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], NULL, NULL);
 
        /* A NULL string with a non-zero length is accepted. */
@@ -1062,11 +1062,11 @@ static void test_error_reporting(void)
        test_IRestrictedErrorInfo(r_info, test_codes[i], message, NULL);
        exception_caught = FALSE;
        ret = RoOriginateLanguageException(test_codes[i], msg, NULL);
-       todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
+       ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
        todo_wine_if(debugger)
        ok(exception_caught == debugger, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
        if(hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message, NULL);
 
        set_error_reporting_flags(RO_ERROR_REPORTING_USESETERRORINFO | RO_ERROR_REPORTING_FORCEEXCEPTIONS);
@@ -1099,10 +1099,10 @@ static void test_error_reporting(void)
        test_IRestrictedErrorInfo(r_info, test_codes[i], message_trunc, NULL);
        exception_caught = FALSE;
        ret = RoOriginateLanguageException(test_codes[i], msg, NULL);
-       todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
        if(hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message_trunc, NULL);
 
        exception_caught = FALSE;
@@ -1146,10 +1146,10 @@ static void test_error_reporting(void)
        }
        exception_caught = FALSE;
        ret = RoOriginateLanguageException(test_codes[i], msg, NULL);
-       todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
-       todo_wine ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
+       ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
+       ok(exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
        hr = GetRestrictedErrorInfo(&r_info);
-       todo_wine ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+       ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
        if(hr == S_OK) test_IRestrictedErrorInfo(r_info, test_codes[i], message_nul, NULL);
        WindowsDeleteString(msg);
 
@@ -1176,7 +1176,7 @@ static void test_error_reporting(void)
     ok(!r_info, "Got unexpected r_info %p\n", r_info);
     exception_caught = FALSE;
     ret = RoOriginateLanguageException(E_FAIL, NULL, NULL);
-    todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
+    ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
     ok(!exception_caught, "Got unexpected exception_caught %d.\n", exception_caught);
     hr = GetRestrictedErrorInfo(&r_info);
     ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
@@ -1190,7 +1190,7 @@ static void test_error_reporting(void)
     hr = GetRestrictedErrorInfo(&r_info);
     ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
     ret = RoOriginateLanguageException(E_FAIL, NULL, NULL);
-    todo_wine ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
+    ok(ret, "RoOriginateLanguageException returned %d.\n", ret);
     hr = GetRestrictedErrorInfo(&r_info);
     ok(hr == S_FALSE, "Got unexpected hr %#lx.\n", hr);
 
