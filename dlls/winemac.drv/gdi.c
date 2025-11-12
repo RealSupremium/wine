@@ -193,6 +193,168 @@ static BOOL macdrv_DeleteDC(PHYSDEV dev)
     return TRUE;
 }
 
+static void CDECL free_heap_bits( struct gdi_image_bits *bits )
+{
+    free( bits->ptr );
+}
+
+typedef unsigned long VisualID;
+typedef struct {
+  void *visual;
+  VisualID visualid;
+  int screen;
+  int depth;
+#if defined(__cplusplus) || defined(c_plusplus)
+  int c_class;					/* C++ */
+#else
+  int class;
+#endif
+  unsigned long red_mask;
+  unsigned long green_mask;
+  unsigned long blue_mask;
+  int colormap_size;
+  int bits_per_rgb;
+} XVisualInfo;
+
+/* Maps pixel to the entry in the system palette */
+int *X11DRV_PALETTE_XPixelToPalette = NULL;
+
+/* store the palette or color mask data in the bitmap info structure */
+static void set_color_info( const XVisualInfo *vis, BITMAPINFO *info, BOOL has_alpha )
+{
+    DWORD *colors = (DWORD *)((char *)info + info->bmiHeader.biSize);
+
+    info->bmiHeader.biCompression = BI_RGB;
+    info->bmiHeader.biClrUsed = 0;
+
+    switch (info->bmiHeader.biBitCount)
+    {
+    case 4:
+    case 8:
+    {
+        RGBQUAD *rgb = (RGBQUAD *)colors;
+        PALETTEENTRY palette[256];
+        UINT i, count;
+
+        info->bmiHeader.biClrUsed = 1 << info->bmiHeader.biBitCount;
+        //count = X11DRV_GetSystemPaletteEntries( NULL, 0, info->bmiHeader.biClrUsed, palette );
+        count = 0;
+        for (i = 0; i < count; i++)
+        {
+            rgb[i].rgbRed   = palette[i].peRed;
+            rgb[i].rgbGreen = palette[i].peGreen;
+            rgb[i].rgbBlue  = palette[i].peBlue;
+            rgb[i].rgbReserved = 0;
+        }
+        memset( &rgb[count], 0, (info->bmiHeader.biClrUsed - count) * sizeof(*rgb) );
+        break;
+    }
+    case 16:
+        colors[0] = vis->red_mask;
+        colors[1] = vis->green_mask;
+        colors[2] = vis->blue_mask;
+        info->bmiHeader.biCompression = BI_BITFIELDS;
+        break;
+    case 32:
+        colors[0] = vis->red_mask;
+        colors[1] = vis->green_mask;
+        colors[2] = vis->blue_mask;
+        if (colors[0] != 0xff0000 || colors[1] != 0x00ff00 || colors[2] != 0x0000ff || !has_alpha)
+            info->bmiHeader.biCompression = BI_BITFIELDS;
+        break;
+    }
+}
+
+extern macdrv_view macdrv_get_cocoa_view(HWND hwnd);
+
+void macdrv_get_image_from_screen(const struct wxRect *subrect, double contentScaleFactor, void* *pbits, int* pbytes_per_line);
+void macdrv_get_image(macdrv_view v, const struct wxRect *subrect, double contentScaleFactor, void* *pbits, int* pbytes_per_line);
+
+/***********************************************************************
+ *           macdrv_GetImage
+ */
+DWORD CDECL macdrv_GetImage( PHYSDEV dev, BITMAPINFO *info,
+                             struct gdi_image_bits *bits, struct bitblt_coords *src )
+{
+    MACDRV_PDEVICE *physdev = get_macdrv_dev(dev);
+    DWORD ret = ERROR_SUCCESS;
+    XVisualInfo vis = {0};
+    UINT align, x, y, width, height;
+    const int *mapping = NULL;
+
+    vis.depth = bits_per_pixel;
+    
+    vis.red_mask   = 0xff0000;
+    vis.green_mask = 0x00ff00;
+    vis.blue_mask  = 0x0000ff;
+
+    /* align start and width to 32-bit boundary */
+    switch (bits_per_pixel)
+    {
+    case 1:  align = 32; break;
+    case 4:  align = 8;  mapping = X11DRV_PALETTE_XPixelToPalette; break;
+    case 8:  align = 4;  mapping = X11DRV_PALETTE_XPixelToPalette; break;
+    case 16: align = 2;  break;
+    case 24: align = 4;  break;
+    case 32: align = 1;  break;
+    default:
+        FIXME( "depth %u bpp %u not supported yet\n", vis.depth, bits_per_pixel );
+        return ERROR_BAD_FORMAT;
+    }
+
+    info->bmiHeader.biSize          = sizeof(info->bmiHeader);
+    info->bmiHeader.biPlanes        = 1;
+    info->bmiHeader.biBitCount      = bits_per_pixel;
+    info->bmiHeader.biXPelsPerMeter = 0;
+    info->bmiHeader.biYPelsPerMeter = 0;
+    info->bmiHeader.biClrImportant  = 0;
+    set_color_info( &vis, info, FALSE );
+
+    if (!bits) return ERROR_SUCCESS;  /* just querying the color information */
+
+    x = src->visrect.left & ~(align - 1);
+    y = src->visrect.top;
+    width = src->visrect.right - x;
+    height = src->visrect.bottom - src->visrect.top;
+    //if (format->scanline_pad != 32) width = (width + (align - 1)) & ~(align - 1);
+    /* make the source rectangle relative to the returned bits */
+    src->x -= x;
+    src->y -= y;
+    OffsetRect( &src->visrect, -x, -y );
+
+    //Get image from the platform device
+    int bytes_per_line = 0;
+    HWND hwnd = NtUserWindowFromDC(dev->hdc);
+    // We will only create 32 bit bitmaps
+    if (hwnd == NULL || hwnd == NtUserGetDesktopWindow())
+    {
+        struct wxRect subrect = {src->log_x, src->log_y, src->log_width, src->log_height};
+        macdrv_get_image_from_screen(&subrect, 1.0, &bits->ptr, &bytes_per_line);
+    }
+    else
+    {
+        macdrv_view view = macdrv_get_cocoa_view(hwnd);
+        if (view != NULL)
+        {
+            struct wxRect subrect = {src->log_x, src->log_y, src->log_width, src->log_height};
+            macdrv_get_image(view, &subrect, 1.0, &bits->ptr, &bytes_per_line);
+        }
+        else
+        {
+            // Window in other process are not currently supported
+            FIXME( "Window in other process is not supported yet\n");
+        }
+    }
+    if (bits->ptr) {
+        bits->is_copy = TRUE;
+        bits->free = free_heap_bits;
+    }
+
+    info->bmiHeader.biWidth     = width;
+    info->bmiHeader.biHeight    = -height;
+    info->bmiHeader.biSizeImage = height * bytes_per_line;
+    return ret;
+}
 
 /***********************************************************************
  *              GetDeviceCaps (MACDRV.@)
@@ -238,6 +400,7 @@ static const struct user_driver_funcs macdrv_funcs =
     .dc_funcs.pDeleteDC = macdrv_DeleteDC,
     .dc_funcs.pGetDeviceCaps = macdrv_GetDeviceCaps,
     .dc_funcs.pGetDeviceGammaRamp = macdrv_GetDeviceGammaRamp,
+    .dc_funcs.pGetImage = macdrv_GetImage,
     .dc_funcs.pSetDeviceGammaRamp = macdrv_SetDeviceGammaRamp,
     .dc_funcs.priority = GDI_PRIORITY_GRAPHICS_DRV,
 

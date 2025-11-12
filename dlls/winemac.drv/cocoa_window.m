@@ -4087,3 +4087,220 @@ void macdrv_clear_ime_text(void)
             [[window contentView] clearMarkedText];
     });
 }
+
+#define wxOSX_USE_PREMULTIPLIED_ALPHA 1
+static const int kBestByteAlignement = 16;
+static const int kMaskBytesPerPixel = 1;
+
+static size_t GetBestBytesPerRow( size_t rawBytes )
+{
+    return (((rawBytes)+kBestByteAlignement-1) & ~(kBestByteAlignement-1) );
+}
+
+static CGColorSpaceRef genericRGBColorSpace;
+CGColorSpaceRef wxMacGetGenericRGBColorSpace()
+{
+    if (genericRGBColorSpace == NULL)
+    {
+#if wxOSX_USE_IPHONE
+        genericRGBColorSpace = CGColorSpaceCreateDeviceRGB();
+#else
+        genericRGBColorSpace = CGColorSpaceCreateWithName( kCGColorSpaceSRGB );
+#endif
+    }
+
+    return genericRGBColorSpace;
+}
+
+OSStatus wxMacDrawCGImage(
+                  CGContextRef    inContext,
+                  const CGRect *  inBounds,
+                  CGImageRef      inImage)
+{
+    CGContextSaveGState(inContext);
+    CGContextTranslateCTM(inContext, inBounds->origin.x, inBounds->origin.y + inBounds->size.height);
+    CGRect r = *inBounds;
+    r.origin.x = r.origin.y = 0;
+    CGContextScaleCTM(inContext, 1, -1);
+    CGContextDrawImage(inContext, r, inImage );
+    CGContextRestoreGState(inContext);
+    return noErr;
+}
+
+CGContextRef Bitmap_Create(int w, int h, double contentScaleFactor, size_t* bitmap_width, size_t* bitmap_height)
+{
+    *bitmap_width = MAX(1, w*contentScaleFactor);
+    *bitmap_height = MAX(1, h*contentScaleFactor);
+
+    size_t bytesPerRow = GetBestBytesPerRow(*bitmap_width * 4);
+    CGContextRef hBitmap = CGBitmapContextCreate(NULL, *bitmap_width, *bitmap_height, 8, bytesPerRow, wxMacGetGenericRGBColorSpace(), kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
+    //wxCHECK_MSG(hBitmap, false, wxT("Unable to create CGBitmapContext context"));
+    if(hBitmap == NULL)
+    {
+        NSLog(@"Unable to create CGBitmapContext context");
+        return NULL;
+    }
+    CGContextTranslateCTM(hBitmap, 0, *bitmap_height);
+    CGContextScaleCTM(hBitmap, 1 * contentScaleFactor, -1 * contentScaleFactor);
+    return hBitmap;
+}
+
+void macdrv_get_image_from_screen(const struct wxRect *subrect, double contentScaleFactor, void* *pbits, int* pbytes_per_line)
+{
+    // Get the source rectangle
+    CGRect cgbounds;
+    cgbounds = CGDisplayBounds(CGMainDisplayID());
+    int screen_width = cgbounds.size.width;
+    int screen_height = cgbounds.size.height;
+    struct wxRect fullRect = {0, 0, screen_width, screen_height};
+
+    struct wxRect rect;
+    BOOL needSubImage = FALSE;
+    if (subrect && memcmp(subrect, &fullRect, sizeof(struct wxRect)) != 0 )
+    {
+        rect = *subrect;
+        needSubImage = TRUE;
+    }
+    else
+    {
+        rect = fullRect;
+    }
+    
+    // Create a bitmap in our format
+    //wxBitmap bmp(rect.GetSize(), 32);
+    size_t bitmap_width, bitmap_height;
+    CGContextRef hBitmap = Bitmap_Create(rect.width, rect.height, contentScaleFactor, &bitmap_width, &bitmap_height);
+
+    // Capture full screen image
+    CGImageRef image = NULL;
+    
+    image = CGDisplayCreateImage(kCGDirectMainDisplay);
+
+    if(image == NULL)
+    {
+        NSLog(@"wxScreenDC::GetAsBitmap - unable to get screenshot.");
+        return;
+    }
+    
+    if (needSubImage)
+    {
+        // Crop a sub image from a fullscreen image
+        CGImageRef fullImage = image;
+        image = CGImageCreateWithImageInRect(fullImage, CGRectMake(subrect->x, subrect->y, rect.width, rect.height));
+        CGImageRelease(fullImage);
+        if(image == NULL)
+        {
+            NSLog(@"wxScreenDC::GetAsBitmap - unable to get screenshot.");
+            return;
+        }
+    }
+
+    // Draw to a bitmap in our format
+    CGContextRef context = hBitmap;
+
+    CGContextSaveGState(context);
+
+    // Adjust the coordinate system of the bitmap in our format to be the same as that of Windows
+    CGContextTranslateCTM( context, 0,  rect.height );
+    CGContextScaleCTM( context, 1, -1 );
+
+
+    // Set the quality level to use when rescaling
+//    CGContextSetAllowsAntialiasing(context, YES);
+//    CGContextSetShouldAntialias(context, YES);
+//    CGContextSetInterpolationQuality(context, kCGInterpolationHigh);
+    CGContextDrawImage(context, CGRectMake(0, 0, rect.width, rect.height), image);
+
+    CGImageRelease(image);
+
+    CGContextRestoreGState(context);
+    
+    // Export image for debugging
+    //CGImageRef ref = CGBitmapContextCreateImage(context);
+    
+    const unsigned char* sourcedata = (const unsigned char*)(CGBitmapContextGetData(hBitmap));
+    int sourcelinesize = (int) CGBitmapContextGetBytesPerRow(hBitmap);
+    *pbytes_per_line = sourcelinesize;
+    void* pbuf = malloc(sourcelinesize*bitmap_height);
+    memcpy(pbuf, sourcedata, sourcelinesize*bitmap_height);
+    *pbits = pbuf;
+
+    CGContextRelease(hBitmap);
+    hBitmap = NULL;
+}
+
+void macdrv_get_image(macdrv_view v, const struct wxRect *subrect, double contentScaleFactor, void* *pbits, int* pbytes_per_line)
+{
+    WineContentView* view = (WineContentView*)v;
+    
+    //const wxSize bitmapSize(subrect ? subrect->GetSize() : m_window->GetSize());
+    struct wxSize bitmapSize;
+    if (subrect) {
+        struct wxSize subSize = {subrect->width, subrect->height};
+        bitmapSize = subSize;
+    }
+    else
+    {
+        struct wxSize fullSize = {view.bounds.size.width, view.bounds.size.height};
+        bitmapSize = fullSize;
+    }
+    
+    // create bitmap
+    //wxBitmap bitmap;
+    //bitmap.CreateWithDIPSize(bitmapSize, contentScaleFactor);
+    size_t bitmap_width, bitmap_height;
+    CGContextRef hBitmap = Bitmap_Create(bitmapSize.x, bitmapSize.y, contentScaleFactor, &bitmap_width, &bitmap_height);
+
+    // drawing
+    if ( [view isHiddenOrHasHiddenAncestor] == NO )
+    {
+        // the old implementaiton is not working under 10.15, the new one should work for older systems as well
+        // however the new implementation does not take into account the backgroundViews, and I'm not sure about
+        // until we're
+        // sure the replacement is always better
+         
+        bool useOldImplementation = false;
+        NSBitmapImageRep *rep = nil;
+        
+        if ( useOldImplementation )
+        {
+            [view lockFocus];
+            // we use this method as other methods force a repaint, and this method can be
+            // called from OnPaint, even with the window's paint dc as source (see wxHTMLWindow)
+            rep = [[NSBitmapImageRep alloc] initWithFocusedViewRect: [view bounds]];
+            [view unlockFocus];
+
+        }
+        else
+        {
+            rep = [view bitmapImageRepForCachingDisplayInRect:[view bounds]];
+            [view cacheDisplayInRect:[view bounds] toBitmapImageRep:rep];
+        }
+        
+        CGImageRef cgImageRef = (CGImageRef)[rep CGImage];
+
+        CGRect r = CGRectMake( 0 , 0 , CGImageGetWidth(cgImageRef)  , CGImageGetHeight(cgImageRef) );
+
+        // The bitmap created by wxBitmap::CreateWithDIPSize() above is scaled,
+        // so we need to adjust the coordinates for it.
+        r.size.width /= contentScaleFactor;
+        r.size.height /= contentScaleFactor;
+
+        // since our context is upside down we dont use CGContextDrawImage
+        wxMacDrawCGImage( hBitmap , &r, cgImageRef ) ;
+        
+        if ( useOldImplementation )
+            [rep release];
+    }
+    
+    const unsigned char* sourcedata = (const unsigned char*)(CGBitmapContextGetData(hBitmap));
+    int sourcelinesize = (int) CGBitmapContextGetBytesPerRow(hBitmap);
+    *pbytes_per_line = sourcelinesize;
+    void* pbuf = malloc(sourcelinesize*bitmap_height);
+    memcpy(pbuf, sourcedata, sourcelinesize*bitmap_height);
+    *pbits = pbuf;
+
+    CGContextRelease(hBitmap);
+    hBitmap = NULL;
+}
+

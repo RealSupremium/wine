@@ -116,6 +116,14 @@ struct macdrv_display {
     CGRect work_frame;
 };
 
+//wxWidgets
+struct wxSize {
+    int x, y;
+};
+struct wxRect {
+    int x, y, width, height;
+};
+
 
 /* main */
 extern bool macdrv_err_on;
