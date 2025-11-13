@@ -190,7 +190,8 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "text/plain",
     "text/rtf",
     "text/richtext",
-    "text/uri-list"
+    "text/uri-list",
+    "__wine_timestamp_prop"
 };
 
 /***********************************************************************
