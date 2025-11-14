@@ -1564,7 +1564,9 @@ static void test_bitmap_rendering( BOOL use_dib )
 
         bmi.bmiHeader.biWidth = 12;
         bmi.bmiHeader.biHeight = -12;
-        bmi.bmiHeader.biBitCount = 16;
+        /* biBitCount used to be 16 for the second bitmap, but our fake 16-bit bitmap
+         * rendering approach is a little bit hacky and doesn't work well with glReadPixels. */
+        bmi.bmiHeader.biBitCount = 32;
         bmp2 = CreateDIBSection( 0, &bmi, DIB_RGB_COLORS, (void **)&pixels2, NULL, 0 );
         memset( (void *)pixels2, 0xdc, sizeof(*pixels2) * 12 * 12 );
     }
@@ -1791,8 +1793,7 @@ static void test_bitmap_rendering( BOOL use_dib )
     if (pixels == buffer) read_bitmap_pixels( hdc, bmp, pixels, 4, 4, bpp );
     if (pixels2 == buffer2) read_bitmap_pixels( hdc, bmp2, pixels2, 12, 12, bpp );
     ok( (pixels[0] & 0xffffff) == 0x223344, "got %#x\n", pixels[0] );
-    if (use_dib) todo_wine ok( (pixels2[0] & 0xffffff) == 0x03148, "got %#x\n", pixels2[0] );
-    else ok( (pixels2[0] & 0xffffff) == 0x665544, "got %#x\n", pixels2[0] );
+    ok( (pixels2[0] & 0xffffff) == 0x665544, "got %#x\n", pixels2[0] );
 
     ret = wglMakeCurrent( hdc, hglrc );
     ok( ret, "wglMakeCurrent failed, error %lu\n", GetLastError() );
@@ -1827,8 +1828,7 @@ static void test_bitmap_rendering( BOOL use_dib )
 
     if (pixels == buffer) read_bitmap_pixels( hdc, bmp, pixels, 4, 4, bpp );
     if (pixels2 == buffer2) read_bitmap_pixels( hdc, bmp2, pixels2, 12, 12, bpp );
-    if (use_dib) todo_wine ok( (pixels[0] & 0xffffff) == 0x45cc, "got %#x\n", pixels[0] );
-    else ok( (pixels[0] & 0xffffff) == 0x887766, "got %#x\n", pixels[0] );
+    ok( (pixels[0] & 0xffffff) == 0x887766, "got %#x\n", pixels[0] );
     ok( (pixels2[0] & 0xffffff) == 0x667788, "got %#x\n", pixels2[0] );
 
     wglDeleteContext( hglrc2 );
@@ -1840,6 +1840,39 @@ static void test_bitmap_rendering( BOOL use_dib )
     DeleteDC( hdc );
 
     winetest_pop_context();
+}
+
+static void ensure_16bit_bitmap_matches(const USHORT actual[], const USHORT expected[], int width, int height)
+{
+    /* The WGL software renderer only implements r5_g5_b5 for 16-bit bitmaps,
+     * with the highest bit always being zero. Because the highest bit is always
+     * zero, I'm reusing that bit to store whether or not a pixel is allowed to
+     * vary depending on the graphics driver. Between different GPUs, it's very
+     * inconsistent which exact pixels will be drawn, so we need to be lax. */
+    USHORT may_differ_on_unix_bit = 0x8000;
+    int size = width * height;
+
+    for (int i = 0; i < size; i++)
+    {
+        USHORT expected_pixel = expected[i] & ~may_differ_on_unix_bit;
+        BOOL may_differ = (expected[i] & may_differ_on_unix_bit) != 0;
+        BOOL matches = (actual[i] == expected_pixel);
+        BOOL highest_bit_wrongly_set = (actual[i] & may_differ_on_unix_bit) != 0;
+        int x = i % width;
+        int y = i / height;
+
+        if (!matches && may_differ && winetest_platform_is_wine
+            && !highest_bit_wrongly_set)
+        {
+            skip("Pixel (%d,%d) is different from Windows, but it's allowed to "
+                    "vary. Got %#x, expected %#x\n",
+                    x, y, actual[i], expected_pixel);
+            continue;
+        }
+
+        ok(matches, "Wrong color at (%d,%d). Got %#x, expected %#x\n",
+                x, y, actual[i], expected_pixel);
+    }
 }
 
 static void test_16bit_bitmap_rendering(void)
@@ -1882,7 +1915,7 @@ static void test_16bit_bitmap_rendering(void)
 
     /* Choose a pixel format. */
     pixel_format = ChoosePixelFormat(hdc, &pixel_format_args);
-    todo_wine ok(pixel_format != 0, "Failed to get a 16 bit pixel format with the DRAW_TO_BITMAP flag.\n");
+    ok(pixel_format != 0, "Failed to get a 16 bit pixel format with the DRAW_TO_BITMAP flag.\n");
 
     if (pixel_format == 0)
     {
@@ -1902,22 +1935,24 @@ static void test_16bit_bitmap_rendering(void)
      * the program does (DRAW_TO_BITMAP is normally used in combination with blitting). */
     success = DescribePixelFormat(hdc, pixel_format, sizeof(pfd), &pfd);
     ok(success != 0, "Failed to DescribePixelFormat (error: %lu)\n", GetLastError());
-    /* Likely MSDN inaccuracy: According to the PIXELFORMATDESCRIPTOR docs, alpha bits are excluded
-     * from cColorBits. It doesn't seem like that's true. */
     ok(pfd.cColorBits == 16, "Wrong amount of color bits (got %d, expected 16)\n", pfd.cColorBits);
-    todo_wine ok(pfd.cRedBits == 5, "Wrong amount of red bits (got %d, expected 5)\n", pfd.cRedBits);
-    todo_wine ok(pfd.cGreenBits == 5, "Wrong amount of green bits (got %d, expected 5)\n", pfd.cGreenBits);
-    todo_wine ok(pfd.cBlueBits == 5, "Wrong amount of blue bits (got %d, expected 5)\n", pfd.cBlueBits);
-    /* Quirky: It seems that there's an alpha bit, but it somehow doesn't count as one for
-     * DescribePixelFormat. On Windows cAlphaBits is zero.
-     * ok(pfd.cAlphaBits == 1, "Wrong amount of alpha bits (got %d, expected 1)\n", pfd.cAlphaBits); */
-    todo_wine ok(pfd.cRedShift == 10, "Wrong red shift (got %d, expected 10)\n", pfd.cRedShift);
-    todo_wine ok(pfd.cGreenShift == 5, "Wrong green shift (got %d, expected 5)\n", pfd.cGreenShift);
-    /* This next test might fail, depending on your drivers. */
+    ok(pfd.cRedBits == 5, "Wrong amount of red bits (got %d, expected 5)\n", pfd.cRedBits);
+    ok(pfd.cGreenBits == 5, "Wrong amount of green bits (got %d, expected 5)\n", pfd.cGreenBits);
+    ok(pfd.cBlueBits == 5, "Wrong amount of blue bits (got %d, expected 5)\n", pfd.cBlueBits);
+    ok(pfd.cRedShift == 10, "Wrong red shift (got %d, expected 10)\n", pfd.cRedShift);
+    ok(pfd.cGreenShift == 5, "Wrong green shift (got %d, expected 5)\n", pfd.cGreenShift);
     ok(pfd.cBlueShift == 0, "Wrong blue shift (got %d, expected 0)\n", pfd.cBlueShift);
 
     success = SetPixelFormat(hdc, pixel_format, &pixel_format_args);
-    ok(success, "Failed to SetPixelFormat (error: %lu)\n", GetLastError());
+
+    if (!success)
+    {
+        /* This skip is here for LLVMpipe, which currently does not support
+         * 16-bit or 32-bit pbuffers correctly. Here's the bug report:
+         * https://gitlab.freedesktop.org/mesa/mesa/-/issues/13890 */
+        skip("Skipping 16-bit bitmap tests because SetPixelFormat failed.\n");
+        return;
+    }
 
     /* Create an OpenGL context. */
     gl = wglCreateContext(hdc);
@@ -1925,12 +1960,40 @@ static void test_16bit_bitmap_rendering(void)
     success = wglMakeCurrent(hdc, gl);
     ok(success, "Failed to wglMakeCurrent (error: %lu)\n", GetLastError());
 
-    /* Try setting the bitmap to white. */
-    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    /* Try setting the bitmap to pure blue. */
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     glFinish();
-    todo_wine ok(pixels[0] == 0x7fff, "Wrong color after glClear at (0, 0): %#x\n", pixels[0]);
-    todo_wine ok(pixels[1] == 0x7fff, "Wrong color after glClear at (1, 0): %#x\n", pixels[1]);
+    for (int i = 0; i < 16; i++)
+    {
+        int x = i % 4;
+        int y = i / 4;
+        ok(pixels[i] == 0x001f, "Wrong color at (%d,%d). Got %#x, expected %#x\n",
+                x, y, pixels[i], 0x001f);
+    }
+
+    /* Try setting the bitmap to a color that uses all color channels.
+     * I've noticed that clearing the canvas with a color like (0.2, 0.4, 0.8)
+     * gives inconsistent results on Windows. About half of the pixels are
+     * 0x1999 as they should be, and others are 0x1998, or 0x19b9, or 0x1db9.
+     * So the lowest bit of each color channel varies. Maybe it's dithering? */
+    glClearColor(0.2f, 0.4f, 0.8f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glFinish();
+
+    {
+        const USHORT mask = 0xfbde;  /* Mask out the lowest bit of each channel */
+        const USHORT expected = 0x1999 & mask;
+
+        for (int i = 0; i < 16; i++)
+        {
+            int x = i % 4;
+            int y = i / 4;
+            ok((pixels[i] & mask) == expected,
+                    "Wrong color at (%d,%d). Got %#x, expected %#x\n",
+                    x, y, pixels[i], 0x1999);
+        }
+    }
 
     /* Try setting the bitmap to black with a white line. */
     glMatrixMode(GL_PROJECTION);
@@ -1945,34 +2008,59 @@ static void test_16bit_bitmap_rendering(void)
     glColor3f(1.0f, 1.0f, 1.0f);
     glLineWidth(1.0f);
     glBegin(GL_LINES);
-    glVertex2i(1, 1);
-    glVertex2i(1, 3);
+    glVertex2f(1.5f, 1.0f);
+    glVertex2f(1.5f, 3.0f);
     glEnd();
 
     glFinish();
 
     {
-        /* Note that the line stops at (1,2) on Windows despite the second vertex being (1,3).
-         * I'm not sure if that's an implementation quirk or expected OpenGL behaviour. */
         USHORT X = 0x7fff, _ = 0x0;
-        USHORT expected[16] = {
-            _,_,_,_,
-            _,X,_,_,
-            _,X,_,_,
-            _,_,_,_
-        };
+        USHORT x = 0xffff, o = 0x8000;  /* Optional match outside of Windows */
+        winetest_push_context( "Line bitmap" );
+        ensure_16bit_bitmap_matches(
+            pixels, (USHORT[]) {
+                _,_,_,_,
+                _,x,_,_,
+                _,X,_,_,
+                _,o,_,_
+            }, 4, 4
+        );
+        winetest_pop_context();
+    }
 
-        for (int i = 0; i < 16; i++)
-        {
-            BOOL matches = (pixels[i] == expected[i]);
-            int x = i % 4;
-            int y = i / 4;
-            /* I'm using a loop so that I can put the expected image in an easy-to-understand array.
-             * Unfortunately this way of working doesn't work great with `todo_wine` since only half
-             * of the elements are a mismatch. I'm using `todo_wine_if` as a workaround. */
-            todo_wine_if(!matches) ok(matches, "Wrong color at (%d,%d). Got %#x, expected %#x\n",
-                    x, y, pixels[i], expected[i]);
-        }
+    /* Without clearing, edit the bitmap directly and draw another line. */
+    pixels[0] = 0x001f;  /* Set a pixel to red. Note that the bitmap is BGR. */
+
+    glBegin(GL_LINES);
+    glVertex2f(2.5f, -10.0f);
+    /* Another quirk, or more like a bug in Windows: If you draw a line that
+     * goes through the top side of clip space, it looks like the line gets
+     * clipped one pixel too soon, leaving one pixel undrawn. That's not
+     * something we can likely replicate, so I've left it out. (I haven't
+     * tested that hypothesis, so the bug might be something else, but one pixel
+     * wasn't drawn.)
+     * glVertex2f(2.5f, 10.0f); */
+    glVertex2f(2.5f, 3.0f);
+    glEnd();
+
+    pixels[15] = 0x7c00;  /* Set a pixel to blue. */
+
+    glFinish();
+
+    {
+        USHORT X = 0x7fff, _ = 0x0, R = 0x001f, B = 0x7c00;
+        USHORT x = 0xffff, o = 0x8000;  /* Optional match outside of Windows */
+        winetest_push_context( "Blit+OpenGL bitmap" );
+        ensure_16bit_bitmap_matches(
+            pixels, (USHORT[]) {
+                R,_,_,_,
+                _,x,x,_,
+                _,X,X,_,
+                _,o,X,B
+            }, 4, 4
+        );
+        winetest_pop_context();
     }
 
     /* Clean up. */

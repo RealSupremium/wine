@@ -184,6 +184,7 @@ static const char *glxExtensions;
 static char wglExtensions[4096];
 static int glxVersion[2];
 static int glx_opcode;
+static BOOL is_llvmpipe = FALSE;
 
 struct glx_pixel_format
 {
@@ -408,6 +409,7 @@ static BOOL X11DRV_WineGL_InitOpenglInfo(void)
 
     glxExtensions = pglXQueryExtensionsString(gdi_display, screen);
     glx_direct = pglXIsDirect(gdi_display, ctx);
+    is_llvmpipe = (strstr(gl_renderer, "llvmpipe") != NULL);
 
     TRACE("GL version             : %s.\n", gl_version);
     TRACE("GL renderer            : %s.\n", gl_renderer);
@@ -785,18 +787,31 @@ static int get_render_type_from_fbconfig(Display *display, GLXFBConfig fbconfig)
 /* Check whether a fbconfig is suitable for Windows-style bitmap rendering */
 static BOOL check_fbconfig_bitmap_capability( GLXFBConfig fbconfig, const XVisualInfo *vis )
 {
-    int dbuf, value;
+    int dbuf, drawable, bpp;
+    pglXGetFBConfigAttrib( gdi_display, fbconfig, GLX_BUFFER_SIZE, &bpp );
 
-    pglXGetFBConfigAttrib( gdi_display, fbconfig, GLX_BUFFER_SIZE, &value );
-    if (vis && value != vis->depth) return FALSE;
+    /* Besides 24-bit and 32-bit, WGL supports 4-bit, 8-bit and 16-bit
+     * DRAW_TO_BITMAP rendering. Out of those three, Wine only supports 16-bit.
+     * I'm not sure if the other two are actually used by consumer software.
+     * Our 16-bit bitmap support is faked and uses 32-bit pbuffers under
+     * the hood (because WGL uses r5_g5_b5 with the highest bit always being
+     * zero, which is not a format that many GPU drivers support). Because we
+     * don't support using real 16-bit pixel formats for bitmap rendering, we
+     * only let 24-bit and 32-bit pixel formats through. */
+    if (bpp < 24) return FALSE;
 
+    /* In llvmpipe, there's currently a bug where pbuffers that aren't 24 bpp
+     * will cause a crash upon glFinish/glFlush. Once it's fixed, consider
+     * adding an llvmpipe version check to this code. Here's the bug report:
+     * https://gitlab.freedesktop.org/mesa/mesa/-/issues/13890 */
+    if (is_llvmpipe && vis && bpp != vis->depth) return FALSE;
+
+    /* Windows only supports bitmap rendering on single buffered formats. The
+     * fbconfig also needs to support pbuffers, because Wine's implementation
+     * of bitmap rendering uses pbuffers. */
     pglXGetFBConfigAttrib( gdi_display, fbconfig, GLX_DOUBLEBUFFER, &dbuf );
-    pglXGetFBConfigAttrib(gdi_display, fbconfig, GLX_DRAWABLE_TYPE, &value);
-
-    /* Windows only supports bitmap rendering on single buffered formats. The fbconfig also needs to
-     * have the GLX_PBUFFER_BIT set, because Wine's implementation of bitmap rendering uses
-     * pbuffers. */
-    return !dbuf && (value & GLX_PBUFFER_BIT);
+    pglXGetFBConfigAttrib(gdi_display, fbconfig, GLX_DRAWABLE_TYPE, &drawable);
+    return !dbuf && (drawable & GLX_PBUFFER_BIT);
 }
 
 static UINT x11drv_init_pixel_formats( UINT *onscreen_count )

@@ -138,6 +138,16 @@ INT WINAPI wglChoosePixelFormat(HDC hdc, const PIXELFORMATDESCRIPTOR* ppfd)
 
     if (!NtGdiGetDCDword( hdc, NtGdiIsMemDC, &is_memdc )) is_memdc = 0;
 
+    if (is_memdc && ppfd->cColorBits == 16)
+    {
+        /* 16-bit-per-pixel memory DCs are a special case. Windows uses a software renderer with a
+         * quirky pixel format for this. That pixel format is only rarely supported on actual GPUs.
+         * We return a special value, which we'll later check for in SelectPixelFormat.
+         * Check `test_16bit_bitmap_rendering` for more info. */
+        TRACE( "Returning special 16-bit pixel format %d\n", FAKE_16BIT_MEMDC_PIXEL_FORMAT );
+        return FAKE_16BIT_MEMDC_PIXEL_FORMAT;
+    }
+
     best_format = 0;
     best.dwFlags = 0;
     best.cAlphaBits = -1;
@@ -820,6 +830,29 @@ INT WINAPI wglDescribePixelFormat( HDC hdc, int index, UINT size, PIXELFORMATDES
 
     if (!(formats = get_pixel_formats( hdc, &num_formats, &num_onscreen_formats ))) return 0;
     if (!ppfd) return num_onscreen_formats;
+
+    if (index == FAKE_16BIT_MEMDC_PIXEL_FORMAT)
+    {
+        /* 16-bit memory DCs are a special case where we need to fake the pixel format.
+         * Check `test_16bit_bitmap_rendering` for more info. */
+        *ppfd = (PIXELFORMATDESCRIPTOR) {
+            .nSize = sizeof(PIXELFORMATDESCRIPTOR),
+            .nVersion = 1,
+            .dwFlags = PFD_DRAW_TO_BITMAP | PFD_SUPPORT_OPENGL,
+            .iPixelType = PFD_TYPE_RGBA,
+            .iLayerType = PFD_MAIN_PLANE,
+            .cColorBits = 16,
+            .cRedBits = 5,
+            .cGreenBits = 5,
+            .cBlueBits = 5,
+            .cAlphaBits = 0,
+            .cRedShift = 10,
+            .cGreenShift = 5,
+            .cBlueShift = 0,
+        };
+        return num_onscreen_formats;
+    }
+
     if (size < sizeof(*ppfd)) return 0;
     if (index <= 0 || index > num_onscreen_formats) return 0;
 
