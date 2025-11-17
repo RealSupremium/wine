@@ -193,13 +193,24 @@ static DWORD get_device_index(struct device_desc *desc, struct list **before)
 static WCHAR *get_instance_id(DEVICE_OBJECT *device)
 {
     struct device_extension *ext = (struct device_extension *)device->DeviceExtension;
-    DWORD len = wcslen(ext->desc.serialnumber) + 33;
+    struct device_desc *desc = &ext->desc;
+    const DWORD sn_len = wcslen(desc->serialnumber);
+    DWORD len = (sn_len ? sn_len : sizeof(desc->port_path)*2) + 33;
     WCHAR *dst;
 
     if ((dst = ExAllocatePool(PagedPool, len * sizeof(WCHAR))))
     {
-        swprintf(dst, len, L"%u&%s&%x&%u&%u", ext->desc.version, ext->desc.serialnumber,
-                 ext->desc.uid, ext->index, ext->desc.is_gamepad);
+        if (sn_len && !ext->index)
+        {
+            swprintf(dst, len, L"%u&%x&%u&%s&%u", desc->version, desc->uid, ext->index,
+                     desc->serialnumber, desc->is_gamepad);
+        }
+        else
+        {
+            swprintf(dst, len, L"%u&%x&%u&%llx&%u", desc->version, desc->uid,
+                     desc->bus_num ? desc->bus_num : ext->index, desc->port_path,
+                     desc->is_gamepad);
+        }
     }
 
     return dst;
