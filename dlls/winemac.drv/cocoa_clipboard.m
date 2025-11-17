@@ -216,11 +216,11 @@ void macdrv_clear_pasteboard(macdrv_window w)
  * that type already on the pasteboard.  If data is NULL, promises the
  * type.
  *
- * Returns 0 on error, non-zero on success.
+ * Returns false on error, true on success.
  */
-int macdrv_set_pasteboard_data(CFStringRef type, CFDataRef data, macdrv_window w)
+bool macdrv_set_pasteboard_data(CFStringRef type, CFDataRef data, macdrv_window w)
 {
-    __block int ret = 0;
+    __block bool ret = false;
     WineWindow* window = (WineWindow*)w;
 
     OnMainThread(^{
@@ -235,7 +235,7 @@ int macdrv_set_pasteboard_data(CFStringRef type, CFDataRef data, macdrv_window w
                 if (data)
                     ret = [pb setData:(NSData*)data forType:(NSString*)type];
                 else
-                    ret = 1;
+                    ret = true;
             }
         }
         @catch (id e)
