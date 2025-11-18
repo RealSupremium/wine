@@ -317,6 +317,7 @@ static HRESULT d3d11_swapchain_present(struct d3d11_swapchain *swapchain,
         unsigned int sync_interval, unsigned int flags, const DXGI_PRESENT_PARAMETERS *dxgi_parameters)
 {
     HRESULT hr;
+    struct wined3d_present_parameters wined3d_parameters;
 
     if (sync_interval > 4)
     {
@@ -335,9 +336,19 @@ static HRESULT d3d11_swapchain_present(struct d3d11_swapchain *swapchain,
         return S_OK;
     }
 
+    wined3d_parameters.swapchain = swapchain->wined3d_swapchain;
+    wined3d_parameters.swap_interval = sync_interval;
+    wined3d_parameters.flags = 0;
+
     if (dxgi_parameters && dxgi_parameters->DirtyRectsCount && dxgi_parameters->pDirtyRects)
     {
-        FIXME("Ignored %u present dirty rectangles at %p ([0] = %s).\n", dxgi_parameters->DirtyRectsCount, dxgi_parameters->pDirtyRects, wine_dbgstr_rect(&dxgi_parameters->pDirtyRects[0]));
+        wined3d_parameters.dirty_rectangle_count = dxgi_parameters->DirtyRectsCount;
+        wined3d_parameters.dirty_rectangles = dxgi_parameters->pDirtyRects;
+    }
+    else
+    {
+        wined3d_parameters.dirty_rectangle_count = 0;
+        wined3d_parameters.dirty_rectangles = NULL;
     }
 
     if (dxgi_parameters && dxgi_has_scroll_present_parameters(dxgi_parameters))
@@ -356,7 +367,7 @@ static HRESULT d3d11_swapchain_present(struct d3d11_swapchain *swapchain,
         FIXME("Ignored present %s scroll of %s rectangle.\n", wine_dbgstr_point(dxgi_parameters->pScrollOffset), wine_dbgstr_rect(dxgi_parameters->pScrollRect));
     }
 
-    if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, NULL, NULL, NULL, sync_interval, 0)))
+    if (SUCCEEDED(hr = wined3d_swapchain_present(&wined3d_parameters)))
         InterlockedIncrement(&swapchain->present_count);
     return hr;
 }

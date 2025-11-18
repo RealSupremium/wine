@@ -1343,7 +1343,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH d3d9_device_Present(IDirect3DDevice9Ex *
     for (i = 0; i < device->implicit_swapchain_count; ++i)
     {
         swapchain = wined3d_swapchain_get_parent(device->implicit_swapchains[i]);
-        if (FAILED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain,
+        if (FAILED(hr = wined3d_swapchain_present_legacy(swapchain->wined3d_swapchain,
                 src_rect, dst_rect, dst_window_override, swapchain->swap_interval, 0)))
         {
             wined3d_mutex_unlock();
@@ -4266,7 +4266,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH d3d9_device_PresentEx(IDirect3DDevice9Ex
     for (i = 0; i < device->implicit_swapchain_count; ++i)
     {
         swapchain = wined3d_swapchain_get_parent(device->implicit_swapchains[i]);
-        if (FAILED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain,
+        if (FAILED(hr = wined3d_swapchain_present_legacy(swapchain->wined3d_swapchain,
                 src_rect, dst_rect, dst_window_override, swapchain->swap_interval, flags)))
         {
             wined3d_mutex_unlock();

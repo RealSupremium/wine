@@ -8965,7 +8965,7 @@ static void test_partial_present_grid_impl(struct test_partial_present_grid_para
             const DWORD color_dword = PALETTE_RGBA_DWORD[palette_index];
 
             for (UINT k = 0; k < buffer_count; ++k)
-                flaky_wine check_texture(backbuffers[k], backbuffer_info[k]->background, buffer_count, backbuffer_info[k]->rectangles);
+                check_texture(backbuffers[k], backbuffer_info[k]->background, buffer_count, backbuffer_info[k]->rectangles);
 
             ID3D11DeviceContext_ClearRenderTargetView(context, backbuffer_0_rtv, color_float);
 
@@ -8986,7 +8986,7 @@ static void test_partial_present_grid_impl(struct test_partial_present_grid_para
                 backbuffer_info[k] = backbuffer_info[k + 1];
 
             for (UINT k = 0; k < buffer_count; ++k)
-                flaky_wine check_texture(backbuffers[k], backbuffer_info[k]->background, buffer_count, backbuffer_info[k]->rectangles);
+                check_texture(backbuffers[k], backbuffer_info[k]->background, buffer_count, backbuffer_info[k]->rectangles);
         }
     }
 
@@ -9105,60 +9105,60 @@ static void test_partial_present_scroll_impl(struct test_partial_present_common_
     check_full(backbuffer_0, BLACK);
     check_full(backbuffer_1, RED);
 
-    todo_wine check_color(backbuffer_2, 5, 5, RED);
-    todo_wine check_color(backbuffer_2, 20, 20, RED);
-    todo_wine check_color(backbuffer_2, 49, 29, RED);
-    todo_wine check_color(backbuffer_2, 49, 39, RED);
-    flaky_wine check_colors(backbuffer_2, 49, 49, RED, RED, RED, GREEN); /* top-left corner */
-    flaky_wine check_colors(backbuffer_2, 49, 79, RED, GREEN, RED, GREEN); /* left side */
-    flaky_wine check_colors(backbuffer_2, 49, 99, RED, GREEN, RED, RED); /* bottom-left corner */
-    todo_wine check_color(backbuffer_2, 99, 29, RED);
-    todo_wine check_color(backbuffer_2, 99, 39, RED);
-    flaky_wine check_colors(backbuffer_2, 99, 49, RED, RED, GREEN, RED); /* top-right corner */
-    flaky_wine check_colors(backbuffer_2, 99, 79, GREEN, RED, GREEN, RED); /* right side */
-    flaky_wine check_colors(backbuffer_2, 99, 99, GREEN, RED, RED, RED); /* bottom-right corner */
-    todo_wine check_color(backbuffer_2, 199, 59, RED);
-    todo_wine check_color(backbuffer_2, 399, 59, RED);
-    flaky_wine check_colors(backbuffer_2, 199, 79, RED, RED, RED, GREEN); /* top-left corner */
-    flaky_wine check_colors(backbuffer_2, 399, 79, RED, RED, GREEN, RED); /* top-right corner */
-    flaky_wine check_colors(backbuffer_2, 199, 279, RED, GREEN, RED, GREEN); /* left side */
-    flaky_wine check_colors(backbuffer_2, 399, 279, GREEN, RED, GREEN, RED); /* right side */
-    flaky_wine check_colors(backbuffer_2, 199, 299, RED, GREEN, RED, RED); /* bottom-left corner */
-    flaky_wine check_colors(backbuffer_2, 399, 299, GREEN, RED, RED, RED); /* bottom-right corner */
-    todo_wine check_color(backbuffer_2, 9, 399, RED);
-    todo_wine check_color(backbuffer_2, 9, 419, RED);
-    todo_wine check_color(backbuffer_2, 599, 399, RED);
-    todo_wine check_color(backbuffer_2, 599, 419, RED);
+    check_color(backbuffer_2, 5, 5, RED);
+    check_color(backbuffer_2, 20, 20, RED);
+    check_color(backbuffer_2, 49, 29, RED);
+    check_color(backbuffer_2, 49, 39, RED);
+    check_colors(backbuffer_2, 49, 49, RED, RED, RED, GREEN); /* top-left corner */
+    check_colors(backbuffer_2, 49, 79, RED, GREEN, RED, GREEN); /* left side */
+    check_colors(backbuffer_2, 49, 99, RED, GREEN, RED, RED); /* bottom-left corner */
+    check_color(backbuffer_2, 99, 29, RED);
+    check_color(backbuffer_2, 99, 39, RED);
+    check_colors(backbuffer_2, 99, 49, RED, RED, GREEN, RED); /* top-right corner */
+    check_colors(backbuffer_2, 99, 79, GREEN, RED, GREEN, RED); /* right side */
+    check_colors(backbuffer_2, 99, 99, GREEN, RED, RED, RED); /* bottom-right corner */
+    check_color(backbuffer_2, 199, 59, RED);
+    check_color(backbuffer_2, 399, 59, RED);
+    check_colors(backbuffer_2, 199, 79, RED, RED, RED, GREEN); /* top-left corner */
+    check_colors(backbuffer_2, 399, 79, RED, RED, GREEN, RED); /* top-right corner */
+    check_colors(backbuffer_2, 199, 279, RED, GREEN, RED, GREEN); /* left side */
+    check_colors(backbuffer_2, 399, 279, GREEN, RED, GREEN, RED); /* right side */
+    check_colors(backbuffer_2, 199, 299, RED, GREEN, RED, RED); /* bottom-left corner */
+    check_colors(backbuffer_2, 399, 299, GREEN, RED, RED, RED); /* bottom-right corner */
+    check_color(backbuffer_2, 9, 399, RED);
+    check_color(backbuffer_2, 9, 419, RED);
+    check_color(backbuffer_2, 599, 399, RED);
+    check_color(backbuffer_2, 599, 419, RED);
 
     ID3D11DeviceContext_ClearRenderTargetView(context, backbuffer_0_rtv, blue);
 
     check_full(backbuffer_0, BLUE);
     check_full(backbuffer_1, RED);
 
-    todo_wine check_color(backbuffer_2, 5, 5, RED);
-    todo_wine check_color(backbuffer_2, 20, 20, RED);
-    todo_wine check_color(backbuffer_2, 49, 29, RED);
-    todo_wine check_color(backbuffer_2, 49, 39, RED);
-    flaky_wine check_colors(backbuffer_2, 49, 49, RED, RED, RED, GREEN); /* top-left corner */
-    flaky_wine check_colors(backbuffer_2, 49, 79, RED, GREEN, RED, GREEN); /* left side */
-    flaky_wine check_colors(backbuffer_2, 49, 99, RED, GREEN, RED, RED); /* bottom-left corner */
-    todo_wine check_color(backbuffer_2, 99, 29, RED);
-    todo_wine check_color(backbuffer_2, 99, 39, RED);
-    flaky_wine check_colors(backbuffer_2, 99, 49, RED, RED, GREEN, RED); /* top-right corner */
-    flaky_wine check_colors(backbuffer_2, 99, 79, GREEN, RED, GREEN, RED); /* right side */
-    flaky_wine check_colors(backbuffer_2, 99, 99, GREEN, RED, RED, RED); /* bottom-right corner */
-    todo_wine check_color(backbuffer_2, 199, 59, RED);
-    todo_wine check_color(backbuffer_2, 399, 59, RED);
-    flaky_wine check_colors(backbuffer_2, 199, 79, RED, RED, RED, GREEN); /* top-left corner */
-    flaky_wine check_colors(backbuffer_2, 399, 79, RED, RED, GREEN, RED); /* top-right corner */
-    flaky_wine check_colors(backbuffer_2, 199, 279, RED, GREEN, RED, GREEN); /* left side */
-    flaky_wine check_colors(backbuffer_2, 399, 279, GREEN, RED, GREEN, RED); /* right side */
-    flaky_wine check_colors(backbuffer_2, 199, 299, RED, GREEN, RED, RED); /* bottom-left corner */
-    flaky_wine check_colors(backbuffer_2, 399, 299, GREEN, RED, RED, RED); /* bottom-right corner */
-    todo_wine check_color(backbuffer_2, 9, 399, RED);
-    todo_wine check_color(backbuffer_2, 9, 419, RED);
-    todo_wine check_color(backbuffer_2, 599, 399, RED);
-    todo_wine check_color(backbuffer_2, 599, 419, RED);
+    check_color(backbuffer_2, 5, 5, RED);
+    check_color(backbuffer_2, 20, 20, RED);
+    check_color(backbuffer_2, 49, 29, RED);
+    check_color(backbuffer_2, 49, 39, RED);
+    check_colors(backbuffer_2, 49, 49, RED, RED, RED, GREEN); /* top-left corner */
+    check_colors(backbuffer_2, 49, 79, RED, GREEN, RED, GREEN); /* left side */
+    check_colors(backbuffer_2, 49, 99, RED, GREEN, RED, RED); /* bottom-left corner */
+    check_color(backbuffer_2, 99, 29, RED);
+    check_color(backbuffer_2, 99, 39, RED);
+    check_colors(backbuffer_2, 99, 49, RED, RED, GREEN, RED); /* top-right corner */
+    check_colors(backbuffer_2, 99, 79, GREEN, RED, GREEN, RED); /* right side */
+    check_colors(backbuffer_2, 99, 99, GREEN, RED, RED, RED); /* bottom-right corner */
+    check_color(backbuffer_2, 199, 59, RED);
+    check_color(backbuffer_2, 399, 59, RED);
+    check_colors(backbuffer_2, 199, 79, RED, RED, RED, GREEN); /* top-left corner */
+    check_colors(backbuffer_2, 399, 79, RED, RED, GREEN, RED); /* top-right corner */
+    check_colors(backbuffer_2, 199, 279, RED, GREEN, RED, GREEN); /* left side */
+    check_colors(backbuffer_2, 399, 279, GREEN, RED, GREEN, RED); /* right side */
+    check_colors(backbuffer_2, 199, 299, RED, GREEN, RED, RED); /* bottom-left corner */
+    check_colors(backbuffer_2, 399, 299, GREEN, RED, RED, RED); /* bottom-right corner */
+    check_color(backbuffer_2, 9, 399, RED);
+    check_color(backbuffer_2, 9, 419, RED);
+    check_color(backbuffer_2, 599, 399, RED);
+    check_color(backbuffer_2, 599, 419, RED);
 
     present_params.DirtyRectsCount = ARRAYSIZE(dirty_rects_blue);
     present_params.pDirtyRects = dirty_rects_blue;
@@ -9173,51 +9173,51 @@ static void test_partial_present_scroll_impl(struct test_partial_present_common_
 
         check_full(backbuffer_0, RED);
 
-        todo_wine check_color(backbuffer_1, 5, 5, RED);
-        todo_wine check_color(backbuffer_1, 20, 20, RED);
-        todo_wine check_color(backbuffer_1, 49, 29, RED);
-        todo_wine check_color(backbuffer_1, 49, 39, RED);
-        flaky_wine check_colors(backbuffer_1, 49, 49, RED, RED, RED, GREEN); /* top-left corner */
-        flaky_wine check_colors(backbuffer_1, 49, 79, RED, GREEN, RED, GREEN); /* left side */
-        flaky_wine check_colors(backbuffer_1, 49, 99, RED, GREEN, RED, RED); /* bottom-left corner */
-        todo_wine check_color(backbuffer_1, 99, 29, RED);
-        todo_wine check_color(backbuffer_1, 99, 39, RED);
-        flaky_wine check_colors(backbuffer_1, 99, 49, RED, RED, GREEN, RED); /* top-right corner */
-        flaky_wine check_colors(backbuffer_1, 99, 79, GREEN, RED, GREEN, RED); /* right side */
-        flaky_wine check_colors(backbuffer_1, 99, 99, GREEN, RED, RED, RED); /* bottom-right corner */
-        todo_wine check_color(backbuffer_1, 199, 59, RED);
-        todo_wine check_color(backbuffer_1, 399, 59, RED);
-        flaky_wine check_colors(backbuffer_1, 199, 79, RED, RED, RED, GREEN); /* top-left corner */
-        flaky_wine check_colors(backbuffer_1, 399, 79, RED, RED, GREEN, RED); /* top-right corner */
-        flaky_wine check_colors(backbuffer_1, 199, 279, RED, GREEN, RED, GREEN); /* left side */
-        flaky_wine check_colors(backbuffer_1, 399, 279, GREEN, RED, GREEN, RED); /* right side */
-        flaky_wine check_colors(backbuffer_1, 199, 299, RED, GREEN, RED, RED); /* bottom-left corner */
-        flaky_wine check_colors(backbuffer_1, 399, 299, GREEN, RED, RED, RED); /* bottom-right corner */
-        todo_wine check_color(backbuffer_1, 9, 399, RED);
-        todo_wine check_color(backbuffer_1, 9, 419, RED);
-        todo_wine check_color(backbuffer_1, 599, 399, RED);
-        todo_wine check_color(backbuffer_1, 599, 419, RED);
+        check_color(backbuffer_1, 5, 5, RED);
+        check_color(backbuffer_1, 20, 20, RED);
+        check_color(backbuffer_1, 49, 29, RED);
+        check_color(backbuffer_1, 49, 39, RED);
+        check_colors(backbuffer_1, 49, 49, RED, RED, RED, GREEN); /* top-left corner */
+        check_colors(backbuffer_1, 49, 79, RED, GREEN, RED, GREEN); /* left side */
+        check_colors(backbuffer_1, 49, 99, RED, GREEN, RED, RED); /* bottom-left corner */
+        check_color(backbuffer_1, 99, 29, RED);
+        check_color(backbuffer_1, 99, 39, RED);
+        check_colors(backbuffer_1, 99, 49, RED, RED, GREEN, RED); /* top-right corner */
+        check_colors(backbuffer_1, 99, 79, GREEN, RED, GREEN, RED); /* right side */
+        check_colors(backbuffer_1, 99, 99, GREEN, RED, RED, RED); /* bottom-right corner */
+        check_color(backbuffer_1, 199, 59, RED);
+        check_color(backbuffer_1, 399, 59, RED);
+        check_colors(backbuffer_1, 199, 79, RED, RED, RED, GREEN); /* top-left corner */
+        check_colors(backbuffer_1, 399, 79, RED, RED, GREEN, RED); /* top-right corner */
+        check_colors(backbuffer_1, 199, 279, RED, GREEN, RED, GREEN); /* left side */
+        check_colors(backbuffer_1, 399, 279, GREEN, RED, GREEN, RED); /* right side */
+        check_colors(backbuffer_1, 199, 299, RED, GREEN, RED, RED); /* bottom-left corner */
+        check_colors(backbuffer_1, 399, 299, GREEN, RED, RED, RED); /* bottom-right corner */
+        check_color(backbuffer_1, 9, 399, RED);
+        check_color(backbuffer_1, 9, 419, RED);
+        check_color(backbuffer_1, 599, 399, RED);
+        check_color(backbuffer_1, 599, 419, RED);
 
-        todo_wine check_color(backbuffer_2, 5, 5, RED);
-        todo_wine check_color(backbuffer_2, 20, 20, RED);
+        check_color(backbuffer_2, 5, 5, RED);
+        check_color(backbuffer_2, 20, 20, RED);
         flaky_wine check_colors(backbuffer_2, 49, 29, RED, RED, RED, GREEN); /* top-left corner */
         flaky_wine check_colors(backbuffer_2, 49, 39, RED, GREEN, RED, BLUE); /* left side, green-blue edge */
         flaky_wine check_colors(backbuffer_2, 49, 49, RED, BLUE, RED, BLUE); /* left side */
         flaky_wine check_colors(backbuffer_2, 49, 79, RED, BLUE, RED, RED); /* bottom-left corner */
-        todo_wine check_color(backbuffer_2, 49, 99, RED);
+        flaky_wine check_color(backbuffer_2, 49, 99, RED);
         flaky_wine check_colors(backbuffer_2, 99, 29, RED, RED, GREEN, RED); /* top-right corner */
         flaky_wine check_colors(backbuffer_2, 99, 39, GREEN, RED, BLUE, RED); /* right side, green-blue edge */
         flaky_wine check_colors(backbuffer_2, 99, 49, BLUE, RED, BLUE, RED); /* right side */
         flaky_wine check_colors(backbuffer_2, 99, 79, BLUE, RED, RED, RED); /* bottom-right corner */
-        todo_wine check_color(backbuffer_2, 99, 99, RED);
+        flaky_wine check_color(backbuffer_2, 99, 99, RED);
         flaky_wine check_colors(backbuffer_2, 199, 59, RED, RED, RED, GREEN); /* top-left corner */
         flaky_wine check_colors(backbuffer_2, 399, 59, RED, RED, GREEN, RED); /* top-right corner */
         flaky_wine check_colors(backbuffer_2, 199, 79, RED, GREEN, RED, GREEN); /* left side */
         flaky_wine check_colors(backbuffer_2, 399, 79, GREEN, RED, GREEN, RED); /* right side */
         flaky_wine check_colors(backbuffer_2, 199, 279, RED, GREEN, RED, RED); /* bottom-left corner */
         flaky_wine check_colors(backbuffer_2, 399, 279, GREEN, RED, RED, RED); /* bottom-right corner */
-        todo_wine check_color(backbuffer_2, 199, 299, RED);
-        todo_wine check_color(backbuffer_2, 399, 299, RED);
+        flaky_wine check_color(backbuffer_2, 199, 299, RED);
+        flaky_wine check_color(backbuffer_2, 399, 299, RED);
         flaky_wine check_colors(backbuffer_2, 9, 399, RED, RED, RED, BLUE); /* top-left corner */
         flaky_wine check_colors(backbuffer_2, 9, 419, RED, BLUE, RED, RED); /* bottom-left corner */
         flaky_wine check_colors(backbuffer_2, 599, 399, RED, RED, BLUE, RED); /* top-right corner */
@@ -9232,30 +9232,30 @@ static void test_partial_present_scroll_impl(struct test_partial_present_common_
         check_full(backbuffer_0, BLUE);
         check_full(backbuffer_1, RED);
 
-        todo_wine check_color(backbuffer_2, 5, 5, RED);
-        todo_wine check_color(backbuffer_2, 20, 20, RED);
-        todo_wine check_color(backbuffer_2, 49, 29, RED);
-        todo_wine check_color(backbuffer_2, 49, 39, RED);
-        flaky_wine check_colors(backbuffer_2, 49, 49, RED, RED, RED, GREEN); /* top-left corner */
-        flaky_wine check_colors(backbuffer_2, 49, 79, RED, GREEN, RED, GREEN); /* left side */
-        flaky_wine check_colors(backbuffer_2, 49, 99, RED, GREEN, RED, RED); /* bottom-left corner */
-        todo_wine check_color(backbuffer_2, 99, 29, RED);
-        todo_wine check_color(backbuffer_2, 99, 39, RED);
-        flaky_wine check_colors(backbuffer_2, 99, 49, RED, RED, GREEN, RED); /* top-right corner */
-        flaky_wine check_colors(backbuffer_2, 99, 79, GREEN, RED, GREEN, RED); /* right side */
-        flaky_wine check_colors(backbuffer_2, 99, 99, GREEN, RED, RED, RED); /* bottom-right corner */
-        todo_wine check_color(backbuffer_2, 199, 59, RED);
-        todo_wine check_color(backbuffer_2, 399, 59, RED);
-        flaky_wine check_colors(backbuffer_2, 199, 79, RED, RED, RED, GREEN); /* top-left corner */
-        flaky_wine check_colors(backbuffer_2, 399, 79, RED, RED, GREEN, RED); /* top-right corner */
-        flaky_wine check_colors(backbuffer_2, 199, 279, RED, GREEN, RED, GREEN); /* left side */
-        flaky_wine check_colors(backbuffer_2, 399, 279, GREEN, RED, GREEN, RED); /* right side */
-        flaky_wine check_colors(backbuffer_2, 199, 299, RED, GREEN, RED, RED); /* bottom-left corner */
-        flaky_wine check_colors(backbuffer_2, 399, 299, GREEN, RED, RED, RED); /* bottom-right corner */
-        todo_wine check_color(backbuffer_2, 9, 399, RED);
-        todo_wine check_color(backbuffer_2, 9, 419, RED);
-        todo_wine check_color(backbuffer_2, 599, 399, RED);
-        todo_wine check_color(backbuffer_2, 599, 419, RED);
+        check_color(backbuffer_2, 5, 5, RED);
+        check_color(backbuffer_2, 20, 20, RED);
+        check_color(backbuffer_2, 49, 29, RED);
+        check_color(backbuffer_2, 49, 39, RED);
+        check_colors(backbuffer_2, 49, 49, RED, RED, RED, GREEN); /* top-left corner */
+        check_colors(backbuffer_2, 49, 79, RED, GREEN, RED, GREEN); /* left side */
+        check_colors(backbuffer_2, 49, 99, RED, GREEN, RED, RED); /* bottom-left corner */
+        check_color(backbuffer_2, 99, 29, RED);
+        check_color(backbuffer_2, 99, 39, RED);
+        check_colors(backbuffer_2, 99, 49, RED, RED, GREEN, RED); /* top-right corner */
+        check_colors(backbuffer_2, 99, 79, GREEN, RED, GREEN, RED); /* right side */
+        check_colors(backbuffer_2, 99, 99, GREEN, RED, RED, RED); /* bottom-right corner */
+        check_color(backbuffer_2, 199, 59, RED);
+        check_color(backbuffer_2, 399, 59, RED);
+        check_colors(backbuffer_2, 199, 79, RED, RED, RED, GREEN); /* top-left corner */
+        check_colors(backbuffer_2, 399, 79, RED, RED, GREEN, RED); /* top-right corner */
+        check_colors(backbuffer_2, 199, 279, RED, GREEN, RED, GREEN); /* left side */
+        check_colors(backbuffer_2, 399, 279, GREEN, RED, GREEN, RED); /* right side */
+        check_colors(backbuffer_2, 199, 299, RED, GREEN, RED, RED); /* bottom-left corner */
+        check_colors(backbuffer_2, 399, 299, GREEN, RED, RED, RED); /* bottom-right corner */
+        check_color(backbuffer_2, 9, 399, RED);
+        check_color(backbuffer_2, 9, 419, RED);
+        check_color(backbuffer_2, 599, 399, RED);
+        check_color(backbuffer_2, 599, 419, RED);
     }
 
     ID3D11RenderTargetView_Release(backbuffer_0_rtv);

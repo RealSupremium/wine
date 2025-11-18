@@ -1601,7 +1601,7 @@ HRESULT texture2d_blt(struct wined3d_texture *dst_texture, unsigned int dst_sub_
         /* Set the swap effect to COPY, we don't want the backbuffer to become
          * undefined. */
         dst_swapchain->state.desc.swap_effect = WINED3D_SWAP_EFFECT_COPY;
-        wined3d_swapchain_present(dst_swapchain, NULL, NULL,
+        wined3d_swapchain_present_legacy(dst_swapchain, NULL, NULL,
                 dst_swapchain->win_handle, dst_swapchain->swap_interval, 0);
         dst_swapchain->state.desc.swap_effect = swap_effect;
 
