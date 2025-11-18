@@ -97,7 +97,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH d3d8_swapchain_Present(IDirect3DSwapChai
     if (dirty_region)
         FIXME("Ignoring dirty_region %p.\n", dirty_region);
 
-    return wined3d_swapchain_present(swapchain->wined3d_swapchain,
+    return wined3d_swapchain_present_legacy(swapchain->wined3d_swapchain,
             src_rect, dst_rect, dst_window_override, swapchain->swap_interval, 0);
 }
 

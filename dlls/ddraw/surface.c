@@ -139,7 +139,7 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
                 ddraw_surface_get_any_texture(surface, DDRAW_SURFACE_READ), surface->sub_resource_idx, rect, 0,
                 NULL, WINED3D_TEXF_POINT)) && swap_interval)
         {
-            hr = wined3d_swapchain_present(ddraw->wined3d_swapchain, rect, rect, NULL, swap_interval, 0);
+            hr = wined3d_swapchain_present_legacy(ddraw->wined3d_swapchain, rect, rect, NULL, swap_interval, 0);
             ddraw->flags |= DDRAW_SWAPPED;
         }
         return hr;

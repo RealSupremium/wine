@@ -128,7 +128,7 @@ GLenum wined3d_texture_get_gl_buffer(const struct wined3d_texture *texture)
         return GL_FRONT;
     }
 
-    if (texture == swapchain->back_buffers[0])
+    if (texture == swapchain->back_buffers[0].texture)
     {
         TRACE("Returning GL_BACK.\n");
         return GL_BACK;
