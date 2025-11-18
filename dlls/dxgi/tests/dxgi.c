@@ -9225,12 +9225,12 @@ static void test_partial_present_scroll_impl(struct test_partial_present_common_
     }
     else
     {
-        todo_wine ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#lx.\n", hr);
+        ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#lx.\n", hr);
 
         /* No changes. */
 
-        todo_wine check_full(backbuffer_0, BLUE);
-        todo_wine check_full(backbuffer_1, RED);
+        check_full(backbuffer_0, BLUE);
+        check_full(backbuffer_1, RED);
 
         todo_wine check_color(backbuffer_2, 5, 5, RED);
         todo_wine check_color(backbuffer_2, 20, 20, RED);
