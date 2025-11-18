@@ -4340,7 +4340,7 @@ struct wined3d_context *wined3d_context_gl_acquire(const struct wined3d_device *
             struct wined3d_swapchain *swapchain = device->swapchains[0];
 
             if (swapchain->back_buffers)
-                texture = swapchain->back_buffers[0];
+                texture = swapchain->back_buffers[0].texture;
             else
                 texture = swapchain->front_buffer;
             sub_resource_idx = 0;

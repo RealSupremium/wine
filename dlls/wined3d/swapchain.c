@@ -53,9 +53,11 @@ void wined3d_swapchain_cleanup(struct wined3d_swapchain *swapchain)
 
         while (i--)
         {
-            wined3d_texture_set_swapchain(swapchain->back_buffers[i], NULL);
-            if (wined3d_texture_decref(swapchain->back_buffers[i]))
-                WARN("Something's still holding back buffer %u (%p).\n", i, swapchain->back_buffers[i]);
+            struct wined3d_backbuffer *backbuffer = &swapchain->back_buffers[i];
+            if (backbuffer->dirty_region) DeleteObject(backbuffer->dirty_region);
+            wined3d_texture_set_swapchain(backbuffer->texture, NULL);
+            if (wined3d_texture_decref(backbuffer->texture))
+                WARN("Something's still holding back buffer %u (%p).\n", i, swapchain->back_buffers[i].texture);
         }
         free(swapchain->back_buffers);
         swapchain->back_buffers = NULL;
@@ -272,9 +274,9 @@ struct wined3d_texture * CDECL wined3d_swapchain_get_back_buffer(const struct wi
         return NULL;
     }
 
-    TRACE("Returning back buffer %p.\n", swapchain->back_buffers[back_buffer_idx]);
+    TRACE("Returning back buffer %p.\n", swapchain->back_buffers[back_buffer_idx].texture);
 
-    return swapchain->back_buffers[back_buffer_idx];
+    return swapchain->back_buffers[back_buffer_idx].texture;
 }
 
 struct wined3d_texture * CDECL wined3d_swapchain_get_front_buffer(const struct wined3d_swapchain *swapchain)
@@ -399,7 +401,7 @@ HRESULT CDECL wined3d_swapchain_get_gamma_ramp(const struct wined3d_swapchain *s
 static void swapchain_blit_gdi(struct wined3d_swapchain *swapchain,
         struct wined3d_context *context, const RECT *src_rect, const RECT *dst_rect)
 {
-    struct wined3d_texture *back_buffer = swapchain->back_buffers[0];
+    struct wined3d_texture *back_buffer = swapchain->back_buffers[0].texture;
     D3DKMT_DESTROYDCFROMMEMORY destroy_desc;
     D3DKMT_CREATEDCFROMMEMORY create_desc;
     const struct wined3d_format *format;
@@ -466,7 +468,7 @@ static void swapchain_blit_gdi(struct wined3d_swapchain *swapchain,
 static void swapchain_blit(const struct wined3d_swapchain *swapchain,
         struct wined3d_context *context, const RECT *src_rect, const RECT *dst_rect)
 {
-    struct wined3d_texture *texture = swapchain->back_buffers[0];
+    struct wined3d_texture *texture = swapchain->back_buffers[0].texture;
     struct wined3d_device *device = swapchain->device;
     enum wined3d_texture_filter_type filter;
     DWORD location;
@@ -516,8 +518,10 @@ static void swapchain_gl_set_swap_interval(struct wined3d_swapchain *swapchain,
 static void wined3d_swapchain_gl_rotate(struct wined3d_swapchain *swapchain, struct wined3d_context *context)
 {
     struct wined3d_texture_sub_resource *sub_resource;
+    struct wined3d_backbuffer *backbuffer, *backbuffer_prev;
     struct wined3d_texture_gl *texture, *texture_prev;
     struct gl_texture tex0;
+    HRGN dirty_region0;
     GLuint rb0;
     DWORD locations0;
     unsigned int i;
@@ -526,30 +530,36 @@ static void wined3d_swapchain_gl_rotate(struct wined3d_swapchain *swapchain, str
     if (swapchain->state.desc.backbuffer_count < 2)
         return;
 
-    texture_prev = wined3d_texture_gl(swapchain->back_buffers[0]);
+    backbuffer_prev = &swapchain->back_buffers[0];
+    texture_prev = wined3d_texture_gl(backbuffer_prev->texture);
 
     /* Back buffer 0 is already in the draw binding. */
+    dirty_region0 = backbuffer_prev->dirty_region;
     tex0 = texture_prev->texture_rgb;
     rb0 = texture_prev->rb_multisample;
     locations0 = texture_prev->t.sub_resources[0].locations;
 
     for (i = 1; i < swapchain->state.desc.backbuffer_count; ++i)
     {
-        texture = wined3d_texture_gl(swapchain->back_buffers[i]);
+        backbuffer = &swapchain->back_buffers[i];
+        texture = wined3d_texture_gl(backbuffer->texture);
         sub_resource = &texture->t.sub_resources[0];
 
         if (!(sub_resource->locations & supported_locations))
             wined3d_texture_load_location(&texture->t, 0, context, texture->t.resource.draw_binding);
 
+        backbuffer_prev->dirty_region = backbuffer->dirty_region;
         texture_prev->texture_rgb = texture->texture_rgb;
         texture_prev->rb_multisample = texture->rb_multisample;
 
         wined3d_texture_validate_location(&texture_prev->t, 0, sub_resource->locations & supported_locations);
         wined3d_texture_invalidate_location(&texture_prev->t, 0, ~(sub_resource->locations & supported_locations));
 
+        backbuffer_prev = backbuffer;
         texture_prev = texture;
     }
 
+    backbuffer_prev->dirty_region = dirty_region0;
     texture_prev->texture_rgb = tex0;
     texture_prev->rb_multisample = rb0;
 
@@ -583,7 +593,7 @@ static bool swapchain_present_is_partial_copy(struct wined3d_swapchain *swapchai
 static void swapchain_gl_present(struct wined3d_swapchain *swapchain,
         const RECT *src_rect, const RECT *dst_rect, unsigned int swap_interval, uint32_t flags)
 {
-    struct wined3d_texture *back_buffer = swapchain->back_buffers[0];
+    struct wined3d_texture *back_buffer = swapchain->back_buffers[0].texture;
     const struct wined3d_pixel_format *pixel_format;
     const struct wined3d_gl_info *gl_info;
     struct wined3d_context_gl *context_gl;
@@ -1040,7 +1050,7 @@ static void wined3d_swapchain_vk_set_swap_interval(struct wined3d_swapchain_vk *
 static VkResult wined3d_swapchain_vk_blit(struct wined3d_swapchain_vk *swapchain_vk,
         struct wined3d_context_vk *context_vk, const RECT *src_rect, const RECT *dst_rect, unsigned int swap_interval)
 {
-    struct wined3d_texture_vk *back_buffer_vk = wined3d_texture_vk(swapchain_vk->s.back_buffers[0]);
+    struct wined3d_texture_vk *back_buffer_vk = wined3d_texture_vk(swapchain_vk->s.back_buffers[0].texture);
     struct wined3d_device_vk *device_vk = wined3d_device_vk(swapchain_vk->s.device);
     const struct wined3d_swapchain_desc *desc = &swapchain_vk->s.state.desc;
     const struct wined3d_vk_info *vk_info = context_vk->vk_info;
@@ -1168,11 +1178,13 @@ static VkResult wined3d_swapchain_vk_blit(struct wined3d_swapchain_vk *swapchain
 static void wined3d_swapchain_vk_rotate(struct wined3d_swapchain *swapchain, struct wined3d_context_vk *context_vk)
 {
     struct wined3d_texture_sub_resource *sub_resource;
+    struct wined3d_backbuffer *backbuffer, *backbuffer_prev;
     struct wined3d_texture_vk *texture, *texture_prev;
     struct wined3d_image_vk image0;
     VkDescriptorImageInfo vk_info0;
     VkImageLayout vk_layout0;
     uint32_t bind_mask0;
+    HRGN dirty_region0;
     DWORD locations0;
     unsigned int i;
 
@@ -1181,9 +1193,11 @@ static void wined3d_swapchain_vk_rotate(struct wined3d_swapchain *swapchain, str
     if (swapchain->state.desc.backbuffer_count < 2)
         return;
 
-    texture_prev = wined3d_texture_vk(swapchain->back_buffers[0]);
+    backbuffer_prev = &swapchain->back_buffers[0];
+    texture_prev = wined3d_texture_vk(backbuffer_prev->texture);
 
     /* Back buffer 0 is already in the draw binding. */
+    dirty_region0 = backbuffer_prev->dirty_region;
     image0 = texture_prev->image;
     vk_layout0 = texture_prev->layout;
     bind_mask0 = texture_prev->bind_mask;
@@ -1192,12 +1206,14 @@ static void wined3d_swapchain_vk_rotate(struct wined3d_swapchain *swapchain, str
 
     for (i = 1; i < swapchain->state.desc.backbuffer_count; ++i)
     {
-        texture = wined3d_texture_vk(swapchain->back_buffers[i]);
+        backbuffer = &swapchain->back_buffers[i];
+        texture = wined3d_texture_vk(backbuffer->texture);
         sub_resource = &texture->t.sub_resources[0];
 
         if (!(sub_resource->locations & supported_locations))
             wined3d_texture_load_location(&texture->t, 0, &context_vk->c, texture->t.resource.draw_binding);
 
+        backbuffer_prev->dirty_region = backbuffer->dirty_region;
         texture_prev->image = texture->image;
         texture_prev->layout = texture->layout;
         texture_prev->bind_mask = texture->bind_mask;
@@ -1206,9 +1222,11 @@ static void wined3d_swapchain_vk_rotate(struct wined3d_swapchain *swapchain, str
         wined3d_texture_validate_location(&texture_prev->t, 0, sub_resource->locations & supported_locations);
         wined3d_texture_invalidate_location(&texture_prev->t, 0, ~(sub_resource->locations & supported_locations));
 
+        backbuffer_prev = backbuffer;
         texture_prev = texture;
     }
 
+    backbuffer_prev->dirty_region = dirty_region0;
     texture_prev->image = image0;
     texture_prev->layout = vk_layout0;
     texture_prev->bind_mask = bind_mask0;
@@ -1224,7 +1242,7 @@ static void swapchain_vk_present(struct wined3d_swapchain *swapchain, const RECT
         const RECT *dst_rect, unsigned int swap_interval, uint32_t flags)
 {
     struct wined3d_swapchain_vk *swapchain_vk = wined3d_swapchain_vk(swapchain);
-    struct wined3d_texture *back_buffer = swapchain->back_buffers[0];
+    struct wined3d_texture *back_buffer = swapchain->back_buffers[0].texture;
     struct wined3d_context_vk *context_vk;
     VkResult vr;
     HRESULT hr;
@@ -1324,7 +1342,7 @@ static void swapchain_gdi_present(struct wined3d_swapchain *swapchain,
     HDC dc;
 
     front = &swapchain->front_buffer->dc_info[0];
-    back = &swapchain->back_buffers[0]->dc_info[0];
+    back = &swapchain->back_buffers[0].texture->dc_info[0];
 
     /* Flip the surface data. */
     dc = front->dc;
@@ -1334,13 +1352,13 @@ static void swapchain_gdi_present(struct wined3d_swapchain *swapchain,
 
     front->dc = back->dc;
     front->bitmap = back->bitmap;
-    swapchain->front_buffer->resource.heap_pointer = swapchain->back_buffers[0]->resource.heap_pointer;
-    swapchain->front_buffer->resource.heap_memory = swapchain->back_buffers[0]->resource.heap_memory;
+    swapchain->front_buffer->resource.heap_pointer = swapchain->back_buffers[0].texture->resource.heap_pointer;
+    swapchain->front_buffer->resource.heap_memory = swapchain->back_buffers[0].texture->resource.heap_memory;
 
     back->dc = dc;
     back->bitmap = bitmap;
-    swapchain->back_buffers[0]->resource.heap_pointer = heap_pointer;
-    swapchain->back_buffers[0]->resource.heap_memory = heap_memory;
+    swapchain->back_buffers[0].texture->resource.heap_pointer = heap_pointer;
+    swapchain->back_buffers[0].texture->resource.heap_memory = heap_memory;
 
     SetRect(&swapchain->front_buffer_update, 0, 0,
             swapchain->front_buffer->resource.width,
@@ -1608,7 +1626,7 @@ static HRESULT wined3d_swapchain_init(struct wined3d_swapchain *swapchain, struc
         for (i = 0; i < swapchain->state.desc.backbuffer_count; ++i)
         {
             TRACE("Creating back buffer %u.\n", i);
-            if (FAILED(hr = swapchain_create_texture(swapchain, false, false, &swapchain->back_buffers[i])))
+            if (FAILED(hr = swapchain_create_texture(swapchain, false, false, &swapchain->back_buffers[i].texture)))
             {
                 WARN("Failed to create back buffer %u, hr %#lx.\n", i, hr);
                 swapchain->state.desc.backbuffer_count = i;
@@ -1666,11 +1684,12 @@ err:
     {
         for (i = 0; i < swapchain->state.desc.backbuffer_count; ++i)
         {
-            if (swapchain->back_buffers[i])
+            if (swapchain->back_buffers[i].texture)
             {
-                wined3d_texture_set_swapchain(swapchain->back_buffers[i], NULL);
-                wined3d_texture_decref(swapchain->back_buffers[i]);
+                wined3d_texture_set_swapchain(swapchain->back_buffers[i].texture, NULL);
+                wined3d_texture_decref(swapchain->back_buffers[i].texture);
             }
+            // No Present possible, no need to check and free dirty HRGN
         }
         free(swapchain->back_buffers);
     }
@@ -1827,7 +1846,7 @@ void swapchain_update_draw_bindings(struct wined3d_swapchain *swapchain)
 
     for (i = 0; i < swapchain->state.desc.backbuffer_count; ++i)
     {
-        wined3d_resource_update_draw_binding(&swapchain->back_buffers[i]->resource);
+        wined3d_resource_update_draw_binding(&swapchain->back_buffers[i].texture->resource);
     }
 }
 
@@ -2019,12 +2038,18 @@ HRESULT CDECL wined3d_swapchain_resize_buffers(struct wined3d_swapchain *swapcha
 
         for (i = 0; i < desc->backbuffer_count; ++i)
         {
+            struct wined3d_backbuffer *backbuffer = &swapchain->back_buffers[i];
             if (FAILED(hr = swapchain_create_texture(swapchain, false, false, &new_texture)))
                 return hr;
-            wined3d_texture_set_swapchain(swapchain->back_buffers[i], NULL);
-            if (wined3d_texture_decref(swapchain->back_buffers[i]))
-                ERR("Something's still holding back buffer %u (%p).\n", i, swapchain->back_buffers[i]);
-            swapchain->back_buffers[i] = new_texture;
+            wined3d_texture_set_swapchain(backbuffer->texture, NULL);
+            if (wined3d_texture_decref(backbuffer->texture))
+                ERR("Something's still holding back buffer %u (%p).\n", i, backbuffer->texture);
+            backbuffer->texture = new_texture;
+            if (backbuffer->dirty_region)
+            {
+                DeleteObject(backbuffer->dirty_region);
+                backbuffer->dirty_region = NULL;
+            }
         }
     }
 

@@ -4080,6 +4080,12 @@ struct wined3d_swapchain_ops
     void (*swapchain_frontbuffer_updated)(struct wined3d_swapchain *swapchain);
 };
 
+struct wined3d_backbuffer
+{
+    struct wined3d_texture *texture;
+    HRGN dirty_region;
+};
+
 struct wined3d_swapchain
 {
     LONG ref;
@@ -4088,7 +4094,7 @@ struct wined3d_swapchain
     const struct wined3d_swapchain_ops *swapchain_ops;
     struct wined3d_device *device;
 
-    struct wined3d_texture **back_buffers;
+    struct wined3d_backbuffer *back_buffers;
     struct wined3d_texture *front_buffer;
     struct wined3d_gamma_ramp orig_gamma;
     bool reapply_mode;

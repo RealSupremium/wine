@@ -671,7 +671,7 @@ static void wined3d_cs_exec_present(struct wined3d_cs *cs, const void *data)
 
     swapchain = op->swapchain;
     desc = &swapchain->state.desc;
-    back_buffer = swapchain->back_buffers[0];
+    back_buffer = swapchain->back_buffers[0].texture;
     wined3d_swapchain_set_window(swapchain, op->dst_window_override);
 
     if ((logo_texture = swapchain->device->logo_texture))
@@ -711,7 +711,7 @@ static void wined3d_cs_exec_present(struct wined3d_cs *cs, const void *data)
     swapchain->swapchain_ops->swapchain_present(swapchain, &op->src_rect, &op->dst_rect, op->swap_interval, op->flags);
 
     /* Discard buffers if the swap effect allows it. */
-    back_buffer = swapchain->back_buffers[desc->backbuffer_count - 1];
+    back_buffer = swapchain->back_buffers[desc->backbuffer_count - 1].texture;
     if (desc->swap_effect == WINED3D_SWAP_EFFECT_DISCARD || desc->swap_effect == WINED3D_SWAP_EFFECT_FLIP_DISCARD)
         wined3d_texture_validate_location(back_buffer, 0, WINED3D_LOCATION_DISCARDED);
 
@@ -777,7 +777,7 @@ void wined3d_cs_emit_present(struct wined3d_cs *cs, struct wined3d_swapchain *sw
     wined3d_resource_reference(&swapchain->front_buffer->resource);
     for (i = 0; i < swapchain->state.desc.backbuffer_count; ++i)
     {
-        wined3d_resource_reference(&swapchain->back_buffers[i]->resource);
+        wined3d_resource_reference(&swapchain->back_buffers[i].texture->resource);
     }
 
     wined3d_device_context_submit(&cs->c, WINED3D_CS_QUEUE_DEFAULT);

@@ -1487,7 +1487,7 @@ void wined3d_device_gl_create_primary_opengl_context_cs(void *object)
 
     device = &device_gl->d;
     swapchain = device->swapchains[0];
-    target = swapchain->back_buffers ? swapchain->back_buffers[0] : swapchain->front_buffer;
+    target = swapchain->back_buffers ? swapchain->back_buffers[0].texture : swapchain->front_buffer;
     if (!(context = context_acquire(device, target, 0)))
     {
         WARN("Failed to acquire context.\n");
@@ -1571,7 +1571,7 @@ HRESULT wined3d_device_set_implicit_swapchain(struct wined3d_device *device, str
     swapchain_desc = &swapchain->state.desc;
     if (swapchain_desc->backbuffer_count && swapchain_desc->backbuffer_bind_flags & WINED3D_BIND_RENDER_TARGET)
     {
-        struct wined3d_resource *back_buffer = &swapchain->back_buffers[0]->resource;
+        struct wined3d_resource *back_buffer = &swapchain->back_buffers[0].texture->resource;
         struct wined3d_view_desc view_desc;
 
         view_desc.format_id = back_buffer->format->id;
@@ -5154,7 +5154,7 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         update_swapchain_flags(swapchain->front_buffer);
         for (i = 0; i < current_desc->backbuffer_count; ++i)
         {
-            update_swapchain_flags(swapchain->back_buffers[i]);
+            update_swapchain_flags(swapchain->back_buffers[i].texture);
         }
     }
 
@@ -5212,7 +5212,7 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
     }
     if (current_desc->backbuffer_count && current_desc->backbuffer_bind_flags & WINED3D_BIND_RENDER_TARGET)
     {
-        struct wined3d_resource *back_buffer = &swapchain->back_buffers[0]->resource;
+        struct wined3d_resource *back_buffer = &swapchain->back_buffers[0].texture->resource;
 
         view_desc.format_id = back_buffer->format->id;
         view_desc.flags = 0;

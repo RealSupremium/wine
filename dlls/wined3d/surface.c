@@ -1586,7 +1586,7 @@ HRESULT texture2d_blt(struct wined3d_texture *dst_texture, unsigned int dst_sub_
     }
     else if (dst_swapchain && dst_swapchain->back_buffers
             && dst_texture == dst_swapchain->front_buffer
-            && src_texture == dst_swapchain->back_buffers[0])
+            && src_texture == dst_swapchain->back_buffers[0].texture)
     {
         /* Use present for back -> front blits. The idea behind this is that
          * present is potentially faster than a blit, in particular when FBO
