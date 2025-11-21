@@ -201,6 +201,21 @@ static inline void imagelist_copy_images( HIMAGELIST himl, HDC hdcSrc, HDC hdcDe
     }
 }
 
+static void premultiply_alpha_channel(DWORD *bits, int pixel_count)
+{
+    DWORD *ptr = bits;
+    unsigned int i;
+
+    for (i = 0; i < pixel_count; i++, ptr++)
+    {
+        DWORD alpha = *ptr >> 24;
+        *ptr = ((*ptr & 0xff000000)
+                | (((*ptr & 0x00ff0000) * alpha / 255) & 0x00ff0000)
+                | (((*ptr & 0x0000ff00) * alpha / 255) & 0x0000ff00)
+                | (((*ptr & 0x000000ff) * alpha / 255)));
+    }
+}
+
 static void add_dib_bits( HIMAGELIST himl, int pos, int count, int width, int height,
                           BITMAPINFO *info, BITMAPINFO *mask_info, DWORD *bits, BYTE *mask_bits )
 {
@@ -1237,15 +1252,7 @@ static BOOL alpha_blend_image( HIMAGELIST himl, HDC dest_dc, int dest_x, int des
 
     if (has_alpha)  /* we already have an alpha channel in this case */
     {
-        /* pre-multiply by the alpha channel */
-        for (i = 0, ptr = bits; i < cx * cy; i++, ptr++)
-        {
-            DWORD alpha = *ptr >> 24;
-            *ptr = ((*ptr & 0xff000000) |
-                    (((*ptr & 0x00ff0000) * alpha / 255) & 0x00ff0000) |
-                    (((*ptr & 0x0000ff00) * alpha / 255) & 0x0000ff00) |
-                    (((*ptr & 0x000000ff) * alpha / 255)));
-        }
+        premultiply_alpha_channel(bits, cx * cy);
     }
     else if (himl->hbmMask)
     {
