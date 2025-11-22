@@ -108,6 +108,7 @@ void *pKiUserEmulationDispatcher = NULL;
 void *pLdrInitializeThunk = NULL;
 void *pRtlUserThreadStart = NULL;
 void *p__wine_ctrl_routine = NULL;
+void *p__wine_mac_run_cfrunloop = NULL;
 SYSTEM_DLL_INIT_BLOCK *pLdrSystemDllInitBlock = NULL;
 
 #ifdef __GNUC__
@@ -1521,6 +1522,7 @@ static void load_ntdll_functions( HMODULE module )
     GET_FUNC( LdrSystemDllInitBlock );
     GET_FUNC( RtlUserThreadStart );
     GET_FUNC( __wine_ctrl_routine );
+    GET_FUNC( __wine_mac_run_cfrunloop );
     GET_FUNC( __wine_syscall_dispatcher );
     GET_FUNC( __wine_unix_call_dispatcher );
     GET_FUNC( __wine_unixlib_handle );
