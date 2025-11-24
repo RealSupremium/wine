@@ -127,7 +127,10 @@ static ULONG WINAPI output_props_Release(IWMOutputMediaProps *iface)
     TRACE("%p decreasing refcount to %lu.\n", props, refcount);
 
     if (!refcount)
+    {
+        FreeMediaType(&props->mt);
         free(props);
+    }
 
     return refcount;
 }
