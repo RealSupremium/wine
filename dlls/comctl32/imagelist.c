@@ -148,6 +148,53 @@ BOOL imagelist_has_alpha( HIMAGELIST himl, UINT index )
     return himl->item_flags[index] & ILIF_ALPHA;
 }
 
+static HBITMAP create_dib_section(HDC hdc, int width, int height, int bpp, void **bits)
+{
+    BITMAPINFO *info;
+    HBITMAP bitmap;
+
+    if (!(info = Alloc(FIELD_OFFSET(BITMAPINFO, bmiColors[256]))))
+        return NULL;
+
+    info->bmiHeader.biSize          = sizeof(BITMAPINFOHEADER);
+    info->bmiHeader.biWidth         = width;
+    info->bmiHeader.biHeight        = height;
+    info->bmiHeader.biPlanes        = 1;
+    info->bmiHeader.biBitCount      = bpp;
+    info->bmiHeader.biCompression   = BI_RGB;
+    info->bmiHeader.biXPelsPerMeter = 0;
+    info->bmiHeader.biYPelsPerMeter = 0;
+    info->bmiHeader.biClrUsed       = 0;
+    info->bmiHeader.biClrImportant  = 0;
+
+    switch (bpp)
+    {
+        case 1:
+            info->bmiHeader.biSizeImage    = (width + 31) / 32 * height * 4;
+            info->bmiColors[0].rgbRed      = 0;
+            info->bmiColors[0].rgbGreen    = 0;
+            info->bmiColors[0].rgbBlue     = 0;
+            info->bmiColors[0].rgbReserved = 0;
+            info->bmiColors[1].rgbRed      = 0xff;
+            info->bmiColors[1].rgbGreen    = 0xff;
+            info->bmiColors[1].rgbBlue     = 0xff;
+            info->bmiColors[1].rgbReserved = 0;
+            break;
+        case 32:
+            info->bmiHeader.biSizeImage = width * height * 4;
+            break;
+        default:
+            WARN("Unsupported bpp %d.\n", bpp);
+            Free(info);
+            return NULL;
+    }
+
+    bitmap = CreateDIBSection(hdc, info, DIB_RGB_COLORS, bits, 0, 0);
+
+    Free(info);
+    return bitmap;
+}
+
 static BOOL image_list_color_flag(HIMAGELIST image_list)
 {
     return image_list->flags & 0xfe;
@@ -1204,7 +1251,6 @@ static BOOL alpha_blend_image( HIMAGELIST himl, HDC dest_dc, int dest_x, int des
     BOOL ret = FALSE;
     HDC hdc;
     HBITMAP bmp = 0, mask = 0;
-    BITMAPINFO *info;
     BLENDFUNCTION func;
     void *bits, *mask_bits;
     unsigned int *ptr;
@@ -1216,19 +1262,8 @@ static BOOL alpha_blend_image( HIMAGELIST himl, HDC dest_dc, int dest_x, int des
     func.AlphaFormat = AC_SRC_ALPHA;
 
     if (!(hdc = CreateCompatibleDC( 0 ))) return FALSE;
-    if (!(info = Alloc( FIELD_OFFSET( BITMAPINFO, bmiColors[256] )))) goto done;
-    info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info->bmiHeader.biWidth = cx;
-    info->bmiHeader.biHeight = cy;
-    info->bmiHeader.biPlanes = 1;
-    info->bmiHeader.biBitCount = 32;
-    info->bmiHeader.biCompression = BI_RGB;
-    info->bmiHeader.biSizeImage = cx * cy * 4;
-    info->bmiHeader.biXPelsPerMeter = 0;
-    info->bmiHeader.biYPelsPerMeter = 0;
-    info->bmiHeader.biClrUsed = 0;
-    info->bmiHeader.biClrImportant = 0;
-    if (!(bmp = CreateDIBSection( himl->hdcImage, info, DIB_RGB_COLORS, &bits, 0, 0 ))) goto done;
+    if (!(bmp = create_dib_section(himl->hdcImage, cx, cy, 32, &bits)))
+        goto done;
     SelectObject( hdc, bmp );
     BitBlt( hdc, 0, 0, cx, cy, himl->hdcImage, src_x, src_y, SRCCOPY );
 
@@ -1288,17 +1323,7 @@ static BOOL alpha_blend_image( HIMAGELIST himl, HDC dest_dc, int dest_x, int des
     {
         unsigned int width_bytes = (cx + 31) / 32 * 4;
         /* generate alpha channel from the mask */
-        info->bmiHeader.biBitCount = 1;
-        info->bmiHeader.biSizeImage = width_bytes * cy;
-        info->bmiColors[0].rgbRed      = 0;
-        info->bmiColors[0].rgbGreen    = 0;
-        info->bmiColors[0].rgbBlue     = 0;
-        info->bmiColors[0].rgbReserved = 0;
-        info->bmiColors[1].rgbRed      = 0xff;
-        info->bmiColors[1].rgbGreen    = 0xff;
-        info->bmiColors[1].rgbBlue     = 0xff;
-        info->bmiColors[1].rgbReserved = 0;
-        if (!(mask = CreateDIBSection( himl->hdcMask, info, DIB_RGB_COLORS, &mask_bits, 0, 0 )))
+        if (!(mask = create_dib_section(himl->hdcMask, cx, cy, 1, &mask_bits)))
             goto done;
         SelectObject( hdc, mask );
         BitBlt( hdc, 0, 0, cx, cy, himl->hdcMask, src_x, src_y, SRCCOPY );
@@ -1320,7 +1345,6 @@ done:
     DeleteDC( hdc );
     if (bmp) DeleteObject( bmp );
     if (mask) DeleteObject( mask );
-    Free( info );
     return ret;
 }
 
