@@ -268,15 +268,36 @@ static void premultiply_alpha_channel(DWORD *bits, int pixel_count)
     }
 }
 
-static void do_alpha_processing(DWORD *bits, int n, int width, int height, int stride,
+static void do_alpha_processing(HIMAGELIST himl, DWORD *bits, int pos, int n, int width, int height, int stride,
         BOOL generate_mask, BYTE *mask_bits, int mask_stride)
 {
     int i, j;
 
 #if __WINE_COMCTL32_VERSION == 6
+    BOOL image_list_is_32bpp = (image_list_color_flag(himl) == ILC_COLOR32);
+
     /* Premultiply alpha for each line of the nth image. */
     for (i = 0; i < height; i++)
         premultiply_alpha_channel(&bits[i * stride + n * width], width);
+
+    if (!image_list_is_32bpp)
+    {
+        himl->item_flags[pos + n] = 0;
+
+        /* Image list is not 32bpp, no alpha channel in image list bitmap.
+         * We need to do alpha blend here by ourselves. */
+        for (i = 0; i < height; i++)
+        {
+            for (j = n * width; j < (n + 1) * width; j++)
+            {
+                DWORD *pixel = &bits[i * stride + j], alpha = *pixel >> 24;
+                DWORD r = (*pixel & 0x00ff0000) >> 16;
+                DWORD g = (*pixel & 0x0000ff00) >> 8;
+                DWORD b = *pixel & 0x000000ff;
+                *pixel = ((r + 0xff - alpha) << 16) | ((g + 0xff - alpha) << 8) | (b + 0xff - alpha);
+            }
+        }
+    }
 #endif /* __WINE_COMCTL32_VERSION == 6 */
 
     /* Generate the mask from the alpha channel. */
@@ -322,7 +343,7 @@ static void add_dib_bits( HIMAGELIST himl, int pos, int count, int width, int he
         if (has_alpha)
         {
             himl->item_flags[pos + n] = ILIF_ALPHA;
-            do_alpha_processing(bits, n, width, height, stride,
+            do_alpha_processing(himl, bits, pos, n, width, height, stride,
                         mask_info && himl->hbmMask, mask_bits, mask_stride);
         }
         else if (mask_info)  /* mask out the background */
