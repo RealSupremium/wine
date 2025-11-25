@@ -148,6 +148,11 @@ BOOL imagelist_has_alpha( HIMAGELIST himl, UINT index )
     return himl->item_flags[index] & ILIF_ALPHA;
 }
 
+static BOOL image_list_color_flag(HIMAGELIST image_list)
+{
+    return image_list->flags & 0xfe;
+}
+
 static inline UINT imagelist_height( UINT count )
 {
     return ((count + TILE_COUNT - 1)/TILE_COUNT);
@@ -302,7 +307,7 @@ static BOOL add_with_alpha( HIMAGELIST himl, HDC hdc, int pos, int count,
     if (!GetObjectW( hbmImage, sizeof(bm), &bm )) return FALSE;
 
     /* if either the imagelist or the source bitmap don't have an alpha channel, bail out now */
-    if ((himl->flags & 0xfe) != ILC_COLOR32) return FALSE;
+    if (image_list_color_flag(himl) != ILC_COLOR32) return FALSE;
     if (bm.bmBitsPixel != 32) return FALSE;
 
     SelectObject( hdc, hbmImage );
@@ -2254,7 +2259,7 @@ HIMAGELIST WINAPI ImageList_Read(IStream *pstm)
     }
     else mask_info = NULL;
 
-    if ((himl->flags & 0xfe) == ILC_COLOR32 && image_info->bmiHeader.biBitCount == 32)
+    if (image_list_color_flag(himl) == ILC_COLOR32 && image_info->bmiHeader.biBitCount == 32)
     {
         DWORD *ptr = image_bits;
         BYTE *mask_ptr = mask_bits;
@@ -2566,7 +2571,7 @@ ImageList_ReplaceIcon (HIMAGELIST himl, INT nIndex, HICON hIcon)
         himl->cCurImage++;
     }
 
-    if ((himl->flags & 0xfe) == ILC_COLOR32 && GetIconInfo (hBestFitIcon, &ii))
+    if (image_list_color_flag(himl) == ILC_COLOR32 && GetIconInfo (hBestFitIcon, &ii))
     {
         HDC hdcImage = CreateCompatibleDC( 0 );
         GetObjectW (ii.hbmMask, sizeof(BITMAP), &bmp);
@@ -3077,7 +3082,7 @@ BOOL WINAPI ImageList_Write(HIMAGELIST himl, IStream *pstm)
 static HBITMAP ImageList_CreateImage(HDC hdc, HIMAGELIST himl, UINT count)
 {
     HBITMAP hbmNewBitmap;
-    UINT ilc = (himl->flags & 0xFE);
+    UINT ilc = image_list_color_flag(himl);
     SIZE sz;
 
     imagelist_get_bitmap_size( himl, count, &sz );
