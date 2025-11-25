@@ -321,6 +321,15 @@ static BOOL is_alpha_premultiplied(void)
 #endif /* __WINE_COMCTL32_VERSION == 6 */
 }
 
+static BOOL can_add_with_alpha(HIMAGELIST himl, BITMAP bm)
+{
+#if __WINE_COMCTL32_VERSION == 6
+    return bm.bmBitsPixel == 32;
+#else
+    return bm.bmBitsPixel == 32 && image_list_color_flag(himl) == ILC_COLOR32;
+#endif /* __WINE_COMCTL32_VERSION == 6 */
+}
+
 static void add_dib_bits( HIMAGELIST himl, int pos, int count, int width, int height,
                           BITMAPINFO *info, BITMAPINFO *mask_info, DWORD *bits, BYTE *mask_bits )
 {
@@ -361,7 +370,7 @@ static void add_dib_bits( HIMAGELIST himl, int pos, int count, int width, int he
     }
 }
 
-/* add images with an alpha channel when the image list is 32 bpp */
+/* Add images with an alpha channel. */
 static BOOL add_with_alpha( HIMAGELIST himl, HDC hdc, int pos, int count,
                             int width, int height, HBITMAP hbmImage, HBITMAP hbmMask )
 {
@@ -372,11 +381,9 @@ static BOOL add_with_alpha( HIMAGELIST himl, HDC hdc, int pos, int count,
     BYTE *mask_bits = NULL;
     DWORD mask_width;
 
-    if (!GetObjectW( hbmImage, sizeof(bm), &bm )) return FALSE;
-
-    /* if either the imagelist or the source bitmap don't have an alpha channel, bail out now */
-    if (image_list_color_flag(himl) != ILC_COLOR32) return FALSE;
-    if (bm.bmBitsPixel != 32) return FALSE;
+    if (!GetObjectW(hbmImage, sizeof(bm), &bm)
+            || !can_add_with_alpha(himl, bm))
+        return FALSE;
 
     SelectObject( hdc, hbmImage );
     mask_width = (bm.bmWidth + 31) / 32 * 4;
