@@ -216,6 +216,38 @@ static void premultiply_alpha_channel(DWORD *bits, int pixel_count)
     }
 }
 
+static void do_alpha_processing(DWORD *bits, int n, int width, int height, int stride,
+        BOOL generate_mask, BYTE *mask_bits, int mask_stride)
+{
+    int i, j;
+
+#if __WINE_COMCTL32_VERSION == 6
+    /* Premultiply alpha for each line of the nth image. */
+    for (i = 0; i < height; i++)
+        premultiply_alpha_channel(&bits[i * stride + n * width], width);
+#endif /* __WINE_COMCTL32_VERSION == 6 */
+
+    /* Generate the mask from the alpha channel. */
+    if (generate_mask)
+    {
+        for (i = 0; i < height; i++)
+            for (j = n * width; j < (n + 1) * width; j++)
+                if ((bits[i * stride + j] >> 24) > 25) /* more than 10% alpha */
+                    mask_bits[i * mask_stride + j / 8] &= ~(0x80 >> (j % 8));
+                else
+                    mask_bits[i * mask_stride + j / 8] |= 0x80 >> (j % 8);
+    }
+}
+
+static BOOL is_alpha_premultiplied(void)
+{
+#if __WINE_COMCTL32_VERSION == 6
+    return TRUE;
+#else
+    return FALSE;
+#endif /* __WINE_COMCTL32_VERSION == 6 */
+}
+
 static void add_dib_bits( HIMAGELIST himl, int pos, int count, int width, int height,
                           BITMAPINFO *info, BITMAPINFO *mask_info, DWORD *bits, BYTE *mask_bits )
 {
@@ -238,16 +270,8 @@ static void add_dib_bits( HIMAGELIST himl, int pos, int count, int width, int he
         if (has_alpha)
         {
             himl->item_flags[pos + n] = ILIF_ALPHA;
-
-            if (mask_info && himl->hbmMask)  /* generate the mask from the alpha channel */
-            {
-                for (i = 0; i < height; i++)
-                    for (j = n * width; j < (n + 1) * width; j++)
-                        if ((bits[i * stride + j] >> 24) > 25) /* more than 10% alpha */
-                            mask_bits[i * mask_stride + j / 8] &= ~(0x80 >> (j % 8));
-                        else
-                            mask_bits[i * mask_stride + j / 8] |= 0x80 >> (j % 8);
-            }
+            do_alpha_processing(bits, n, width, height, stride,
+                        mask_info && himl->hbmMask, mask_bits, mask_stride);
         }
         else if (mask_info)  /* mask out the background */
         {
@@ -1252,7 +1276,8 @@ static BOOL alpha_blend_image( HIMAGELIST himl, HDC dest_dc, int dest_x, int des
 
     if (has_alpha)  /* we already have an alpha channel in this case */
     {
-        premultiply_alpha_channel(bits, cx * cy);
+        if (!is_alpha_premultiplied())
+            premultiply_alpha_channel(bits, cx * cy);
     }
     else if (himl->hbmMask)
     {
