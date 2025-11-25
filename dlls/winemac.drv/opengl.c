@@ -24,21 +24,8 @@
 #endif
 
 #include "config.h"
-
 #include "macdrv.h"
 
-#include "winuser.h"
-#include "winternl.h"
-#include "winnt.h"
-#include "wine/debug.h"
-#include "wine/opengl_driver.h"
-
-#define GL_SILENCE_DEPRECATION
-#define __gl_h_
-#define __gltypes_h_
-#include <OpenGL/OpenGL.h>
-#include <OpenGL/glu.h>
-#include <OpenGL/CGLRenderers.h>
 #include <dlfcn.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(wgl);

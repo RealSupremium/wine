@@ -63,12 +63,24 @@ static int nb_debug_options = -1;
 static int options_size;
 static struct __wine_debug_channel *debug_options;
 
+static pthread_key_t non_wine_thread_debug_info_key;
+
 static const char * const debug_classes[] = { "fixme", "err", "warn", "trace" };
 
 /* get the debug info pointer for the current thread */
 static inline struct debug_info *get_info(void)
 {
     if (!init_done) return &initial_info;
+    if (!NtCurrentTeb())
+    {
+        struct debug_info *info = pthread_getspecific( non_wine_thread_debug_info_key );
+        if (!info)
+        {
+            info = calloc( 1, sizeof(struct debug_info) );
+            pthread_setspecific( non_wine_thread_debug_info_key, info );
+        }
+        return info;
+    }
 #ifdef _WIN64
     return (struct debug_info *)((TEB32 *)((char *)NtCurrentTeb() + teb_offset) + 1);
 #else
@@ -333,7 +345,7 @@ int __cdecl __wine_dbg_header( enum __wine_debug_class cls, struct __wine_debug_
     /* only print header if we are at the beginning of the line */
     if (info->out_pos) return 0;
 
-    if (init_done)
+    if (init_done && NtCurrentTeb())
     {
         if (TRACE_ON(timestamp))
         {
@@ -367,6 +379,7 @@ void dbg_init(void)
     free( debug_options );
     debug_options = options;
     options[nb_debug_options] = default_option;
+    pthread_key_create( &non_wine_thread_debug_info_key, free );
     init_done = TRUE;
 }
 

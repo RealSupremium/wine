@@ -18,17 +18,21 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#import "config.h"
+#import "macdrv.h"
+
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
 #include <libkern/OSAtomic.h>
 
-#include "macdrv_cocoa.h"
 #import "cocoa_event.h"
 #import "cocoa_app.h"
 #import "cocoa_window.h"
 
 #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+
+WINE_DEFAULT_DEBUG_CHANNEL(event);
 
 
 static NSString* const WineEventQueueThreadDictionaryKey = @"WineEventQueueThreadDictionaryKey";
@@ -190,7 +194,7 @@ static const OSType WineHotKeySignature = 'Wine';
         } while (rc < 0 && errno == EINTR);
 
         if (rc < 0 && errno != EAGAIN)
-            ERR(@"%@: got error writing to event queue signaling pipe: %s\n", self, strerror(errno));
+            ERR("%s: got error writing to event queue signaling pipe: %s\n", debugstr_cf(self), strerror(errno));
     }
 
     - (void) postEventObject:(MacDrvEvent*)event
@@ -259,9 +263,9 @@ static const OSType WineHotKeySignature = 'Wine';
         if (rc == 0 || (rc < 0 && errno != EAGAIN))
         {
             if (rc == 0)
-                ERR(@"%@: event queue signaling pipe unexpectedly closed\n", self);
+                ERR("%s: event queue signaling pipe unexpectedly closed\n", debugstr_cf(self));
             else
-                ERR(@"%@: got error reading from event queue signaling pipe: %s\n", self, strerror(errno));
+                ERR("%s: got error reading from event queue signaling pipe: %s\n", debugstr_cf(self), strerror(errno));
             return nil;
         }
 
@@ -438,7 +442,7 @@ static const OSType WineHotKeySignature = 'Wine';
             status = InstallApplicationEventHandler(HotKeyHandler, 1, &eventType, self, &handler);
             if (status != noErr)
             {
-                ERR(@"InstallApplicationEventHandler() failed: %d\n", status);
+                ERR("InstallApplicationEventHandler() failed: %d\n", status);
                 handler = NULL;
                 return MACDRV_HOTKEY_FAILURE;
             }
@@ -462,7 +466,7 @@ static const OSType WineHotKeySignature = 'Wine';
             return MACDRV_HOTKEY_ALREADY_REGISTERED;
         if (status != noErr)
         {
-            ERR(@"RegisterEventHotKey() failed: %d\n", status);
+            ERR("RegisterEventHotKey() failed: %d\n", status);
             return MACDRV_HOTKEY_FAILURE;
         }
 

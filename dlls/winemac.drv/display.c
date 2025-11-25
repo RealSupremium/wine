@@ -24,13 +24,8 @@
 #endif
 
 #include "config.h"
-
 #include "macdrv.h"
-#include "winuser.h"
-#include "winreg.h"
-#include "ddrawi.h"
-#define WIN32_NO_STATUS
-#include "winternl.h"
+
 
 WINE_DEFAULT_DEBUG_CHANNEL(display);
 

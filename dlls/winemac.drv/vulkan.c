@@ -26,18 +26,11 @@
 #endif
 
 #include "config.h"
+#include "macdrv.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <dlfcn.h>
-
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
-#include "macdrv.h"
-#include "wine/debug.h"
-
-#include "wine/vulkan.h"
-#include "wine/vulkan_driver.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(vulkan);
 
