@@ -351,17 +351,37 @@ static void remove_pending_irps(DEVICE_OBJECT *device)
 static void make_unique_container_id(struct device_extension *device)
 {
     struct device_extension *ext;
-    LARGE_INTEGER ticks;
+    struct device_desc *desc = &device->desc;
+    const DWORD sn_len = wcslen(desc->serialnumber);
+    DWORD crc32;
 
     LIST_FOR_EACH_ENTRY(ext, &device_list, struct device_extension, entry)
         if (IsEqualGUID(&device->container_id, &ext->container_id)) break;
     if (&ext->entry == &device_list && !IsEqualGUID(&device->container_id, &GUID_NULL)) return;
 
-    device->container_id.Data1 = MAKELONG(device->desc.vid, device->desc.pid);
-    device->container_id.Data2 = device->index;
-    device->container_id.Data3 = device->desc.input;
-    QueryPerformanceCounter(&ticks);
-    memcpy(device->container_id.Data4, &ticks.QuadPart, sizeof(device->container_id.Data4));
+    device->container_id.Data1 = MAKELONG(desc->vid, desc->pid);
+    device->container_id.Data2 = desc->version;
+    if (sn_len && !device->index)
+    {
+        device->container_id.Data3 = 0;
+        crc32 = RtlComputeCrc32(0, (const BYTE *)desc->serialnumber, sn_len * sizeof(WCHAR));
+        *(UINT64 *)device->container_id.Data4 = crc32;
+    }
+    else if (desc->uid)
+    {
+        device->container_id.Data3 = 0;
+        *(UINT64 *)device->container_id.Data4 = desc->uid;
+    }
+    else if (desc->bus_num || desc->port_path)
+    {
+        device->container_id.Data3 = desc->bus_num;
+        *(UINT64 *)device->container_id.Data4 = desc->port_path;
+    }
+    else
+    {
+        device->container_id.Data3 = desc->input;
+        *(UINT64 *)device->container_id.Data4 = device->index;
+    }
 }
 
 static DEVICE_OBJECT *bus_create_hid_device(struct device_desc *desc, UINT64 unix_device)
