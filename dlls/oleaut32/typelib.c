@@ -7851,6 +7851,7 @@ static HRESULT WINAPI ITypeInfo_fnGetRefTypeInfo(
     HRESULT result = E_FAIL;
     TLBRefType *ref_type;
     UINT i;
+    int load_mode;
 
     if(!ppTInfo)
         return E_INVALIDARG;
@@ -7942,7 +7943,8 @@ static HRESULT WINAPI ITypeInfo_fnGetRefTypeInfo(
                         && IsEqualIID(&entry->guid->guid, TLB_get_guid_null(ref_type->pImpTLInfo->guid))
                         && entry->ver_major == ref_type->pImpTLInfo->wVersionMajor
                         && entry->ver_minor == ref_type->pImpTLInfo->wVersionMinor
-                        && entry->set_lcid == ref_type->pImpTLInfo->lcid)
+                        && entry->set_lcid == ref_type->pImpTLInfo->lcid
+                        && entry->ptr_size == This->pTypeLib->ptr_size)
                     {
                         TRACE("got cached %p\n", entry);
                         pTLib = (ITypeLib*)&entry->ITypeLib2_iface;
@@ -7966,7 +7968,8 @@ static HRESULT WINAPI ITypeInfo_fnGetRefTypeInfo(
                     if (FAILED(result))
                         libnam = SysAllocString(ref_type->pImpTLInfo->name);
 
-                    result = LoadTypeLib(libnam, &pTLib);
+                    load_mode = This->pTypeLib->ptr_size == 8 ? LOAD_TLB_AS_64BIT : LOAD_TLB_AS_32BIT;
+                    result = LoadTypeLibEx(libnam, REGKIND_DEFAULT | load_mode, &pTLib);
                     SysFreeString(libnam);
                 }
 
