@@ -8763,6 +8763,64 @@ static void test_DeleteFuncDesc(void)
     DeleteFileW(filenameW);
 }
 
+static void test_LoadTypeLibEx(SYSKIND sys)
+{
+    ITypeLib *tl;
+    ITypeInfo *ti;
+    TYPEATTR *typeattr;
+    FUNCDESC *funcdesc;
+    HRESULT hr;
+    const WCHAR *filename;
+    int load_mode;
+    int ptr_size;
+
+    switch(sys)
+    {
+        case SYS_WIN32:
+            winetest_push_context("win32");
+            load_mode = LOAD_TLB_AS_32BIT;
+            ptr_size = 4;
+            break;
+        case SYS_WIN64:
+            winetest_push_context("win64");
+            load_mode = LOAD_TLB_AS_64BIT;
+            ptr_size = 8;
+            break;
+        default:
+            return;
+    }
+
+    filename = create_test_typelib(4);
+
+    hr = LoadTypeLibEx(filename, REGKIND_NONE | load_mode, &tl);
+    ok(hr == S_OK, "got %08lx\n", hr);
+
+    hr = ITypeLib_GetTypeInfoOfGuid(tl, &IID_IBaseIface, &ti);
+    ok(hr == S_OK, "got %08lx\n", hr);
+
+    hr = ITypeInfo_GetTypeAttr(ti, &typeattr);
+    ok(hr == S_OK, "got %08lx\n", hr);
+
+    ok(typeattr->cbSizeVft == 8 * ptr_size, "got %u\n", typeattr->cbSizeVft);
+    ok(typeattr->cbAlignment == ptr_size, "got %u\n", typeattr->cbAlignment);
+    ok(typeattr->cbSizeInstance == ptr_size, "got %lu\n", typeattr->cbSizeInstance);
+
+    ITypeInfo_ReleaseTypeAttr(ti, typeattr);
+
+    hr = ITypeInfo_GetFuncDesc(ti, 0, &funcdesc);
+    ok(hr == S_OK, "got %08lx\n", hr);
+
+    ok(funcdesc->oVft == 7 * ptr_size, "got %u\n", funcdesc->oVft);
+
+    ITypeInfo_ReleaseFuncDesc(ti, funcdesc);
+
+    ITypeInfo_Release(ti);
+    ITypeLib_Release(tl);
+
+    DeleteFileW(filename);
+    winetest_pop_context();
+}
+
 START_TEST(typelib)
 {
     const WCHAR *filename;
@@ -8806,4 +8864,6 @@ START_TEST(typelib)
     test_stub();
     test_DeleteImplType();
     test_DeleteFuncDesc();
+    test_LoadTypeLibEx(SYS_WIN32);
+    test_LoadTypeLibEx(SYS_WIN64);
 }
