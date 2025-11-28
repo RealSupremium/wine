@@ -550,6 +550,27 @@ static GpStatus alpha_blend_bmp_pixels(GpGraphics *graphics, INT dst_x, INT dst_
     return Ok;
 }
 
+static void blend_32bppARGB(UINT width, UINT height, BYTE *dst_bits,
+    INT dst_stride, const BYTE *src_bits, INT src_stride)
+{
+    INT x, y;
+    for (y = 0; y < height; y++)
+    {
+        const BYTE *src = src_bits + y * src_stride;
+        BYTE *dst = dst_bits + y * dst_stride;
+        for (x = 0; x < width; x++)
+        {
+            BYTE alpha = src[3];
+            /* blend to white background */
+            *dst++ = (*src++ * alpha + 127) / 255 + (255 - alpha);
+            *dst++ = (*src++ * alpha + 127) / 255 + (255 - alpha);
+            *dst++ = (*src++ * alpha + 127) / 255 + (255 - alpha);
+            *dst++ = 255;
+            src++;
+        }
+    }
+}
+
 static GpStatus alpha_blend_hdc_pixels(GpGraphics *graphics, INT dst_x, INT dst_y,
     const BYTE *src, INT src_width, INT src_height, INT src_stride, PixelFormat fmt)
 {
@@ -578,10 +599,12 @@ static GpStatus alpha_blend_hdc_pixels(GpGraphics *graphics, INT dst_x, INT dst_
     if(!hbitmap || !temp_bits)
         goto done;
 
-    if ((graphics->hdc &&
+    if (graphics->hdc &&
          GetDeviceCaps(graphics->hdc, TECHNOLOGY) == DT_RASPRINTER &&
-         GetDeviceCaps(graphics->hdc, SHADEBLENDCAPS) == SB_NONE) ||
-            fmt & PixelFormatPAlpha)
+         GetDeviceCaps(graphics->hdc, SHADEBLENDCAPS) == SB_NONE)
+        blend_32bppARGB(src_width, src_height, temp_bits,
+                        4 * src_width, src, src_stride);
+    else if (fmt & PixelFormatPAlpha)
         memcpy(temp_bits, src, src_width * src_height * 4);
     else
         convert_32bppARGB_to_32bppPARGB(src_width, src_height, temp_bits,
@@ -3377,7 +3400,11 @@ GpStatus WINGDIPAPI GdipDrawImagePointsRect(GpGraphics *graphics, GpImage *image
                 GdipSetMatrixElements(&dst_to_src, m11, m12, m21, m22, mdx, mdy);
 
                 stat = GdipInvertMatrix(&dst_to_src);
-                if (stat != Ok) return stat;
+                if (stat != Ok)
+                {
+                    free(src_data);
+                    return stat;
+                }
 
                 dst_stride = sizeof(ARGB) * (dst_area.right - dst_area.left);
                 x_dx = dst_to_src.matrix[0];

@@ -946,7 +946,7 @@ static HRESULT WINAPI transform_ProcessOutput(IMFTransform *iface, DWORD flags, 
 {
     struct video_decoder *decoder = impl_from_IMFTransform(iface);
     UINT32 sample_size;
-    LONGLONG duration;
+    LONGLONG duration, sample_duration;
     IMFSample *sample;
     UINT64 frame_size, frame_rate;
     bool preserve_timestamps;
@@ -994,8 +994,7 @@ static HRESULT WINAPI transform_ProcessOutput(IMFTransform *iface, DWORD flags, 
         }
     }
 
-    if (SUCCEEDED(hr = wg_transform_read_mf(decoder->wg_transform, sample,
-            sample_size, &samples->dwStatus, &preserve_timestamps)))
+    if (SUCCEEDED(hr = wg_transform_read_mf(decoder->wg_transform, sample, &samples->dwStatus, &preserve_timestamps)))
     {
         wg_sample_queue_flush(decoder->wg_sample_queue, false);
 
@@ -1015,6 +1014,11 @@ static HRESULT WINAPI transform_ProcessOutput(IMFTransform *iface, DWORD flags, 
             if (FAILED(IMFSample_SetSampleDuration(sample, duration)))
                 WARN("Failed to set sample duration\n");
             decoder->sample_time += duration;
+        }
+        else if (FAILED(IMFSample_GetSampleDuration(sample, &sample_duration)) || !sample_duration)
+        {
+            if (FAILED(IMFSample_SetSampleDuration(sample, duration)))
+                WARN("Failed to set sample duration\n");
         }
     }
 
@@ -1265,6 +1269,7 @@ static HRESULT WINAPI media_object_SetOutputType(IMediaObject *iface, DWORD inde
         const DMO_MEDIA_TYPE *type, DWORD flags)
 {
     struct video_decoder *decoder = impl_from_IMediaObject(iface);
+    wg_transform_t new_transform = 0;
     IMFMediaType *media_type;
     unsigned int i;
     HRESULT hr;
@@ -1307,21 +1312,22 @@ static HRESULT WINAPI media_object_SetOutputType(IMediaObject *iface, DWORD inde
         return DMO_E_TYPE_NOT_ACCEPTED;
     IMFMediaType_Release(media_type);
 
+    if (FAILED(hr = wg_transform_create_quartz(&decoder->dmo_input_type, type,
+            &decoder->wg_transform_attrs, &new_transform)))
+        return DMO_E_TYPE_NOT_ACCEPTED;
+
     if (flags & DMO_SET_TYPEF_TEST_ONLY)
+    {
+        wg_transform_destroy(new_transform);
         return S_OK;
+    }
 
     FreeMediaType(&decoder->dmo_output_type);
     CopyMediaType(&decoder->dmo_output_type, type);
 
     /* Set up wg_transform. */
-    if (decoder->wg_transform)
-    {
-        wg_transform_destroy(decoder->wg_transform);
-        decoder->wg_transform = 0;
-    }
-    if (FAILED(hr = wg_transform_create_quartz(&decoder->dmo_input_type, type,
-            &decoder->wg_transform_attrs, &decoder->wg_transform)))
-        return hr;
+    if (decoder->wg_transform) wg_transform_destroy(decoder->wg_transform);
+    decoder->wg_transform = new_transform;
 
     return S_OK;
 }
@@ -1411,8 +1417,8 @@ static HRESULT WINAPI media_object_Discontinuity(IMediaObject *iface, DWORD inde
 
 static HRESULT WINAPI media_object_AllocateStreamingResources(IMediaObject *iface)
 {
-    FIXME("iface %p stub!\n", iface);
-    return E_NOTIMPL;
+    TRACE("iface %p.\n", iface);
+    return S_OK;
 }
 
 static HRESULT WINAPI media_object_FreeStreamingResources(IMediaObject *iface)
@@ -1465,6 +1471,8 @@ static HRESULT WINAPI media_object_ProcessOutput(IMediaObject *iface, DWORD flag
 
     if (SUCCEEDED(hr))
         wg_sample_queue_flush(decoder->wg_sample_queue, false);
+    else if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT)
+        hr = S_FALSE;
 
     return hr;
 }

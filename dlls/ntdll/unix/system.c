@@ -69,6 +69,10 @@
 # include <mach/vm_map.h>
 #endif
 
+#if defined(HAVE_LIBHWLOC)
+# include <hwloc.h>
+#endif
+
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include "windef.h"
@@ -249,6 +253,7 @@ static char cpu_name[49];
 static char cpu_vendor[13];
 static USHORT cpu_level, cpu_revision;
 static ULONGLONG cpu_id;
+static ULONGLONG cpu_features_bitmap[2];
 static ULONG *performance_cores;
 static unsigned int performance_cores_capacity = 0;
 static SYSTEM_LOGICAL_PROCESSOR_INFORMATION *logical_proc_info;
@@ -436,7 +441,6 @@ static void init_xstate_features( XSTATE_CONFIGURATION *xstate )
     TRACE( "XSAVE details %#x, %#x, %#x, %#x.\n", regs[0], regs[1], regs[2], regs[3] );
     supported_mask = ((ULONG64)regs[3] << 32) | regs[0];
     supported_mask &= do_xgetbv(0) & supported_features;
-    if (!(supported_mask >> 2)) return;
 
     xstate->EnabledFeatures = (1 << XSTATE_LEGACY_FLOATING_POINT) | (1 << XSTATE_LEGACY_SSE) | supported_mask;
     xstate->EnabledVolatileFeatures = xstate->EnabledFeatures;
@@ -469,7 +473,8 @@ static void init_xstate_features( XSTATE_CONFIGURATION *xstate )
                xstate->Features[i].Offset, xstate->Features[i].Size, !!(regs[2] & 2) );
     }
 
-    xstate->Size = xstate->CompactionEnabled ? off : xstate->Features[i - 1].Offset + xstate->Features[i - 1].Size;
+    xstate->Size = xstate->CompactionEnabled ? off :
+           offsetof( XSAVE_FORMAT, XmmRegisters ) + xstate->Features[i - 1].Offset + xstate->Features[i - 1].Size;
     TRACE( "xstate size %x, compacted %d, optimized %d.\n",
            xstate->Size, xstate->CompactionEnabled, xstate->OptimizedSave );
 }
@@ -509,6 +514,7 @@ void init_shared_data_cpuinfo( KUSER_SHARED_DATA *data )
         features[PF_ERMS_AVAILABLE]                 = !!(regs[1] & (1 << 9));
         features[PF_AVX512F_INSTRUCTIONS_AVAILABLE] = !!(regs[1] & (1 << 16));
         features[PF_RDPID_INSTRUCTION_AVAILABLE]    = !!(regs[2] & (1 << 22));
+        features[PF_MOVDIR64B_INSTRUCTION_AVAILABLE]= !!(regs[2] & (1 << 28));
 #if defined(__linux__) && defined(AT_HWCAP2)
         features[PF_RDWRFSGSBASE_AVAILABLE] &= !!(getauxval( AT_HWCAP2 ) & 2);
 #endif
@@ -569,6 +575,46 @@ static void init_cpu_model(void)
             else if (!strcmp( line, "CPU part" )) part = strtoul( value, NULL, 0);
             else if (!strcmp( line, "CPU variant" )) variant = strtoul( value, NULL, 0);
             else if (!strcmp( line, "CPU revision" )) revision = strtoul( value, NULL, 0);
+            else if (!strcmp( line, "Features" ))
+            {
+                static const struct { ULONG flag; const char *name; } features[] =
+                {
+                    { PF_ARM_SHA3_INSTRUCTIONS_AVAILABLE, "sha3" },
+                    { PF_ARM_SHA512_INSTRUCTIONS_AVAILABLE, "sha512" },
+                    { PF_ARM_V82_I8MM_INSTRUCTIONS_AVAILABLE, "i8mm" },
+                    { PF_ARM_V82_FP16_INSTRUCTIONS_AVAILABLE, "fphp" },
+                    { PF_ARM_V86_BF16_INSTRUCTIONS_AVAILABLE, "bf16" },
+                    { PF_ARM_V86_EBF16_INSTRUCTIONS_AVAILABLE, "ebf16" },
+                    { PF_ARM_SME_INSTRUCTIONS_AVAILABLE, "sme" },
+                    { PF_ARM_SME2_INSTRUCTIONS_AVAILABLE, "sme2" },
+                    { PF_ARM_SME2_1_INSTRUCTIONS_AVAILABLE, "sme2p1" },
+                    { PF_ARM_SME2_2_INSTRUCTIONS_AVAILABLE, "sme2p2" },
+                    { PF_ARM_SME_AES_INSTRUCTIONS_AVAILABLE, "smeaes" },
+                    { PF_ARM_SME_SBITPERM_INSTRUCTIONS_AVAILABLE, "smesbitperm" },
+                    /* The PF_ARM_SME_SF8MM4_INSTRUCTIONS_AVAILABLE and
+                     * PF_ARM_SME_SF8MM8_INSTRUCTIONS_AVAILABLE flags aren't exposed by
+                     * the Linux kernel, see
+                     * https://lists.infradead.org/pipermail/linux-arm-kernel/2025-January/991187.html */
+                    { PF_ARM_SME_SF8DP2_INSTRUCTIONS_AVAILABLE, "smesf8dp2" },
+                    { PF_ARM_SME_SF8DP4_INSTRUCTIONS_AVAILABLE, "smesf8dp4" },
+                    { PF_ARM_SME_SF8FMA_INSTRUCTIONS_AVAILABLE, "smesf8fma" },
+                    { PF_ARM_SME_F8F32_INSTRUCTIONS_AVAILABLE, "smef8f32" },
+                    { PF_ARM_SME_F8F16_INSTRUCTIONS_AVAILABLE, "smef8f16" },
+                    { PF_ARM_SME_F16F16_INSTRUCTIONS_AVAILABLE, "smef16f16" },
+                    { PF_ARM_SME_B16B16_INSTRUCTIONS_AVAILABLE, "smeb16b16" },
+                    { PF_ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE, "smef64f64" },
+                    { PF_ARM_SME_I16I64_INSTRUCTIONS_AVAILABLE, "smei16i64" },
+                    { PF_ARM_SME_LUTv2_INSTRUCTIONS_AVAILABLE, "smelutv2" },
+                    { PF_ARM_SME_FA64_INSTRUCTIONS_AVAILABLE, "smefa64" },
+                };
+
+                for (unsigned int i = 0; i < ARRAY_SIZE(features); i++)
+                {
+                    ULONG flag = features[i].flag - PROCESSOR_FEATURE_MAX;
+                    if (!has_feature( value, features[i].name )) continue;
+                    cpu_features_bitmap[flag / 64] |= 1ull << (flag % 64);
+                }
+            }
         }
         fclose( f );
     }
@@ -641,6 +687,7 @@ void init_shared_data_cpuinfo( KUSER_SHARED_DATA *data )
             features[PF_ARM_SVE_I8MM_INSTRUCTIONS_AVAILABLE]     = has_feature( value, "svei8mm" );
             features[PF_ARM_SVE_F32MM_INSTRUCTIONS_AVAILABLE]    = has_feature( value, "svef32mm" );
             features[PF_ARM_SVE_F64MM_INSTRUCTIONS_AVAILABLE]    = has_feature( value, "svef64mm" );
+            features[PF_ARM_LSE2_AVAILABLE]                      = has_feature( value, "uscat" );
             break;
         }
         fclose( f );
@@ -1337,6 +1384,138 @@ static NTSTATUS create_logical_proc_info(void)
     logical_proc_info_add_group( lcpu_no, all_cpus_mask );
 
     return STATUS_SUCCESS;
+}
+
+#elif defined(HAVE_LIBHWLOC)
+
+static NTSTATUS add_hwloc_cache(hwloc_obj_t obj, int level)
+{
+    CACHE_DESCRIPTOR cache;
+
+    memset(&cache, 0, sizeof(cache));
+    cache.Level = level;
+    if (obj->attr)
+    {
+        cache.Associativity = obj->attr->cache.associativity;
+        cache.LineSize = obj->attr->cache.linesize;
+        cache.Size = obj->attr->cache.size;
+        switch (obj->attr->cache.type)
+        {
+        case HWLOC_OBJ_CACHE_UNIFIED:
+            cache.Type = CacheUnified;
+            break;
+        case HWLOC_OBJ_CACHE_DATA:
+            cache.Type = CacheData;
+            break;
+        case HWLOC_OBJ_CACHE_INSTRUCTION:
+            cache.Type = CacheInstruction;
+            break;
+        default:
+            break;
+        }
+    }
+    if (!logical_proc_info_add_cache(hwloc_bitmap_to_ulong(obj->cpuset), &cache))
+        return STATUS_NO_MEMORY;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS add_hwloc_numa_nodes(hwloc_topology_t topology)
+{
+    hwloc_obj_t obj;
+
+    for (obj = hwloc_get_obj_by_type(topology, HWLOC_OBJ_NUMANODE, 0); obj != NULL; obj = obj->next_cousin)
+    {
+        if (!logical_proc_info_add_numa_node(obj->logical_index, hwloc_bitmap_to_ulong(obj->cpuset)))
+            return STATUS_NO_MEMORY;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS traverse_hwloc_topology(hwloc_obj_t obj)
+{
+    int i;
+    NTSTATUS nt_status = STATUS_SUCCESS;
+
+    switch (obj->type)
+    {
+    case HWLOC_OBJ_PACKAGE:
+        if (!logical_proc_info_add_by_id(RelationProcessorPackage, obj->logical_index, hwloc_bitmap_to_ulong(obj->cpuset)))
+            return STATUS_NO_MEMORY;
+        break;
+    case HWLOC_OBJ_CORE:
+        if (!logical_proc_info_add_by_id(RelationProcessorCore, obj->logical_index, hwloc_bitmap_to_ulong(obj->cpuset)))
+            return STATUS_NO_MEMORY;
+        break;
+    case HWLOC_OBJ_L1CACHE:
+    case HWLOC_OBJ_L1ICACHE:
+        nt_status = add_hwloc_cache(obj, 1);
+        break;
+    case HWLOC_OBJ_L2CACHE:
+    case HWLOC_OBJ_L2ICACHE:
+        nt_status = add_hwloc_cache(obj, 2);
+        break;
+    case HWLOC_OBJ_L3CACHE:
+    case HWLOC_OBJ_L3ICACHE:
+        nt_status = add_hwloc_cache(obj, 3);
+        break;
+    case HWLOC_OBJ_L4CACHE:
+        nt_status = add_hwloc_cache(obj, 4);
+        break;
+    case HWLOC_OBJ_L5CACHE:
+        nt_status = add_hwloc_cache(obj, 5);
+        break;
+    default:
+        break;
+    }
+
+    for (i = 0; i < obj->arity && nt_status == STATUS_SUCCESS; i++)
+        nt_status = traverse_hwloc_topology(obj->children[i]);
+    return nt_status;
+}
+
+static NTSTATUS create_logical_proc_info(void)
+{
+    NTSTATUS nt_status = STATUS_SUCCESS;
+    int ret;
+    hwloc_topology_t topology;
+    hwloc_obj_t root_obj;
+
+    ret = hwloc_topology_init(&topology);
+    if (ret != 0)
+        return STATUS_NO_MEMORY;
+
+    hwloc_topology_set_icache_types_filter(topology, HWLOC_TYPE_FILTER_KEEP_ALL);
+    ret = hwloc_topology_load(topology);
+    if (ret != 0)
+    {
+        nt_status = STATUS_NO_MEMORY;
+        goto end;
+    }
+
+    root_obj = hwloc_get_root_obj(topology);
+    if (root_obj == NULL)
+    {
+        nt_status = STATUS_NO_MEMORY;
+        goto end;
+    }
+
+    nt_status = traverse_hwloc_topology(root_obj);
+    if (nt_status != STATUS_SUCCESS)
+        goto end;
+
+    nt_status = add_hwloc_numa_nodes(topology);
+    if (nt_status != STATUS_SUCCESS)
+        goto end;
+
+    if (!logical_proc_info_add_group(hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU), hwloc_bitmap_to_ulong(root_obj->cpuset)))
+    {
+        nt_status = STATUS_NO_MEMORY;
+        goto end;
+    }
+
+end:
+    hwloc_topology_destroy(topology);
+    return nt_status;
 }
 
 #else
@@ -3720,6 +3899,12 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         else ret = STATUS_INFO_LENGTH_MISMATCH;
         break;
     }
+
+    case SystemProcessorFeaturesBitMapInformation:  /* 250 */
+        len = sizeof(cpu_features_bitmap);
+        if (size == len) memcpy( info, cpu_features_bitmap, len );
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
 
     /* Wine extensions */
 

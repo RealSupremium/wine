@@ -404,8 +404,40 @@ static void test_query_cpu(void)
         ok( len == sizeof(features), "wrong len %lu\n", len );
         ok( (ULONG)features.ProcessorFeatureBits == sci.ProcessorFeatureBits, "wrong bits %I64x / %lx\n",
             features.ProcessorFeatureBits, sci.ProcessorFeatureBits );
+        ok( !features.Reserved[0] && !features.Reserved[1] && !features.Reserved[2],
+            "got reserved features %I64x %I64x %I64x\n",
+            features.Reserved[0], features.Reserved[1], features.Reserved[2] );
     }
     else skip( "SystemProcessorFeaturesInformation is not supported\n" );
+
+    len = 0xdeadbeef;
+    status = pNtQuerySystemInformation( SystemProcessorFeaturesBitMapInformation, NULL, 0, &len );
+    if (status != STATUS_NOT_SUPPORTED && status != STATUS_INVALID_INFO_CLASS)
+    {
+        ULONGLONG bits[2];
+        ok( status == STATUS_INFO_LENGTH_MISMATCH,
+            "SystemProcessorFeaturesBitMapInformation failed %lx\n", status );
+        ok( len == sizeof(bits), "wrong len %lu\n", len );
+        status = pNtQuerySystemInformation( SystemProcessorFeaturesBitMapInformation,
+                                            bits, sizeof(bits), &len );
+        ok( !status, "SystemProcessorFeaturesBitMapInformation failed %lx\n", status );
+        ok( len == sizeof(bits), "wrong len %lu\n", len );
+
+        for (int i = 0; i < len * 8; i++)
+            ok( !!(bits[i / 64] & (1ull << (i % 64))) == RtlIsProcessorFeaturePresent( i + PROCESSOR_FEATURE_MAX ),
+                "wrong feature %u: should be %u\n", i + PROCESSOR_FEATURE_MAX,
+                RtlIsProcessorFeaturePresent( i + PROCESSOR_FEATURE_MAX ) );
+
+        status = pNtQuerySystemInformation( SystemProcessorFeaturesBitMapInformation,
+                                            bits, sizeof(bits) - 1, &len );
+        ok( status == STATUS_INFO_LENGTH_MISMATCH,
+            "SystemProcessorFeaturesBitMapInformation failed %lx\n", status );
+        status = pNtQuerySystemInformation( SystemProcessorFeaturesBitMapInformation,
+                                            bits, sizeof(bits) + 1, &len );
+        ok( status == STATUS_INFO_LENGTH_MISMATCH,
+            "SystemProcessorFeaturesBitMapInformation failed %lx\n", status );
+    }
+    else skip( "SystemProcessorFeaturesBitMapInformation is not supported\n" );
 
     len = 0xdeadbeef;
     status = pNtQuerySystemInformation( SystemProcessorBrandString, buffer, sizeof(buffer), &len );
@@ -726,13 +758,9 @@ static void test_query_procperf(void)
     NTSTATUS status;
     ULONG ReturnLength;
     ULONG NeededLength;
-    SYSTEM_BASIC_INFORMATION sbi;
     SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION* sppi;
 
-    /* Find out the number of processors */
-    status = pNtQuerySystemInformation(SystemBasicInformation, &sbi, sizeof(sbi), &ReturnLength);
-    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
-    NeededLength = sbi.NumberOfProcessors * sizeof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION);
+    NeededLength = NtCurrentTeb()->Peb->NumberOfProcessors * sizeof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION);
 
     sppi = HeapAlloc(GetProcessHeap(), 0, NeededLength);
 
@@ -1071,13 +1099,9 @@ static void test_query_interrupt(void)
     NTSTATUS status;
     ULONG ReturnLength;
     ULONG NeededLength;
-    SYSTEM_BASIC_INFORMATION sbi;
     SYSTEM_INTERRUPT_INFORMATION* sii;
 
-    /* Find out the number of processors */
-    status = pNtQuerySystemInformation(SystemBasicInformation, &sbi, sizeof(sbi), &ReturnLength);
-    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
-    NeededLength = sbi.NumberOfProcessors * sizeof(SYSTEM_INTERRUPT_INFORMATION);
+    NeededLength = NtCurrentTeb()->Peb->NumberOfProcessors * sizeof(SYSTEM_INTERRUPT_INFORMATION);
 
     sii = HeapAlloc(GetProcessHeap(), 0, NeededLength);
 
@@ -2202,11 +2226,7 @@ static void subtest_query_process_debug_port_custom_dacl(int argc, char **argv, 
         if (!ret) break;
     } while (ev.dwDebugEventCode != EXIT_PROCESS_DEBUG_EVENT);
 
-    wait_child_process(pi.hProcess);
-    ret = CloseHandle(pi.hThread);
-    ok(ret, "CloseHandle failed, last error %#lx.\n", GetLastError());
-    ret = CloseHandle(pi.hProcess);
-    ok(ret, "CloseHandle failed, last error %#lx.\n", GetLastError());
+    wait_child_process( &pi );
 
 close_debug_obj:
     pDbgUiSetThreadDebugObject(old_debug_obj);

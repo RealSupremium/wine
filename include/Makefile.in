@@ -104,6 +104,7 @@ SOURCES = \
 	crtrow.idl \
 	cryptdlg.h \
 	cryptuiapi.h \
+	cryptxml.h \
 	ctfutb.idl \
 	ctxtcall.idl \
 	custcntl.h \
@@ -342,6 +343,7 @@ SOURCES = \
 	fltdefs.h \
 	fontsub.h \
 	fusion.idl \
+	gameinput.idl \
 	gameux.idl \
 	gamingtcui.h \
 	gdiplus.h \
@@ -379,6 +381,7 @@ SOURCES = \
 	icm.h \
 	icmpapi.h \
 	icodecapi.idl \
+	icu.h \
 	idispids.h \
 	ieautomation.idl \
 	iextag.idl \
@@ -687,6 +690,7 @@ SOURCES = \
 	robuffer.idl \
 	roerrorapi.h \
 	rometadata.h \
+	rometadataapi.idl \
 	rometadataresolution.h \
 	roparameterizediid.idl \
 	row.idl \
@@ -710,6 +714,7 @@ SOURCES = \
 	rstnot.idl \
 	rstscr.idl \
 	rstupd.idl \
+	rstvw.idl \
 	rstxsc.idl \
 	rtlsupportapi.h \
 	rtutils.h \
@@ -782,6 +787,7 @@ SOURCES = \
 	tchar.h \
 	tcpestats.h \
 	tcpmib.h \
+	tdh.h \
 	textserv.h \
 	textstor.idl \
 	threadpoolapiset.h \
@@ -830,6 +836,8 @@ SOURCES = \
 	vsstyle.h \
 	vssym32.h \
 	vswriter.idl \
+	vwchp.idl \
+	vwflt.idl \
 	wbemcli.idl \
 	wbemdisp.idl \
 	wbemprov.idl \
@@ -866,6 +874,7 @@ SOURCES = \
 	windows.applicationmodel.idl \
 	windows.data.json.idl \
 	windows.data.xml.dom.idl \
+	windows.devices.bluetooth.advertisement.idl \
 	windows.devices.bluetooth.genericattributeprofile.idl \
 	windows.devices.bluetooth.idl \
 	windows.devices.bluetooth.rfcomm.idl \
@@ -897,22 +906,28 @@ SOURCES = \
 	windows.management.deployment.idl \
 	windows.media.capture.idl \
 	windows.media.closedcaptioning.idl \
+	windows.media.core.idl \
 	windows.media.devices.idl \
 	windows.media.effects.idl \
 	windows.media.faceanalysis.idl \
 	windows.media.idl \
+	windows.media.mediaproperties.idl \
+	windows.media.playback.idl \
 	windows.media.render.idl \
 	windows.media.speechrecognition.idl \
 	windows.media.speechsynthesis.idl \
+	windows.media.transcoding.idl \
 	windows.networking.connectivity.idl \
 	windows.networking.idl \
 	windows.networking.sockets.idl \
+	windows.perception.idl \
 	windows.perception.spatial.idl \
 	windows.perception.spatial.surfaces.idl \
 	windows.security.authentication.onlineid.idl \
 	windows.security.authorization.appcapabilityaccess.idl \
 	windows.security.credentials.idl \
 	windows.security.credentials.ui.idl \
+	windows.security.cryptography.core.idl \
 	windows.security.cryptography.idl \
 	windows.security.enterprisedata.idl \
 	windows.security.exchangeactivesyncprovisioning.idl \
@@ -935,6 +950,7 @@ SOURCES = \
 	windows.ui.notifications.idl \
 	windows.ui.viewmanagement.core.idl \
 	windows.ui.viewmanagement.idl \
+	windows.ui.windowmanagement.idl \
 	windows.ui.xaml.hosting.desktopwindowxamlsource.idl \
 	windows.ui.xaml.idl \
 	windows.ui.xaml.interop.idl \
@@ -952,7 +968,6 @@ SOURCES = \
 	wine/fil_data.idl \
 	wine/gdi_driver.h \
 	wine/glu.h \
-	wine/heap.h \
 	wine/hid.h \
 	wine/http.h \
 	wine/iaccessible2.idl \
@@ -1084,3 +1099,15 @@ SOURCES = \
 	xpsobjectmodel.idl \
 	xpsobjectmodel_1.idl \
 	zmouse.h
+
+INSTALL_LIB = \
+	windows.applicationmodel.winmd \
+	windows.globalization.winmd \
+	windows.graphics.winmd \
+	windows.media.winmd \
+	windows.networking.winmd \
+	windows.perception.winmd \
+	windows.storage.winmd \
+	windows.system.winmd \
+	windows.ui.winmd \
+	windows.ui.xaml.winmd

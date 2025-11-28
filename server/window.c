@@ -618,10 +618,11 @@ static struct window *create_window( struct window *parent, struct window *owner
     struct window *win = NULL;
     struct desktop *desktop;
     struct window_class *class;
+    struct obj_locator class_locator;
 
     if (!(desktop = get_thread_desktop( current, DESKTOP_CREATEWINDOW ))) return NULL;
 
-    if (!(class = grab_class( current->process, atom, class_instance, &extra_bytes )))
+    if (!(class = grab_class( current->process, atom, class_instance, &extra_bytes, &class_locator )))
     {
         release_object( desktop );
         return NULL;
@@ -631,7 +632,7 @@ static struct window *create_window( struct window *parent, struct window *owner
     {
         if (is_desktop_class( class ))
             parent = desktop->top_window;  /* use existing desktop if any */
-        else if (is_hwnd_message_class( class ))
+        else if (is_message_class( class ))
             /* use desktop window if message window is already created */
             parent = desktop->msg_window ? desktop->top_window : NULL;
         else if (!(parent = desktop->top_window))  /* must already have a desktop then */
@@ -680,9 +681,10 @@ static struct window *create_window( struct window *parent, struct window *owner
     list_init( &win->children );
     list_init( &win->unlinked );
 
-    if (!(win->shared = alloc_shared_object())) goto failed;
+    if (!(win->shared = alloc_shared_object( sizeof(*win->shared) ))) goto failed;
     SHARED_WRITE_BEGIN( win->shared, window_shm_t )
     {
+        shared->class       = class_locator;
         shared->dpi_context = NTUSER_DPI_PER_MONITOR_AWARE;
     }
     SHARED_WRITE_END;
@@ -2205,7 +2207,7 @@ DECL_HANDLER(create_window)
     struct unicode_str cls_name = get_req_unicode_str();
     struct atom_table *table = get_user_atom_table();
     unsigned int dpi_context;
-    atom_t atom;
+    atom_t atom = req->atom;
 
     reply->handle = 0;
     if (req->parent)
@@ -2233,7 +2235,7 @@ DECL_HANDLER(create_window)
                 owner = owner->parent;
     }
 
-    atom = cls_name.len ? find_atom( table, &cls_name ) : req->atom;
+    if (!atom) atom = find_atom( table, &cls_name );
 
     if (!(win = create_window( parent, owner, atom, req->class_instance, req->instance ))) return;
 
@@ -2538,7 +2540,7 @@ DECL_HANDLER(get_class_windows)
     user_handle_t *data;
     unsigned int count = 0, max_count = get_reply_max_size() / sizeof(*data);
 
-    if (cls_name.len && !(atom = find_atom( table, &cls_name ))) return;
+    if (!atom && cls_name.len && !(atom = find_atom( table, &cls_name ))) return;
     if (req->parent && !(parent = get_window( req->parent ))) return;
 
     if (req->child)

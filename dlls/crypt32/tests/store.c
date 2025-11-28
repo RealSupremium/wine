@@ -1394,7 +1394,7 @@ static void testSystemRegStore(void)
      "Expected E_INVALIDARG, got %08lx\n", GetLastError());
     /* The name is expected to be UNICODE, check with an ASCII name */
     store = CertOpenStore(CERT_STORE_PROV_SYSTEM_REGISTRY, 0, 0,
-     CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_OPEN_EXISTING_FLAG, "My");
+     CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_OPEN_EXISTING_FLAG, "My\0");
     ok(!store && GetLastError() == ERROR_FILE_NOT_FOUND,
      "Expected ERROR_FILE_NOT_FOUND, got %08lx\n", GetLastError());
 }
@@ -1419,7 +1419,7 @@ static void testSystemStore(void)
      "Expected ERROR_FILE_NOT_FOUND, got %08lx\n", GetLastError());
     /* The name is expected to be UNICODE, first check with an ASCII name */
     store = CertOpenStore(CERT_STORE_PROV_SYSTEM, 0, 0,
-     CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_OPEN_EXISTING_FLAG, "My");
+     CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_OPEN_EXISTING_FLAG, "My\0");
     ok(!store && GetLastError() == ERROR_FILE_NOT_FOUND,
      "Expected ERROR_FILE_NOT_FOUND, got %08lx\n", GetLastError());
     /* Create the expected key */
@@ -3363,6 +3363,16 @@ static void test_PFXImportCertStore(void)
 
     /* CRYPT_MACHINE_KEYSET */
     store = PFXImportCertStore( &pfx, NULL, CRYPT_MACHINE_KEYSET );
+    ok( store != NULL, "got %lu\n", GetLastError() );
+
+    cert = CertFindCertificateInStore( store, X509_ASN_ENCODING, 0, CERT_FIND_ANY, NULL, NULL );
+    ok( cert != NULL, "got %08lx\n", GetLastError() );
+
+    CertFreeCertificateContext( cert );
+    CertCloseStore( store, 0 );
+
+    /* PKCS12_NO_PERSIST_KEY|PKCS12_ALWAYS_CNG_KSP */
+    store = PFXImportCertStore( &pfx, NULL, PKCS12_NO_PERSIST_KEY|PKCS12_ALWAYS_CNG_KSP );
     ok( store != NULL, "got %lu\n", GetLastError() );
 
     cert = CertFindCertificateInStore( store, X509_ASN_ENCODING, 0, CERT_FIND_ANY, NULL, NULL );

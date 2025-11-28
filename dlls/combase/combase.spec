@@ -128,6 +128,7 @@
 @ stdcall CoInitializeWOW(long long)
 @ stub CoInvalidateRemoteMachineBindings
 @ stdcall CoIsHandlerConnected(ptr)
+@ stdcall CoIsOle1Class(ptr)
 @ stdcall CoLockObjectExternal(ptr long long)
 @ stdcall CoMarshalHresult(ptr long)
 @ stdcall CoMarshalInterThreadInterfaceInStream(ptr ptr ptr)
@@ -164,6 +165,7 @@
 @ stdcall CoTaskMemFree(ptr)
 @ stdcall CoTaskMemRealloc(ptr long)
 @ stub CoTestCancel
+@ stdcall CoTreatAsClass(ptr ptr)
 @ stdcall CoUninitialize()
 @ stub CoUnloadingWOW
 @ stdcall CoUnmarshalHresult(ptr ptr)
@@ -220,13 +222,13 @@
 @ stdcall HPALETTE_UserMarshal(ptr ptr ptr)
 @ stdcall HPALETTE_UserSize(ptr long ptr)
 @ stdcall HPALETTE_UserUnmarshal(ptr ptr ptr)
-@ stub HSTRING_UserFree
+@ stdcall HSTRING_UserFree(ptr ptr)
 @ stub -arch=win64 HSTRING_UserFree64
-@ stub HSTRING_UserMarshal
+@ stdcall HSTRING_UserMarshal(ptr ptr ptr)
 @ stub -arch=win64 HSTRING_UserMarshal64
-@ stub HSTRING_UserSize
+@ stdcall HSTRING_UserSize(ptr long ptr)
 @ stub -arch=win64 HSTRING_UserSize64
-@ stub HSTRING_UserUnmarshal
+@ stdcall HSTRING_UserUnmarshal(ptr ptr ptr)
 @ stub -arch=win64 HSTRING_UserUnmarshal64
 @ stdcall HWND_UserFree(ptr ptr)
 @ stdcall HWND_UserMarshal(ptr ptr ptr)

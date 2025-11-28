@@ -1960,7 +1960,7 @@ NTSTATUS WINAPI wow64_NtUserCreateWindowEx( UINT *args )
     void *params = get_ptr( &args );
     DWORD flags = get_ulong( &args );
     HINSTANCE client_instance = get_ptr( &args );
-    DWORD unk = get_ulong( &args );
+    const WCHAR *class = get_ptr( &args );
     BOOL ansi = get_ulong( &args );
 
     UNICODE_STRING class_name, version, window_name;
@@ -1971,7 +1971,7 @@ NTSTATUS WINAPI wow64_NtUserCreateWindowEx( UINT *args )
                                 unicode_str_32to64( &version, version32 ),
                                 unicode_str_32to64( &window_name, window_name32 ),
                                 style, x, y, width, height, parent, menu,
-                                instance, params, flags, client_instance, unk, ansi );
+                                instance, params, flags, client_instance, class, ansi );
     return HandleToUlong( ret );
 }
 
@@ -2498,6 +2498,13 @@ NTSTATUS WINAPI wow64_NtUserGetCursorInfo( UINT *args )
     info32->hCursor = HandleToUlong( info.hCursor );
     info32->ptScreenPos = info.ptScreenPos;
     return TRUE;
+}
+
+NTSTATUS WINAPI wow64_NtUserGetCursorPos( UINT *args )
+{
+    POINT *pt = get_ptr( &args );
+
+    return NtUserGetCursorPos( pt );
 }
 
 NTSTATUS WINAPI wow64_NtUserGetDC( UINT *args )
@@ -3033,6 +3040,14 @@ NTSTATUS WINAPI wow64_NtUserGetRawInputDeviceList( UINT *args )
     {
         return NtUserGetRawInputDeviceList( NULL, count, sizeof(RAWINPUTDEVICELIST) );
     }
+}
+
+NTSTATUS WINAPI wow64_NtUserGetWindowDisplayAffinity( UINT *args )
+{
+    HWND hwnd = get_handle( &args );
+    DWORD *affinity = get_ptr( &args );
+
+    return NtUserGetWindowDisplayAffinity( hwnd, affinity );
 }
 
 NTSTATUS WINAPI wow64_NtUserRealChildWindowFromPoint( UINT *args )
@@ -3609,8 +3624,8 @@ NTSTATUS WINAPI wow64_NtUserMessageCall( UINT *args )
 {
     HWND hwnd = get_handle( &args );
     UINT msg = get_ulong( &args );
-    LONG wparam = get_ulong( &args );
-    LONG lparam = get_ulong( &args );
+    ULONG wparam = get_ulong( &args );
+    ULONG lparam = get_ulong( &args );
     void *result_info = get_ptr( &args );
     UINT type = get_ulong ( &args );
     BOOL ansi = get_ulong( &args );
@@ -3784,9 +3799,20 @@ NTSTATUS WINAPI wow64_NtUserMessageCall( UINT *args )
             params.dest_tid = params32->dest_tid;
             return NtUserMessageCall( hwnd, msg, wparam, lparam, &params, type, ansi );
         }
+
+    case NtUserWintabDriverCall:
+        return NtUserMessageCall( hwnd, msg, wparam, lparam, result_info, type, ansi );
     }
 
     return message_call_32to64( hwnd, msg, wparam, lparam, result_info, type, ansi );
+}
+
+NTSTATUS WINAPI wow64_NtUserModifyUserStartupInfoFlags( UINT *args )
+{
+    DWORD mask = get_ulong( &args );
+    DWORD flags = get_ulong( &args );
+
+    return NtUserModifyUserStartupInfoFlags( mask, flags );
 }
 
 NTSTATUS WINAPI wow64_NtUserMoveWindow( UINT *args )

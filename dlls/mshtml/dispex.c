@@ -62,6 +62,7 @@ typedef struct {
     SHORT func_disp_idx;
     USHORT argc;
     USHORT default_value_cnt;
+    BOOLEAN noattr;
     VARTYPE prop_vt;
     VARTYPE *arg_types;
     func_arg_info_t *arg_info;
@@ -281,15 +282,14 @@ static BOOL is_arg_type_supported(VARTYPE vt)
     return FALSE;
 }
 
-static void add_func_info(dispex_data_t *data, tid_t tid, const FUNCDESC *desc, ITypeInfo *dti,
-                          dispex_hook_invoke_t hook, const WCHAR *name_override)
+static void add_func_info(dispex_data_t *data, tid_t tid, const FUNCDESC *desc, ITypeInfo *dti, const dispex_hook_t *hook)
 {
     func_info_t *info;
     BSTR name;
     HRESULT hres;
 
-    if(name_override)
-        name = SysAllocString(name_override);
+    if(hook && hook->name)
+        name = SysAllocString(hook->name);
     else if(desc->wFuncFlags & FUNCFLAG_FRESTRICTED)
         return;
     else {
@@ -332,7 +332,8 @@ static void add_func_info(dispex_data_t *data, tid_t tid, const FUNCDESC *desc, 
         info->tid = tid;
         info->func_disp_idx = -1;
         info->prop_vt = VT_EMPTY;
-        info->hook = hook;
+        info->hook = hook ? hook->invoke : NULL;
+        info->noattr = hook ? hook->noattr : FALSE;
     }else {
         SysFreeString(name);
     }
@@ -342,6 +343,7 @@ static void add_func_info(dispex_data_t *data, tid_t tid, const FUNCDESC *desc, 
 
         info->func_disp_idx = data->func_disp_cnt++;
         info->argc = desc->cParams;
+        info->noattr = TRUE;
 
         assert(info->argc < MAX_ARGS);
         assert(desc->funckind == FUNC_DISPATCH);
@@ -480,10 +482,8 @@ static HRESULT process_interface(dispex_data_t *data, tid_t tid, ITypeInfo *disp
             }
         }
 
-        if(!hook || hook->invoke || hook->name) {
-            add_func_info(data, tid, funcdesc, disp_typeinfo ? disp_typeinfo : typeinfo,
-                          hook ? hook->invoke : NULL, hook ? hook->name : NULL);
-        }
+        if(!hook || hook->invoke || hook->name || hook->noattr)
+            add_func_info(data, tid, funcdesc, disp_typeinfo ? disp_typeinfo : typeinfo, hook);
 
         ITypeInfo_ReleaseFuncDesc(typeinfo, funcdesc);
     }
@@ -1384,7 +1384,10 @@ HRESULT dispex_get_chain_builtin_id(DispatchEx *dispex, const WCHAR *name, DWORD
     const dispex_data_t *info = dispex->info;
     HRESULT hres;
 
-    assert(compat_mode >= COMPAT_MODE_IE9);
+    hres = get_builtin_id(info, name, flags, pid);
+    if(hres != DISP_E_UNKNOWNNAME || compat_mode < COMPAT_MODE_IE9)
+        return hres;
+    info = info->desc->prototype_info[compat_mode - COMPAT_MODE_IE9];
 
     for(;;) {
         hres = get_builtin_id(info, name, flags, pid);
@@ -1872,6 +1875,43 @@ HRESULT remove_attribute(DispatchEx *This, DISPID id, VARIANT_BOOL *success)
     }
 }
 
+BOOL is_builtin_attribute(DispatchEx *dispex, DISPID id)
+{
+    func_info_t *func;
+
+    if(get_dispid_type(id) != DISPEXPROP_BUILTIN)
+        return FALSE;
+
+    if(FAILED(get_builtin_func(dispex->info, id, &func)))
+        return FALSE;
+
+    return func->func_disp_idx < 0;
+}
+
+BOOL is_builtin_value(DispatchEx *dispex, DISPID id)
+{
+    func_info_t *func;
+
+    if(get_dispid_type(id) != DISPEXPROP_BUILTIN)
+        return FALSE;
+
+    if(FAILED(get_builtin_func(dispex->info, id, &func)))
+        return FALSE;
+
+    if(func->func_disp_idx < 0)
+        return TRUE;
+
+    if(dispex->dynamic_data && dispex->dynamic_data->func_disps) {
+        func_obj_entry_t *entry = dispex->dynamic_data->func_disps + func->func_disp_idx;
+
+        if(entry->func_obj && (V_VT(&entry->val) != VT_DISPATCH ||
+           V_DISPATCH(&entry->val) != (IDispatch*)&entry->func_obj->dispex.IWineJSDispatchHost_iface))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
 static dispex_data_t *ensure_dispex_info(dispex_static_data_t *desc, compat_mode_t compat_mode)
 {
     if(!desc->info_cache[compat_mode]) {
@@ -1994,6 +2034,25 @@ HRESULT dispex_to_string(DispatchEx *dispex, BSTR *ret)
 
     *ret = SysAllocString(buf);
     return *ret ? S_OK : E_OUTOFMEMORY;
+}
+
+BOOL dispex_builtin_is_noattr(DispatchEx *dispex, DISPID id)
+{
+    func_info_t *func;
+    HRESULT hres;
+
+    hres = get_builtin_func(dispex->info, id, &func);
+    assert(SUCCEEDED(hres));
+
+    if(func->func_disp_idx >= 0 && dispex->dynamic_data && dispex->dynamic_data->func_disps) {
+        func_obj_entry_t *entry = dispex->dynamic_data->func_disps + func->func_disp_idx;
+
+        if(entry->func_obj && (V_VT(&entry->val) != VT_DISPATCH ||
+           V_DISPATCH(&entry->val) != (IDispatch*)&entry->func_obj->dispex.IWineJSDispatchHost_iface))
+            return FALSE;
+    }
+
+    return func->noattr;
 }
 
 static inline DispatchEx *impl_from_IWineJSDispatchHost(IWineJSDispatchHost *iface)
@@ -2841,6 +2900,191 @@ static IWineJSDispatchHostVtbl JSDispatchHostVtbl = {
     JSDispatchHost_GetOuterDispatch,
     JSDispatchHost_ToString,
 };
+
+struct EnumVARIANT {
+    IEnumVARIANT IEnumVARIANT_iface;
+    LONG ref;
+
+    DispatchEx *collection;
+    ULONG iter;
+};
+
+static inline struct EnumVARIANT *impl_from_IEnumVARIANT(IEnumVARIANT *iface)
+{
+    return CONTAINING_RECORD(iface, struct EnumVARIANT, IEnumVARIANT_iface);
+}
+
+static HRESULT WINAPI EnumVARIANT_QueryInterface(IEnumVARIANT *iface, REFIID riid, void **ppv)
+{
+    struct EnumVARIANT *This = impl_from_IEnumVARIANT(iface);
+
+    TRACE("(%p)->(%s %p)\n", This, debugstr_mshtml_guid(riid), ppv);
+
+    if(IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_IEnumVARIANT))
+        *ppv = &This->IEnumVARIANT_iface;
+    else {
+        FIXME("Unsupported iface %s\n", debugstr_mshtml_guid(riid));
+        *ppv = NULL;
+        return E_NOINTERFACE;
+    }
+
+    IUnknown_AddRef((IUnknown*)*ppv);
+    return S_OK;
+}
+
+static ULONG WINAPI EnumVARIANT_AddRef(IEnumVARIANT *iface)
+{
+    struct EnumVARIANT *This = impl_from_IEnumVARIANT(iface);
+    LONG ref = InterlockedIncrement(&This->ref);
+
+    TRACE("(%p) ref=%ld\n", This, ref);
+
+    return ref;
+}
+
+static ULONG WINAPI EnumVARIANT_Release(IEnumVARIANT *iface)
+{
+    struct EnumVARIANT *This = impl_from_IEnumVARIANT(iface);
+    LONG ref = InterlockedDecrement(&This->ref);
+
+    TRACE("(%p) ref=%ld\n", This, ref);
+
+    if(!ref) {
+        DispatchEx_Release(&This->collection->IWineJSDispatchHost_iface);
+        free(This);
+    }
+
+    return ref;
+}
+
+static HRESULT WINAPI EnumVARIANT_Next(IEnumVARIANT *iface, ULONG celt, VARIANT *rgVar, ULONG *pCeltFetched)
+{
+    struct EnumVARIANT *This = impl_from_IEnumVARIANT(iface);
+    ULONG iter = This->iter, len, fetched = 0;
+    DispatchEx *col = This->collection;
+    HRESULT hres;
+
+    TRACE("(%p)->(%ld %p %p)\n", This, celt, rgVar, pCeltFetched);
+
+    len = col->info->vtbl->collection_len(col);
+
+    while(iter + fetched < len && fetched < celt) {
+        hres = col->info->vtbl->collection_item(col, iter + fetched, &V_DISPATCH(rgVar + fetched));
+        if(FAILED(hres)) {
+            while(fetched--)
+                VariantClear(rgVar + fetched);
+            return hres;
+        }
+        V_VT(rgVar + fetched) = V_DISPATCH(rgVar + fetched) ? VT_DISPATCH : VT_NULL;
+        fetched++;
+    }
+
+    This->iter = iter + fetched;
+    if(pCeltFetched)
+        *pCeltFetched = fetched;
+    return fetched == celt ? S_OK : S_FALSE;
+}
+
+static HRESULT WINAPI EnumVARIANT_Skip(IEnumVARIANT *iface, ULONG celt)
+{
+    struct EnumVARIANT *This = impl_from_IEnumVARIANT(iface);
+    ULONG len;
+
+    TRACE("(%p)->(%ld)\n", This, celt);
+
+    len = This->collection->info->vtbl->collection_len(This->collection);
+
+    if(This->iter + celt > len) {
+        This->iter = len;
+        return S_FALSE;
+    }
+
+    This->iter += celt;
+    return S_OK;
+}
+
+static HRESULT WINAPI EnumVARIANT_Reset(IEnumVARIANT *iface)
+{
+    struct EnumVARIANT *This = impl_from_IEnumVARIANT(iface);
+
+    TRACE("(%p)->()\n", This);
+
+    This->iter = 0;
+    return S_OK;
+}
+
+static HRESULT WINAPI EnumVARIANT_Clone(IEnumVARIANT *iface, IEnumVARIANT **ppEnum)
+{
+    struct EnumVARIANT *This = impl_from_IEnumVARIANT(iface);
+
+    FIXME("(%p)->(%p)\n", This, ppEnum);
+
+    return E_NOTIMPL;
+}
+
+static const IEnumVARIANTVtbl EnumVARIANTVtbl = {
+    EnumVARIANT_QueryInterface,
+    EnumVARIANT_AddRef,
+    EnumVARIANT_Release,
+    EnumVARIANT_Next,
+    EnumVARIANT_Skip,
+    EnumVARIANT_Reset,
+    EnumVARIANT_Clone
+};
+
+HRESULT create_enum_variant(DispatchEx *collection, IUnknown **ret)
+{
+    struct EnumVARIANT *enumvar = malloc(sizeof(*enumvar));
+
+    if(!enumvar)
+        return E_OUTOFMEMORY;
+
+    enumvar->IEnumVARIANT_iface.lpVtbl = &EnumVARIANTVtbl;
+    enumvar->ref = 1;
+    enumvar->iter = 0;
+    enumvar->collection = collection;
+    DispatchEx_AddRef(&collection->IWineJSDispatchHost_iface);
+
+    *ret = (IUnknown*)&enumvar->IEnumVARIANT_iface;
+    return S_OK;
+}
+
+HRESULT dispex_builtin_props_to_json(DispatchEx *dispex, HTMLInnerWindow *window, VARIANT *ret)
+{
+    func_info_t *func, *end;
+    IWineJSDispatch *json;
+    DISPPARAMS dp = { 0 };
+    HRESULT hres;
+    VARIANT var;
+
+    if(!window->jscript)
+        return E_UNEXPECTED;
+
+    if(!ret)
+        return S_OK;
+
+    hres = IWineJScript_CreateObject(window->jscript, &json);
+    if(FAILED(hres))
+        return hres;
+
+    for(func = dispex->info->funcs, end = func + dispex->info->func_cnt; func < end; func++) {
+        if(func->func_disp_idx != -1)
+            continue;
+        hres = builtin_propget(dispex, func, &dp, &var, NULL, NULL);
+        if(SUCCEEDED(hres)) {
+            hres = IWineJSDispatch_DefineProperty(json, func->name, PROPF_WRITABLE | PROPF_ENUMERABLE | PROPF_CONFIGURABLE, &var);
+            VariantClear(&var);
+        }
+        if(FAILED(hres)) {
+            IWineJSDispatch_Release(json);
+            return hres;
+        }
+    }
+
+    V_VT(ret) = VT_DISPATCH;
+    V_DISPATCH(ret) = (IDispatch*)json;
+    return hres;
+}
 
 static nsresult NSAPI dispex_traverse(void *ccp, void *p, nsCycleCollectionTraversalCallback *cb)
 {

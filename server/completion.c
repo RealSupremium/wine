@@ -73,7 +73,7 @@ struct completion_wait
 struct completion
 {
     struct object       obj;
-    struct event_sync  *sync;
+    struct object      *sync;
     struct list         queue;
     struct list         wait_queue;
     unsigned int        depth;
@@ -279,7 +279,7 @@ static struct completion *create_completion( struct object *root, const struct u
             list_init( &completion->wait_queue );
             completion->depth = 0;
 
-            if (!(completion->sync = create_event_sync( 1, 0 )))
+            if (!(completion->sync = create_internal_sync( 1, 0 )))
             {
                 release_object( completion );
                 return NULL;

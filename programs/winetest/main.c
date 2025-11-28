@@ -68,6 +68,7 @@ static char build_id[64];
 static BOOL is_wow64;
 static int failures;
 static int quiet_mode;
+static int test_timeout = 120;
 static HANDLE logfile;
 static HANDLE junit;
 
@@ -471,6 +472,8 @@ static void print_version (void)
     void (CDECL *wine_get_host_version)( const char **sysname, const char **release );
     BOOL (WINAPI *pGetProductInfo)(DWORD, DWORD, DWORD, DWORD, DWORD *);
     NTSTATUS (WINAPI *pRtlGetVersion)(RTL_OSVERSIONINFOEXW *);
+    DWORD revision, size = sizeof(revision);
+    HKEY hkey;
 
     ver.dwOSVersionInfoSize = sizeof(ver);
     if (!(ext = GetVersionExA ((OSVERSIONINFOA *) &ver)))
@@ -522,6 +525,13 @@ static void print_version (void)
              "    dwBuildNumber=%lu\n    PlatformId=%lu\n    szCSDVersion=%s\n",
              ver.dwMajorVersion, ver.dwMinorVersion, ver.dwBuildNumber,
              ver.dwPlatformId, ver.szCSDVersion);
+
+    if (!RegOpenKeyA( HKEY_LOCAL_MACHINE, "Software\\Microsoft\\Windows NT\\CurrentVersion", &hkey ))
+    {
+        if (!RegQueryValueExA( hkey, "UBR", NULL, NULL, (BYTE *)&revision, &size ))
+            xprintf( "    UBR=%lu\n", revision );
+        RegCloseKey( hkey );
+    }
 
     wine_get_build_id = (void *)GetProcAddress(hntdll, "wine_get_build_id");
     wine_get_host_version = (void *)GetProcAddress(hntdll, "wine_get_host_version");
@@ -1072,7 +1082,7 @@ run_test (struct wine_test* test, const char* subtest, HANDLE out_file, const ch
         /* Flush to disk so we know which test caused Windows to crash if it does */
         FlushFileBuffers(out_file);
 
-        status = run_ex( cmd, tmpfile, tempdir, 120000, FALSE, &pid );
+        status = run_ex( cmd, tmpfile, tempdir, test_timeout * 1000, FALSE, &pid );
         if (status == -2 && GetLastError()) status = -GetLastError();
         free(cmd);
 
@@ -1524,6 +1534,7 @@ usage (void)
 " -S URL    URL to submit the results to\n"
 " -t TAG    include TAG of characters [-.0-9a-zA-Z] in the report\n"
 " -u URL    include TestBot URL in the report\n"
+" -w SECS   how many seconds to wait for each test to finish (default: 120)\n"
 " -x DIR    Extract tests to DIR (default: .\\wct) and exit\n");
 }
 
@@ -1579,6 +1590,13 @@ int __cdecl main( int argc, char *argv[] )
             exit (0);
         case 'i':
             if (!(description = argv[++i]))
+            {
+                usage();
+                exit( 2 );
+            }
+            break;
+        case 'w':
+            if (!argv[++i] || !(test_timeout = atoi( argv[i] )))
             {
                 usage();
                 exit( 2 );
@@ -1701,6 +1719,7 @@ int __cdecl main( int argc, char *argv[] )
             SetEnvironmentVariableA( "WINETEST_PLATFORM", running_under_wine () ? "wine" : "windows" );
             SetEnvironmentVariableA( "WINETEST_DEBUG", "1" );
             SetEnvironmentVariableA( "WINETEST_INTERACTIVE", "0" );
+            SetEnvironmentVariableA( "WINETEST_MUTE_THRESHOLD", "4" );
             SetEnvironmentVariableA( "WINETEST_REPORT_SUCCESS", "0" );
         }
         if (junit)

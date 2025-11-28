@@ -1919,8 +1919,8 @@ void CDECL wined3d_stateblock_multiply_transform(struct wined3d_stateblock *stat
     TRACE("%.8e %.8e %.8e %.8e\n", matrix->_41, matrix->_42, matrix->_43, matrix->_44);
 
     multiply_matrix(mat, mat, matrix);
-    stateblock->changed.transform[d3dts >> 5] |= 1u << (d3dts & 0x1f);
-    stateblock->changed.transforms = 1;
+
+    wined3d_stateblock_set_transform(stateblock, d3dts, mat);
 }
 
 HRESULT CDECL wined3d_stateblock_set_clip_plane(struct wined3d_stateblock *stateblock,
@@ -2884,12 +2884,12 @@ static void sampler_desc_from_sampler_states(struct wined3d_sampler_desc *desc,
         desc->mip_base_level = min(max(sampler_states[WINED3D_SAMP_MAX_MIP_LEVEL], texture->lod), texture->level_count - 1);
 
     desc->max_anisotropy = sampler_states[WINED3D_SAMP_MAX_ANISOTROPY];
-    if ((sampler_states[WINED3D_SAMP_MAG_FILTER] != WINED3D_TEXF_ANISOTROPIC
+    if (!desc->max_anisotropy || (sampler_states[WINED3D_SAMP_MAG_FILTER] != WINED3D_TEXF_ANISOTROPIC
                 && sampler_states[WINED3D_SAMP_MIN_FILTER] != WINED3D_TEXF_ANISOTROPIC
                 && sampler_states[WINED3D_SAMP_MIP_FILTER] != WINED3D_TEXF_ANISOTROPIC)
             || (texture->flags & WINED3D_TEXTURE_COND_NP2))
         desc->max_anisotropy = 1;
-    desc->compare = texture->resource.format_caps & WINED3D_FORMAT_CAP_SHADOW;
+    desc->compare = texture->resource.format_attrs & WINED3D_FORMAT_ATTR_SHADOW;
     desc->comparison_func = WINED3D_CMP_LESSEQUAL;
 
     /* Only use the LSB of the WINED3D_SAMP_SRGB_TEXTURE value. This matches

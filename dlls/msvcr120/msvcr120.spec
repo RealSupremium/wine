@@ -857,7 +857,7 @@
 @ cdecl __AdjustPointer(ptr ptr)
 @ stub __BuildCatchObject
 @ stub __BuildCatchObjectHelper
-@ stdcall -arch=!i386 __C_specific_handler(ptr long ptr ptr) ntdll.__C_specific_handler
+@ stdcall -arch=!i386 __C_specific_handler(ptr long ptr ptr)
 @ cdecl __CppXcptFilter(long ptr)
 @ cdecl __CxxDetectRethrow(ptr)
 @ cdecl __CxxExceptionFilter(ptr ptr long ptr)
@@ -2048,7 +2048,7 @@
 @ stub cacosl
 @ cdecl calloc(long long)
 @ cdecl carg(int128)
-@ stub cargf
+@ cdecl cargf(int64)
 @ stub cargl
 @ stub casin
 @ stub casinf

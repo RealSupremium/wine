@@ -31,6 +31,7 @@
 #include "wingdi.h"
 #include "winuser.h"
 #include "winreg.h"
+#include "winternl.h"
 
 #include "wine/test.h"
 
@@ -62,6 +63,8 @@ static BOOL (WINAPI *pAdjustWindowRectExForDpi)(LPRECT,DWORD,BOOL,DWORD,UINT);
 static BOOL (WINAPI *pSystemParametersInfoForDpi)(UINT,UINT,void*,UINT,UINT);
 static HICON (WINAPI *pInternalGetWindowIcon)(HWND window, UINT type);
 static BOOL (WINAPI *pSetProcessLaunchForegroundPolicy)(DWORD,DWORD);
+
+static BOOL (WINAPI *pNtUserModifyUserStartupInfoFlags)(DWORD,DWORD);
 
 static BOOL test_lbuttondown_flag;
 static DWORD num_gettext_msgs;
@@ -2581,6 +2584,10 @@ static void test_mdi(void)
     static const DWORD style[] = { 0, WS_HSCROLL, WS_VSCROLL, WS_HSCROLL | WS_VSCROLL };
     HWND mdi_hwndMain, mdi_client, mdi_child;
     CLIENTCREATESTRUCT client_cs;
+    MENUITEMINFOA item_info;
+    char item_string[50];
+    int count;
+    BOOL ret;
     RECT rc;
     DWORD i;
     MSG msg;
@@ -2777,16 +2784,57 @@ static void test_mdi(void)
             GetMenuItemCount(frame_menu));
 
     child_menu = CreateMenu();
-    SendMessageW(mdi_client, WM_MDISETMENU, 0, (LPARAM)child_menu);
+    ret = SendMessageW(mdi_client, WM_MDISETMENU, 0, (LPARAM)child_menu);
+    todo_wine ok(ret == (UINT_PTR)frame_menu, "got %#x\n", ret);
 
-    ok(GetMenuItemCount(frame_menu) == 4, "Frame menu should have 4 items after WM_MDISETMENU, but has %u\n",
+    /* Without this call the menu string won't update.
+     * Is native skipping a menu update if the menu isn't attached to anything? */
+    ret = AppendMenuA(frame_menu, MF_POPUP, (UINT_PTR)child_menu, "menu" );
+    ok(ret == TRUE, "got error %lu\n", GetLastError());
+
+    count = GetMenuItemCount(child_menu);
+    ok(count == 2, "Got count %d.\n", count);
+
+    item_info.cbSize = sizeof(item_info);
+    item_info.fMask = MIIM_ID | MIIM_FTYPE | MIIM_STATE;
+    ret = GetMenuItemInfoA(child_menu, 0, TRUE, &item_info);
+    ok(ret == TRUE, "got error %lu\n", GetLastError());
+    ok(item_info.fType == MF_SEPARATOR, "got type %#x\n", item_info.fType);
+    ok(!item_info.wID, "got ID %#x\n", item_info.wID);
+    ok(item_info.fState == MFS_GRAYED, "got state %#x\n", item_info.fState);
+
+    item_info.fMask = MIIM_ID | MIIM_FTYPE | MIIM_STATE | MIIM_STRING;
+    item_info.dwTypeData = item_string;
+    item_info.cch = sizeof(item_string);
+    ret = GetMenuItemInfoA(child_menu, 1, TRUE, &item_info);
+    ok(ret == TRUE, "got error %lu\n", GetLastError());
+    ok(item_info.fType == MF_STRING, "got type %#x\n", item_info.fType);
+    ok(item_info.wID == 1, "got ID %#x\n", item_info.wID);
+    ok(item_info.fState == MFS_CHECKED, "got state %#x\n", item_info.fState);
+    ok(!strcmp(item_string, "&1 MDI child"), "got string %s\n", debugstr_a(item_string));
+
+    ret = SetWindowTextA(mdi_child, "new title");
+    ok(ret == TRUE, "got %#x\n", ret);
+
+    item_info.fMask = MIIM_ID | MIIM_FTYPE | MIIM_STATE | MIIM_STRING;
+    item_info.dwTypeData = item_string;
+    item_info.cch = sizeof(item_string);
+    ret = GetMenuItemInfoA(child_menu, 1, TRUE, &item_info);
+    ok(ret == TRUE, "got error %lu\n", GetLastError());
+    ok(item_info.fType == MF_STRING, "got type %#x\n", item_info.fType);
+    ok(item_info.wID == 1, "got ID %#x\n", item_info.wID);
+    ok(item_info.fState == MFS_CHECKED, "got state %#x\n", item_info.fState);
+    ok(!strcmp(item_string, "&1 new title"), "got string %s\n", debugstr_a(item_string));
+
+    ok(GetMenuItemCount(frame_menu) == 5, "Frame menu should have 4 items after WM_MDISETMENU, but has %u\n",
             GetMenuItemCount(frame_menu));
 
     SendMessageW(mdi_child, WM_SIZE, SIZE_RESTORED, 0);
 
-    ok(GetMenuItemCount(frame_menu) == 0, "Frame menu should be empty after child restored, but has %u items\n",
+    ok(GetMenuItemCount(frame_menu) == 1, "Frame menu should be empty after child restored, but has %u items\n",
             GetMenuItemCount(frame_menu));
 
+    RemoveMenu(frame_menu, 0, MF_BYPOSITION);
     DestroyMenu(child_menu);
     DestroyWindow(mdi_child);
     DestroyWindow(mdi_client);
@@ -3789,7 +3837,7 @@ static void test_SetFocus(HWND hwnd)
     flush_events( TRUE );
     ok( GetFocus() == 0, "got focus %p\n", GetFocus() );
     ok( GetActiveWindow() == 0, "got active %p\n", GetActiveWindow() );
-    todo_wine ok( GetForegroundWindow() == 0, "got foreground %p\n", GetForegroundWindow() );
+    ok( GetForegroundWindow() == 0, "got foreground %p\n", GetForegroundWindow() );
 
     SetFocus( other );
     ok( GetFocus() == other, "got focus %p\n", GetFocus() );
@@ -3919,9 +3967,7 @@ static void test_SetActiveWindow_0( char **argv )
         SetEvent( events[2] );
     }
 
-    wait_child_process( info.hProcess );
-    CloseHandle( info.hProcess );
-    CloseHandle( info.hThread );
+    wait_child_process( &info );
     CloseHandle( events[1] );
     CloseHandle( events[2] );
 
@@ -10655,11 +10701,9 @@ static void test_window_from_point(HWND main_window, const char *argv0)
     ok(win == child, "WindowFromPoint returned %p, expected %p\n", win, child);
 
     SetEvent(end_event);
-    wait_child_process(info.hProcess);
+    wait_child_process(&info);
     CloseHandle(start_event);
     CloseHandle(end_event);
-    CloseHandle(info.hProcess);
-    CloseHandle(info.hThread);
 
     DestroyWindow(hwnd);
 }
@@ -11510,9 +11554,7 @@ static void test_winproc_handles(const char *argv0)
     startup.cb = sizeof(startup);
     ok(CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL,
                 &startup, &info), "CreateProcess failed.\n");
-    wait_child_process(info.hProcess);
-    CloseHandle(info.hProcess);
-    CloseHandle(info.hThread);
+    wait_child_process(&info);
 }
 
 static void test_winproc_limit(void)
@@ -13235,11 +13277,9 @@ static void test_other_process_window(const char *argv0)
     ret = WaitForSingleObject(test_done_event, 5000);
     ok(ret == WAIT_OBJECT_0, "Unexpected ret %x.\n", ret);
 
-    wait_child_process(info.hProcess);
+    wait_child_process(&info);
     CloseHandle(window_ready_event);
     CloseHandle(test_done_event);
-    CloseHandle(info.hProcess);
-    CloseHandle(info.hThread);
     DestroyWindow(hwnd);
 }
 
@@ -13640,27 +13680,37 @@ static const struct test_startupinfo_showwindow_test test_startupinfo_showwindow
 static void test_startupinfo_showwindow_proc( int test_id )
 {
     const struct test_startupinfo_showwindow_test *test = &test_startupinfo_showwindow_tests[test_id];
-    static const DWORD ignored_window_styles[] =
+    static const struct
     {
-        WS_CHILD,
-        WS_POPUP, /* WS_POPUP windows are not ignored when used with WS_CAPTION (which is WS_BORDER | WS_DLGFRAME) */
-        WS_CHILD | WS_POPUP,
-        WS_POPUP | WS_BORDER,
-        WS_POPUP | WS_DLGFRAME,
-        WS_POPUP | WS_SYSMENU | WS_THICKFRAME| WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
+        DWORD style;
+        BOOL parent;
+    }
+    ignored_window_styles[] =
+    {
+        { WS_CHILD, TRUE },
+        { WS_POPUP }, /* Unowned WS_POPUP windows are not ignored when used with WS_CAPTION (which is WS_BORDER | WS_DLGFRAME) */
+        { WS_CHILD | WS_POPUP, TRUE },
+        { WS_POPUP | WS_BORDER },
+        { WS_POPUP | WS_DLGFRAME },
+        { WS_POPUP | WS_SYSMENU | WS_THICKFRAME| WS_MINIMIZEBOX | WS_MAXIMIZEBOX },
+        { WS_OVERLAPPED, TRUE }, /* owned window */
+        { WS_POPUP | WS_CAPTION, TRUE }, /* owned window */
     };
+
+    RTL_USER_PROCESS_PARAMETERS *up = NtCurrentTeb()->Peb->ProcessParameters;
     BOOL bval, expected;
-    STARTUPINFOW sa;
     unsigned int i;
     DWORD style;
-    HWND hwnd;
+    HWND parent, hwnd;
 
-    GetStartupInfoW( &sa );
+    winetest_push_context( "test %d", test_id );
 
-    winetest_push_context( "show %u, test %d", sa.wShowWindow, test_id );
+    ok( up->dwFlags & STARTF_USESHOWWINDOW, "got %#lx.\n", up->dwFlags );
+    ok( up->wShowWindow == SW_HIDE, "got %lu.\n.", up->wShowWindow );
 
-    ok( sa.dwFlags & STARTF_USESHOWWINDOW, "got %#lx.\n", sa.dwFlags );
-    ok( sa.wShowWindow == SW_HIDE, "got %u.\n.", sa.wShowWindow );
+    /* Startup window parameters are fetched early and current values don't affect behaviour. */
+    up->dwFlags = 0;
+    up->wShowWindow = SW_SHOW;
 
     /* First test windows which are not affected by startup info. ShowWindow() called for those doesn't count as
      * consuming startup info, it is still used with the next applicable window.
@@ -13668,26 +13718,27 @@ static void test_startupinfo_showwindow_proc( int test_id )
      * SW_ variants for ShowWindow() which are not altered by startup info still consume startup info usage so can
      * only be tested once per process. */
 
-    hwnd = CreateWindowA( "static", "parent", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL,
+    parent = CreateWindowA( "static", "parent", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL,
                            GetModuleHandleW( NULL ), NULL );
     pump_messages();
     for (i = 0; i < ARRAY_SIZE(ignored_window_styles); ++i)
     {
         winetest_push_context( "%u", i );
-        hwnd = CreateWindowA( "static", "overlapped", ignored_window_styles[i], 0, 0, 0, 0,
-                               ignored_window_styles[i] & WS_CHILD ? hwnd : NULL, NULL,
+        hwnd = CreateWindowA( "static", "overlapped", ignored_window_styles[i].style, 0, 0, 0, 0,
+                               ignored_window_styles[i].parent ? parent : NULL, NULL,
                                GetModuleHandleW( NULL ), NULL );
         ok( !!hwnd, "got NULL.\n" );
         ShowWindow( hwnd, SW_SHOW );
         bval = IsWindowVisible( hwnd );
-        if ((ignored_window_styles[i] & (WS_CHILD | WS_POPUP)) == WS_CHILD)
+        if ((ignored_window_styles[i].style & (WS_CHILD | WS_POPUP)) == WS_CHILD)
             ok( !bval, "unexpectedly visible.\n" );
         else
             ok( bval, "unexpectedly invisible.\n" );
         pump_messages();
+        DestroyWindow( hwnd );
         winetest_pop_context();
     }
-    DestroyWindow( hwnd );
+    DestroyWindow( parent );
     pump_messages();
 
     style = test->style;
@@ -13728,6 +13779,65 @@ static void test_startupinfo_showwindow_proc( int test_id )
     winetest_pop_context();
 }
 
+static void test_showwindow_proc_modify_flags(void)
+{
+    RTL_USER_PROCESS_PARAMETERS *up = NtCurrentTeb()->Peb->ProcessParameters;
+    HWND hwnd;
+    BOOL ret;
+
+    if (!pNtUserModifyUserStartupInfoFlags)
+    {
+        win_skip( "NtUserModifyUserStartupInfoFlags is not available.\n" );
+        return;
+    }
+
+    ok( up->dwFlags & STARTF_USESHOWWINDOW, "got %#lx.\n", up->dwFlags );
+    ok( up->wShowWindow == SW_HIDE, "got %lu.\n.", up->wShowWindow );
+
+    /* Startup window parameters are fetched early and current values don't affect behaviour. */
+    up->dwFlags = 0;
+    up->wShowWindow = SW_SHOW;
+
+    pNtUserModifyUserStartupInfoFlags( STARTF_USESHOWWINDOW, 0 );
+    hwnd = CreateWindowA( "static", "overlapped2", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, GetModuleHandleW(NULL), NULL );
+    ok( !!hwnd, "got NULL.\n" );
+    pump_messages();
+    ShowWindow( hwnd, SW_SHOWDEFAULT );
+    ret = IsWindowVisible( hwnd );
+    ok( ret, "got %d.\n", ret );
+    DestroyWindow( hwnd );
+    pump_messages();
+
+    pNtUserModifyUserStartupInfoFlags( STARTF_USESHOWWINDOW, STARTF_USESHOWWINDOW );
+    hwnd = CreateWindowA( "static", "overlapped2", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, GetModuleHandleW(NULL), NULL );
+    ok( !!hwnd, "got NULL.\n" );
+    pump_messages();
+    ShowWindow( hwnd, SW_SHOWDEFAULT );
+    ret = IsWindowVisible( hwnd );
+    ok( !ret, "got %d.\n", ret );
+    DestroyWindow( hwnd );
+    pump_messages();
+
+    hwnd = CreateWindowA( "static", "overlapped2", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, GetModuleHandleW(NULL), NULL );
+    ok( !!hwnd, "got NULL.\n" );
+    pump_messages();
+    ShowWindow( hwnd, SW_SHOWDEFAULT );
+    ret = IsWindowVisible( hwnd );
+    ok( ret, "got %d.\n", ret );
+    DestroyWindow( hwnd );
+    pump_messages();
+
+    pNtUserModifyUserStartupInfoFlags( STARTF_USESHOWWINDOW, STARTF_USESHOWWINDOW );
+    hwnd = CreateWindowA( "static", "overlapped2", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, GetModuleHandleW(NULL), NULL );
+    ok( !!hwnd, "got NULL.\n" );
+    pump_messages();
+    ShowWindow( hwnd, SW_SHOWDEFAULT );
+    ret = IsWindowVisible( hwnd );
+    ok( !ret, "got %d.\n", ret );
+    DestroyWindow( hwnd );
+    pump_messages();
+}
+
 static void test_startupinfo_showwindow( char **argv )
 {
     STARTUPINFOA sa = {.cb = sizeof(STARTUPINFOA)};
@@ -13744,10 +13854,483 @@ static void test_startupinfo_showwindow( char **argv )
         sprintf( cmdline, "%s %s showwindow_proc %d", argv[0], argv[1], i );
         ret = CreateProcessA( NULL, cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sa, &info );
         ok( ret, "got error %lu\n", GetLastError() );
-        wait_child_process( info.hProcess );
-        CloseHandle( info.hProcess );
-        CloseHandle( info.hThread );
+        wait_child_process( &info );
     }
+
+    sprintf( cmdline, "%s %s showwindow_proc_modify_flags", argv[0], argv[1] );
+    ret = CreateProcessA( NULL, cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &sa, &info );
+    ok( ret, "got error %lu\n", GetLastError() );
+    wait_child_process( &info );
+}
+
+static void test_cascade_windows(void)
+{
+    unsigned int spacing = GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CYDLGFRAME);
+    static const unsigned int zorder[] = {1, 3, 5, 2, 9, 4, 8, 6, 0, 7};
+    RECT orig = {100, 200, 300, 400}, parent_client, rect, prev, expect;
+    unsigned int width, height;
+    HWND parent, hwnds[10];
+    POINT pt = {0};
+    WORD ret;
+
+    parent = CreateWindowA("static", "parent", WS_OVERLAPPEDWINDOW,
+            0, 0, 600, 300, NULL, 0, 0, NULL);
+    ok(!!parent, "failed to create window, error %lu\n", GetLastError());
+
+    GetClientRect(parent, &parent_client);
+
+    ClientToScreen(parent, &pt);
+
+    SetLastError(0xdeadbeef);
+    ret = CascadeWindows(parent, 0, NULL, 0, NULL);
+    ok(!ret, "got %d\n", ret);
+    ok(GetLastError() == 0xdeadbeef, "got error %lu\n", GetLastError());
+
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+    {
+        DWORD style = WS_CHILD | WS_CAPTION | WS_THICKFRAME | WS_VISIBLE;
+        unsigned int index = zorder[i];
+
+        if (index == 3)
+            style &= ~WS_VISIBLE;
+        if (index == 4)
+            style &= ~WS_THICKFRAME;
+        if (index == 6)
+            style |= WS_DISABLED;
+        if (index == 7)
+            style |= WS_MAXIMIZE;
+        if (index == 8)
+            style &= ~WS_BORDER;
+        if (index == 2)
+            style &= ~WS_DLGFRAME;
+
+        hwnds[index] = CreateWindowA("MainWindowClass", "child", style,
+                orig.left, orig.top, orig.right - orig.left, orig.bottom - orig.top, parent, 0, 0, NULL);
+        ok(!!hwnds[index], "failed to create window %u, error %lu\n", index, GetLastError());
+        SetWindowPos(hwnds[index], HWND_TOP, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+
+    ret = CascadeWindows(parent, MDITILE_SKIPDISABLED, NULL, 0, NULL);
+    ok(ret == 6, "got %d\n", ret);
+
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+    {
+        unsigned int index = zorder[i];
+
+        GetWindowRect(hwnds[index], &rect);
+        OffsetRect(&rect, -pt.x, -pt.y);
+
+        if (i == 0)
+        {
+            ok(!rect.left && !rect.top, "got position (%ld, %ld)\n", rect.left, rect.top);
+            width = rect.right - rect.left;
+            height = rect.bottom - rect.top;
+        }
+        else if (index == 3 /* invisible */ || index == 6 /* disabled */
+                 || index == 8 /* no border */ || index == 2 /* no dlgframe */)
+        {
+            ok(EqualRect(&rect, &orig), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&orig), wine_dbgstr_rect(&rect));
+            continue;
+        }
+        else
+        {
+            if (index == 4 /* no THICKFRAME */)
+                SetRect(&expect, prev.left + spacing, prev.top + spacing,
+                        prev.left + spacing + 200, prev.top + spacing + 200);
+            else
+                SetRect(&expect, prev.left + spacing, prev.top + spacing,
+                        prev.left + spacing + width, prev.top + spacing + height);
+
+            if (prev.left + spacing + width > parent_client.right)
+            {
+                expect.right = expect.right - expect.left;
+                expect.left = 0;
+            }
+            if (prev.top + spacing + height > parent_client.bottom)
+            {
+                expect.bottom = expect.bottom - expect.top;
+                expect.top = 0;
+            }
+            ok(EqualRect(&rect, &expect), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&expect), wine_dbgstr_rect(&rect));
+        }
+
+        prev = rect;
+    }
+
+    SetRect(&rect, 10, 10, 300, 200);
+    ret = CascadeWindows(parent, 0, &rect, 0, NULL);
+    ok(ret == 7, "got %d\n", ret);
+
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+    {
+        unsigned int index = zorder[i];
+
+        GetWindowRect(hwnds[index], &rect);
+        OffsetRect(&rect, -pt.x, -pt.y);
+
+        if (i == 0)
+        {
+            ok(rect.left == 10 && rect.top == 10, "got position (%ld, %ld)\n", rect.left, rect.top);
+            width = rect.right - rect.left;
+            height = rect.bottom - rect.top;
+        }
+        else if (index == 3 /* invisible */ || index == 8 /* no border */ || index == 2 /* no dlgframe */)
+        {
+            ok(EqualRect(&rect, &orig), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&orig), wine_dbgstr_rect(&rect));
+            continue;
+        }
+        else
+        {
+            if (index == 4 /* no THICKFRAME */)
+                SetRect(&expect, prev.left + spacing, prev.top + spacing,
+                        prev.left + spacing + 200, prev.top + spacing + 200);
+            else
+                SetRect(&expect, prev.left + spacing, prev.top + spacing,
+                        prev.left + spacing + width, prev.top + spacing + height);
+
+            /* Overflow calculation is based on the width as if the window
+             * could be resized. */
+            if (prev.left + spacing + width > 300)
+            {
+                expect.right = 10 + (expect.right - expect.left);
+                expect.left = 10;
+            }
+            if (prev.top + spacing + height > 200)
+            {
+                expect.bottom = 10 + (expect.bottom - expect.top);
+                expect.top = 10;
+            }
+            ok(EqualRect(&rect, &expect), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&expect), wine_dbgstr_rect(&rect));
+        }
+
+        prev = rect;
+    }
+
+    /* Pass a list. */
+
+    /* Destroy one child and replace it with a non-child. */
+    DestroyWindow(hwnds[5]);
+    hwnds[5] = CreateWindowA("MainWindowClass", "child", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            orig.left, orig.top, orig.right - orig.left, orig.bottom - orig.top, parent, 0, 0, NULL);
+
+    MoveWindow(hwnds[6], orig.left, orig.top, orig.right - orig.left, orig.bottom - orig.top, FALSE);
+    ret = CascadeWindows(parent, MDITILE_SKIPDISABLED, NULL, ARRAY_SIZE(hwnds), hwnds);
+    ok(ret == 5, "got %d\n", ret);
+
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+    {
+        unsigned int index = 9 - i;
+
+        GetWindowRect(hwnds[index], &rect);
+        if (index != 5)
+            OffsetRect(&rect, -pt.x, -pt.y);
+
+        if (i == 0)
+        {
+            ok(!rect.left && !rect.top, "got position (%ld, %ld)\n", rect.left, rect.top);
+            width = rect.right - rect.left;
+            height = rect.bottom - rect.top;
+        }
+        else if (index == 3 /* invisible */ || index == 6 /* disabled */ || index == 5 /* not a child */
+                 || index == 8 /* no border */ || index == 2 /* no dlgframe */)
+        {
+            ok(EqualRect(&rect, &orig), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&orig), wine_dbgstr_rect(&rect));
+            continue;
+        }
+        else
+        {
+            if (index == 4 /* no THICKFRAME */)
+                SetRect(&expect, prev.left + spacing, prev.top + spacing,
+                        prev.left + spacing + 200, prev.top + spacing + 200);
+            else
+                SetRect(&expect, prev.left + spacing, prev.top + spacing,
+                        prev.left + spacing + width, prev.top + spacing + height);
+
+            if (prev.left + spacing + width > parent_client.right)
+            {
+                expect.right = expect.right - expect.left;
+                expect.left = 0;
+            }
+            if (prev.top + spacing + height > parent_client.bottom)
+            {
+                expect.bottom = expect.bottom - expect.top;
+                expect.top = 0;
+            }
+            ok(EqualRect(&rect, &expect), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&expect), wine_dbgstr_rect(&rect));
+        }
+
+        prev = rect;
+    }
+
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+        DestroyWindow(hwnds[i]);
+    DestroyWindow(parent);
+}
+
+static void test_tile_windows(void)
+{
+    static const unsigned int zorder[] = {1, 3, 13, 10, 16, 5, 11, 2, 9, 12, 4, 8, 15, 14, 6, 0, 7};
+    RECT orig = {100, 200, 300, 400}, parent_client, rect, expect;
+    unsigned int column, row;
+    HWND parent, hwnds[17];
+    POINT pt = {0};
+    WORD ret;
+
+    parent = CreateWindowA("static", "parent", WS_OVERLAPPEDWINDOW,
+            0, 0, 600, 300, NULL, 0, 0, NULL);
+    ok(!!parent, "failed to create window, error %lu\n", GetLastError());
+
+    GetClientRect(parent, &parent_client);
+    ClientToScreen(parent, &pt);
+
+    SetLastError(0xdeadbeef);
+    ret = TileWindows(parent, 0, NULL, 0, NULL);
+    ok(!ret, "got %d\n", ret);
+    ok(GetLastError() == 0xdeadbeef, "got error %lu\n", GetLastError());
+
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+    {
+        DWORD style = WS_CHILD | WS_CAPTION | WS_THICKFRAME | WS_VISIBLE;
+        unsigned int index = zorder[i];
+
+        if (index == 2)
+            style &= ~WS_DLGFRAME;
+        if (index == 3)
+            style &= ~WS_VISIBLE;
+        if (index == 4)
+            style &= ~WS_THICKFRAME;
+        if (index == 6)
+            style |= WS_DISABLED;
+        if (index == 7)
+            style |= WS_MAXIMIZE;
+        if (index == 8)
+            style &= ~WS_BORDER;
+
+        hwnds[index] = CreateWindowA("MainWindowClass", "child", style,
+                orig.left, orig.top, orig.right - orig.left, orig.bottom - orig.top, parent, 0, 0, NULL);
+        ok(!!hwnds[index], "failed to create window %u, error %lu\n", index, GetLastError());
+        SetWindowPos(hwnds[index], HWND_TOP, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+
+    ret = TileWindows(parent, MDITILE_SKIPDISABLED | MDITILE_HORIZONTAL, NULL, 0, NULL);
+    ok(ret == 13, "got %d\n", ret);
+
+    /* 3 columns: 4, 4, 5 */
+
+    row = column = 0;
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+    {
+        unsigned int width = (parent_client.right - parent_client.left) / 3;
+        unsigned int height = (parent_client.bottom - parent_client.top) / (column < 2 ? 4 : 5);
+        unsigned int index = zorder[ARRAY_SIZE(hwnds) - 1 - i];
+
+        GetWindowRect(hwnds[index], &rect);
+        OffsetRect(&rect, -pt.x, -pt.y);
+
+        if (index == 3 /* invisible */ || index == 6 /* disabled */
+                 || index == 8 /* no border */ || index == 2 /* no dlgframe */)
+        {
+            ok(EqualRect(&rect, &orig), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&orig), wine_dbgstr_rect(&rect));
+            continue;
+        }
+
+        if (index == 4 /* no THICKFRAME */)
+            SetRect(&expect, column * width, row * height, (column * width) + 200, (row * height) + 200);
+        else
+            SetRect(&expect, column * width, row * height, (column + 1) * width, (row + 1) * height);
+
+        ok(EqualRect(&rect, &expect), "hwnd %u: expected rect %s, got %s\n",
+                index, wine_dbgstr_rect(&expect), wine_dbgstr_rect(&rect));
+
+        ++row;
+        if (row == 4 && column < 2)
+        {
+            row = 0;
+            ++column;
+        }
+    }
+
+    SetRect(&rect, 10, 10, 300, 200);
+    ret = TileWindows(parent, 0, &rect, 0, NULL);
+    ok(ret == 14, "got %d\n", ret);
+
+    /* 4 columns: 3, 3, 4, 4 */
+
+    row = column = 0;
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+    {
+        unsigned int width = (300 - 10) / 4;
+        unsigned int height = (200 - 10) / (column < 2 ? 3 : 4);
+        unsigned int index = zorder[ARRAY_SIZE(hwnds) - 1 - i];
+
+        GetWindowRect(hwnds[index], &rect);
+        OffsetRect(&rect, -pt.x, -pt.y);
+
+        if (index == 3 /* invisible */ || index == 8 /* no border */ || index == 2 /* no dlgframe */)
+        {
+            ok(EqualRect(&rect, &orig), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&orig), wine_dbgstr_rect(&rect));
+            continue;
+        }
+
+        if (index == 4 /* no THICKFRAME */)
+            SetRect(&expect, column * width, row * height, (column * width) + 200, (row * height) + 200);
+        else
+            SetRect(&expect, column * width, row * height, (column + 1) * width, (row + 1) * height);
+        OffsetRect(&expect, 10, 10);
+        expect.right = max(expect.right, expect.left + GetSystemMetrics(SM_CXMIN));
+
+        ok(EqualRect(&rect, &expect), "hwnd %u: expected rect %s, got %s\n",
+                index, wine_dbgstr_rect(&expect), wine_dbgstr_rect(&rect));
+
+        ++row;
+        if ((row == 3 && column < 2) || row == 4)
+        {
+            row = 0;
+            ++column;
+        }
+    }
+
+    /* Pass a list. */
+
+    /* Destroy one child and replace it with a non-child. */
+    DestroyWindow(hwnds[5]);
+    hwnds[5] = CreateWindowA("MainWindowClass", "child", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            orig.left, orig.top, orig.right - orig.left, orig.bottom - orig.top, parent, 0, 0, NULL);
+
+    MoveWindow(hwnds[6], orig.left, orig.top, orig.right - orig.left, orig.bottom - orig.top, FALSE);
+    ret = TileWindows(parent, MDITILE_SKIPDISABLED, NULL, ARRAY_SIZE(hwnds), hwnds);
+    ok(ret == 12, "got %d\n", ret);
+
+    /* 4 columns: 3, 3, 3, 3 */
+
+    row = column = 0;
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+    {
+        unsigned int width = (parent_client.right - parent_client.left) / 4;
+        unsigned int height = (parent_client.bottom - parent_client.top) / 3;
+        unsigned int index = i;
+
+        GetWindowRect(hwnds[index], &rect);
+        if (index != 5)
+            OffsetRect(&rect, -pt.x, -pt.y);
+
+        if (index == 3 /* invisible */ || index == 6 /* disabled */ || index == 5 /* not a child */
+                 || index == 8 /* no border */ || index == 2 /* no dlgframe */)
+        {
+            ok(EqualRect(&rect, &orig), "hwnd %u: expected rect %s, got %s\n",
+                    index, wine_dbgstr_rect(&orig), wine_dbgstr_rect(&rect));
+            continue;
+        }
+
+        if (index == 4 /* no THICKFRAME */)
+            SetRect(&expect, column * width, row * height, (column * width) + 200, (row * height) + 200);
+        else
+            SetRect(&expect, column * width, row * height, (column + 1) * width, (row + 1) * height);
+        expect.right = max(expect.right, expect.left + GetSystemMetrics(SM_CXMIN));
+
+        ok(EqualRect(&rect, &expect), "hwnd %u: expected rect %s, got %s\n",
+                index, wine_dbgstr_rect(&expect), wine_dbgstr_rect(&rect));
+
+        ++row;
+        if (row == 3)
+        {
+            row = 0;
+            ++column;
+        }
+    }
+
+    for (unsigned int i = 0; i < ARRAY_SIZE(hwnds); ++i)
+        DestroyWindow(hwnds[i]);
+    DestroyWindow(parent);
+}
+
+static void test_GW_ENABLEDPOPUP(void)
+{
+    HWND parent, parent2, hwnd, hwnd2;
+    HWND popup, popup2;
+
+    parent = CreateWindowA("static", "parent", WS_OVERLAPPEDWINDOW, 0, 0, 600, 300, NULL, 0, 0, NULL);
+    ok(!!parent, "failed to create window, error %lu\n", GetLastError());
+
+    parent2 = CreateWindowA("static", "parent2", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, 600, 300, NULL, 0, 0, NULL);
+    ok(!!parent2, "failed to create window, error %lu\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(!hwnd, "Unexpected value %p.\n", hwnd);
+    ok(GetLastError() == 0xdeadbeef, "Unexpected error %ld.\n", GetLastError());
+
+    hwnd2 = CreateWindowA("static", "owned1", WS_OVERLAPPEDWINDOW, 0, 0, 600, 300, parent, 0, 0, NULL);
+    ok(!!hwnd2, "failed to create window, error %lu\n", GetLastError());
+    ok(GetWindow(hwnd2, GW_OWNER) == parent, "Unexpected owner.\n");
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(!hwnd, "Unexpected value %p.\n", hwnd);
+    ShowWindow(hwnd2, SW_SHOW);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == hwnd2, "Unexpected value %p.\n", hwnd);
+    EnableWindow(hwnd2, FALSE);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(!hwnd, "Unexpected value %p.\n", hwnd);
+    EnableWindow(hwnd2, TRUE);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == hwnd2, "Unexpected value %p.\n", hwnd);
+
+    popup = CreateWindowA("static", "popup", WS_POPUP, 0, 0, 16, 16, parent, 0, 0, NULL);
+    ok(!!popup, "Failed to create window, error %lu.\n", GetLastError());
+    ok(GetWindow(popup, GW_OWNER) == parent, "Unexpected owner.\n");
+    ok(IsWindowEnabled(popup), "Unexpected state.\n");
+    ok(!IsWindowVisible(popup), "Unexpected state.\n");
+
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == hwnd2, "Unexpected value %p.\n", hwnd);
+
+    ShowWindow(popup, SW_SHOW);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == popup, "Unexpected value %p.\n", hwnd);
+    EnableWindow(popup, FALSE);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == hwnd2, "Unexpected value %p.\n", hwnd);
+    EnableWindow(popup, TRUE);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == popup, "Unexpected value %p.\n", hwnd);
+
+    popup2 = CreateWindowA("static", "popup2", WS_POPUP, 0, 0, 16, 16, parent, 0, 0, NULL);
+    ok(!!popup2, "Failed to create window, error %lu.\n", GetLastError());
+    ok(GetWindow(popup2, GW_OWNER) == parent, "Unexpected owner.\n");
+
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == popup, "Unexpected value %p.\n", hwnd);
+
+    ShowWindow(popup2, SW_SHOW);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == popup2, "Unexpected value %p.\n", hwnd);
+
+    ShowWindow(popup2, SW_HIDE);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == popup, "Unexpected value %p.\n", hwnd);
+
+    ShowWindow(popup2, SW_SHOW);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == popup2, "Unexpected value %p.\n", hwnd);
+    EnableWindow(popup2, FALSE);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(hwnd == popup, "Unexpected value %p.\n", hwnd);
+
+    /* No longer a top-most window */
+    SetParent(parent, parent2);
+    hwnd = GetWindow(parent, GW_ENABLEDPOPUP);
+    ok(!hwnd, "Unexpected value %p.\n", hwnd);
+
+    DestroyWindow(parent);
+    DestroyWindow(parent2);
 }
 
 START_TEST(win)
@@ -13756,6 +14339,7 @@ START_TEST(win)
     int argc = winetest_get_mainargs( &argv );
     HMODULE user32 = GetModuleHandleA( "user32.dll" );
     HMODULE gdi32 = GetModuleHandleA("gdi32.dll");
+    HMODULE win32u = GetModuleHandleA("win32u.dll");
     pGetWindowInfo = (void *)GetProcAddress( user32, "GetWindowInfo" );
     pGetWindowModuleFileNameA = (void *)GetProcAddress( user32, "GetWindowModuleFileNameA" );
     pGetLayeredWindowAttributes = (void *)GetProcAddress( user32, "GetLayeredWindowAttributes" );
@@ -13775,6 +14359,8 @@ START_TEST(win)
     pSystemParametersInfoForDpi = (void *)GetProcAddress( user32, "SystemParametersInfoForDpi" );
     pInternalGetWindowIcon = (void *)GetProcAddress( user32, "InternalGetWindowIcon" );
     pSetProcessLaunchForegroundPolicy = (void*)GetProcAddress( user32, "SetProcessLaunchForegroundPolicy" );
+
+    pNtUserModifyUserStartupInfoFlags = (void*)GetProcAddress( win32u, "NtUserModifyUserStartupInfoFlags" );
 
     if (argc == 4)
     {
@@ -13808,6 +14394,12 @@ START_TEST(win)
     if (argc == 4 && !strcmp(argv[2], "showwindow_proc"))
     {
         test_startupinfo_showwindow_proc( atoi( argv[3] ));
+        return;
+    }
+
+    if (argc == 3 && !strcmp(argv[2], "showwindow_proc_modify_flags"))
+    {
+        test_showwindow_proc_modify_flags();
         return;
     }
 
@@ -13943,6 +14535,9 @@ START_TEST(win)
     test_ReleaseCapture();
     test_SetProcessLaunchForegroundPolicy();
     test_startupinfo_showwindow(argv);
+    test_cascade_windows();
+    test_tile_windows();
+    test_GW_ENABLEDPOPUP();
 
     /* add the tests above this line */
     if (hhook) UnhookWindowsHookEx(hhook);

@@ -111,6 +111,15 @@ static BOOL console_ioctl( HANDLE handle, DWORD code, void *in_buff, DWORD in_co
     return set_ntstatus( status );
 }
 
+BOOL is_console_handle( HANDLE handle )
+{
+    IO_STATUS_BLOCK io;
+    DWORD mode;
+
+    return NtDeviceIoControlFile( handle, NULL, NULL, NULL, &io, IOCTL_CONDRV_GET_MODE,
+                                  NULL, 0, &mode, sizeof(mode) ) == STATUS_SUCCESS;
+}
+
 /* map input records to ASCII */
 static void input_records_WtoA( INPUT_RECORD *buffer, int count )
 {
@@ -420,7 +429,12 @@ static BOOL alloc_console( BOOL headless )
     memset( &console_si, 0, sizeof(console_si) );
     console_si.StartupInfo.cb = sizeof(console_si);
     InitializeProcThreadAttributeList( NULL, 1, 0, &size );
-    if (!(console_si.lpAttributeList = HeapAlloc( GetProcessHeap(), 0, size ))) return FALSE;
+    if (!(console_si.lpAttributeList = HeapAlloc( GetProcessHeap(), 0, size )))
+    {
+        RtlLeaveCriticalSection( &console_section );
+        SetLastError( ERROR_NOT_ENOUGH_MEMORY );
+        return FALSE;
+    }
     InitializeProcThreadAttributeList( console_si.lpAttributeList, 1, 0, &size );
 
     if (!(server = create_console_server()) || !(console = create_console_reference( server ))) goto error;
@@ -2385,5 +2399,12 @@ void init_console( void )
             alloc_console( no_window );
     }
     else if (params->ConsoleHandle && params->ConsoleHandle != CONSOLE_HANDLE_SHELL_NO_WINDOW)
+    {
         create_console_connection( params->ConsoleHandle );
+        if (params->ConsoleFlags & 2)
+        {
+            init_console_std_handles( FALSE );
+            params->ConsoleFlags &= ~2;
+        }
+    }
 }

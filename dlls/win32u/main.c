@@ -98,6 +98,11 @@ BOOL SYSCALL_API NtGdiBitBlt( HDC hdc_dst, INT x_dst, INT y_dst, INT width, INT 
     SYSCALL_FUNC( NtGdiBitBlt );
 }
 
+BOOL SYSCALL_API NtGdiCancelDC( HDC hdc )
+{
+    SYSCALL_FUNC( NtGdiCancelDC );
+}
+
 BOOL SYSCALL_API NtGdiCloseFigure( HDC hdc )
 {
     SYSCALL_FUNC( NtGdiCloseFigure );
@@ -204,6 +209,21 @@ HRGN SYSCALL_API NtGdiCreateRoundRectRgn( INT left, INT top, INT right, INT bott
 HBRUSH SYSCALL_API NtGdiCreateSolidBrush( COLORREF color, HBRUSH brush )
 {
     SYSCALL_FUNC( NtGdiCreateSolidBrush );
+}
+
+NTSTATUS SYSCALL_API NtGdiDdDDIAcquireKeyedMutex( D3DKMT_ACQUIREKEYEDMUTEX *params )
+{
+    SYSCALL_FUNC( NtGdiDdDDIAcquireKeyedMutex );
+}
+
+NTSTATUS SYSCALL_API NtGdiDdDDIAcquireKeyedMutex2( D3DKMT_ACQUIREKEYEDMUTEX2 *params )
+{
+    SYSCALL_FUNC( NtGdiDdDDIAcquireKeyedMutex2 );
+}
+
+NTSTATUS SYSCALL_API NtGdiDdDDICheckOcclusion( const D3DKMT_CHECKOCCLUSION *desc )
+{
+    SYSCALL_FUNC( NtGdiDdDDICheckOcclusion );
 }
 
 NTSTATUS SYSCALL_API NtGdiDdDDICheckVidPnExclusiveOwnership( const D3DKMT_CHECKVIDPNEXCLUSIVEOWNERSHIP *desc )
@@ -331,6 +351,11 @@ NTSTATUS SYSCALL_API NtGdiDdDDIOpenKeyedMutexFromNtHandle( D3DKMT_OPENKEYEDMUTEX
     SYSCALL_FUNC( NtGdiDdDDIOpenKeyedMutexFromNtHandle );
 }
 
+NTSTATUS SYSCALL_API NtGdiDdDDIOpenNtHandleFromName( D3DKMT_OPENNTHANDLEFROMNAME *desc )
+{
+    SYSCALL_FUNC( NtGdiDdDDIOpenNtHandleFromName );
+}
+
 NTSTATUS SYSCALL_API NtGdiDdDDIOpenResource( D3DKMT_OPENRESOURCE *desc )
 {
     SYSCALL_FUNC( NtGdiDdDDIOpenResource );
@@ -391,6 +416,16 @@ NTSTATUS SYSCALL_API NtGdiDdDDIQueryVideoMemoryInfo( D3DKMT_QUERYVIDEOMEMORYINFO
     SYSCALL_FUNC( NtGdiDdDDIQueryVideoMemoryInfo );
 }
 
+NTSTATUS SYSCALL_API NtGdiDdDDIReleaseKeyedMutex( D3DKMT_RELEASEKEYEDMUTEX *params )
+{
+    SYSCALL_FUNC( NtGdiDdDDIReleaseKeyedMutex );
+}
+
+NTSTATUS SYSCALL_API NtGdiDdDDIReleaseKeyedMutex2( D3DKMT_RELEASEKEYEDMUTEX2 *params )
+{
+    SYSCALL_FUNC( NtGdiDdDDIReleaseKeyedMutex2 );
+}
+
 NTSTATUS SYSCALL_API NtGdiDdDDISetQueuedLimit( D3DKMT_SETQUEUEDLIMIT *desc )
 {
     SYSCALL_FUNC( NtGdiDdDDISetQueuedLimit );
@@ -404,6 +439,16 @@ NTSTATUS SYSCALL_API NtGdiDdDDISetVidPnSourceOwner( const D3DKMT_SETVIDPNSOURCEO
 NTSTATUS SYSCALL_API NtGdiDdDDIShareObjects( UINT count, const D3DKMT_HANDLE *handles, OBJECT_ATTRIBUTES *attr, UINT access, HANDLE *handle )
 {
     SYSCALL_FUNC( NtGdiDdDDIShareObjects );
+}
+
+NTSTATUS SYSCALL_API NtGdiDdDDISignalSynchronizationObjectFromCpu( const D3DKMT_SIGNALSYNCHRONIZATIONOBJECTFROMCPU *params )
+{
+    SYSCALL_FUNC( NtGdiDdDDISignalSynchronizationObjectFromCpu );
+}
+
+NTSTATUS SYSCALL_API NtGdiDdDDIWaitForSynchronizationObjectFromCpu( const D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU *params )
+{
+    SYSCALL_FUNC( NtGdiDdDDIWaitForSynchronizationObjectFromCpu );
 }
 
 BOOL SYSCALL_API NtGdiDeleteClientObj( HGDIOBJ handle )
@@ -655,6 +700,11 @@ DWORD SYSCALL_API NtGdiGetGlyphOutline( HDC hdc, UINT ch, UINT format, GLYPHMETR
 DWORD SYSCALL_API NtGdiGetKerningPairs( HDC hdc, DWORD count, KERNINGPAIR *kern_pair )
 {
     SYSCALL_FUNC( NtGdiGetKerningPairs );
+}
+
+BOOL SYSCALL_API NtGdiGetMiterLimit( HDC hdc, FLOAT *limit )
+{
+    SYSCALL_FUNC( NtGdiGetMiterLimit );
 }
 
 COLORREF SYSCALL_API NtGdiGetNearestColor( HDC hdc, COLORREF color )
@@ -1003,6 +1053,11 @@ INT SYSCALL_API NtGdiSetMetaRgn( HDC hdc )
     SYSCALL_FUNC( NtGdiSetMetaRgn );
 }
 
+BOOL SYSCALL_API NtGdiSetMiterLimit( HDC hdc, DWORD limit, FLOAT *old_limit )
+{
+    SYSCALL_FUNC( NtGdiSetMiterLimit );
+}
+
 COLORREF SYSCALL_API NtGdiSetPixel( HDC hdc, INT x, INT y, COLORREF color )
 {
     SYSCALL_FUNC( NtGdiSetPixel );
@@ -1285,7 +1340,7 @@ HWND SYSCALL_API NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_nam
                                        UNICODE_STRING *version, UNICODE_STRING *window_name,
                                        DWORD style, INT x, INT y, INT cx, INT cy,
                                        HWND parent, HMENU menu, HINSTANCE instance, void *params,
-                                       DWORD flags, HINSTANCE client_instance, DWORD unk, BOOL ansi )
+                                       DWORD flags, HINSTANCE client_instance, const WCHAR *class, BOOL ansi )
 {
     SYSCALL_FUNC( NtUserCreateWindowEx );
 }
@@ -1559,6 +1614,11 @@ BOOL SYSCALL_API NtUserGetCursorInfo( CURSORINFO *info )
     SYSCALL_FUNC( NtUserGetCursorInfo );
 }
 
+BOOL SYSCALL_API NtUserGetCursorPos( POINT *pt )
+{
+    SYSCALL_FUNC( NtUserGetCursorPos );
+}
+
 HDC SYSCALL_API NtUserGetDC( HWND hwnd )
 {
     SYSCALL_FUNC( NtUserGetDC );
@@ -1794,6 +1854,11 @@ HDC SYSCALL_API NtUserGetWindowDC( HWND hwnd )
     SYSCALL_FUNC( NtUserGetWindowDC );
 }
 
+BOOL SYSCALL_API NtUserGetWindowDisplayAffinity( HWND hwnd, DWORD *affinity )
+{
+    SYSCALL_FUNC( NtUserGetWindowDisplayAffinity );
+}
+
 BOOL SYSCALL_API NtUserGetWindowPlacement( HWND hwnd, WINDOWPLACEMENT *placement )
 {
     SYSCALL_FUNC( NtUserGetWindowPlacement );
@@ -1895,6 +1960,11 @@ LRESULT SYSCALL_API NtUserMessageCall( HWND hwnd, UINT msg, WPARAM wparam, LPARA
                                        void *result_info, DWORD type, BOOL ansi )
 {
     SYSCALL_FUNC( NtUserMessageCall );
+}
+
+BOOL SYSCALL_API NtUserModifyUserStartupInfoFlags( DWORD mask, DWORD flags )
+{
+    SYSCALL_FUNC( NtUserModifyUserStartupInfoFlags );
 }
 
 BOOL SYSCALL_API NtUserMoveWindow( HWND hwnd, INT x, INT y, INT cx, INT cy, BOOL repaint )
@@ -2470,10 +2540,8 @@ HWND SYSCALL_API NtUserWindowFromPoint( LONG x, LONG y )
     SYSCALL_FUNC( NtUserWindowFromPoint );
 }
 
-BOOL SYSCALL_API __wine_get_icm_profile( HDC hdc, BOOL allow_default, DWORD *size, WCHAR *filename )
-{
-    SYSCALL_FUNC( __wine_get_icm_profile );
-}
+#define SYSCALL_STUB(name) NTSTATUS SYSCALL_API name(void) { SYSCALL_FUNC( name ); }
+ALL_SYSCALL_STUBS
 
 #else /*  __arm64ec__ */
 
@@ -2488,20 +2556,6 @@ ALL_SYSCALLS
 
 #endif /*  __arm64ec__ */
 
-
-void __cdecl __wine_spec_unimplemented_stub( const char *module, const char *function )
-{
-    EXCEPTION_RECORD record;
-
-    record.ExceptionCode    = EXCEPTION_WINE_STUB;
-    record.ExceptionFlags   = EXCEPTION_NONCONTINUABLE;
-    record.ExceptionRecord  = NULL;
-    record.ExceptionAddress = __wine_spec_unimplemented_stub;
-    record.NumberParameters = 2;
-    record.ExceptionInformation[0] = (ULONG_PTR)module;
-    record.ExceptionInformation[1] = (ULONG_PTR)function;
-    for (;;) RtlRaiseException( &record );
-}
 
 void *dummy = NtQueryVirtualMemory;  /* forced import to avoid link error with winecrt0 */
 

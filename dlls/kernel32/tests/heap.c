@@ -41,6 +41,8 @@
 #define BLOCK_ALIGN         (2 * sizeof(void *) - 1)
 #define ALIGN_BLOCK_SIZE(x) (((x) + BLOCK_ALIGN) & ~BLOCK_ALIGN)
 
+#define ROUND_SIZE(size, mask) ((((SIZE_T)(size) + (mask)) & ~(SIZE_T)(mask)))
+
 /* use function pointers to avoid warnings for invalid parameter tests */
 static LPVOID (WINAPI *pHeapAlloc)(HANDLE,DWORD,SIZE_T);
 static LPVOID (WINAPI *pHeapReAlloc)(HANDLE,DWORD,LPVOID,SIZE_T);
@@ -3398,12 +3400,7 @@ static void test_debug_heap( const char *argv0, DWORD flags )
     sprintf( buffer, "%s heap.c 0x%lx", argv0, flags );
     ret = CreateProcessA( NULL, buffer, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &info );
     ok( ret, "failed to create child process error %lu\n", GetLastError() );
-    if (ret)
-    {
-        wait_child_process( info.hProcess );
-        CloseHandle( info.hThread );
-        CloseHandle( info.hProcess );
-    }
+    wait_child_process( &info );
     RegDeleteValueA( hkey, "GlobalFlag" );
     RegCloseKey( hkey );
     RegDeleteKeyA( HKEY_LOCAL_MACHINE, keyname );
@@ -3453,6 +3450,48 @@ static void test_heap_layout( HANDLE handle, DWORD global_flag, DWORD heap_flags
         ok( heap->ffeeffee == 0xffeeffee, "got ffeeffee %#x\n", heap->ffeeffee );
         ok( heap->auto_flags == (heap_flags & HEAP_GROWABLE) || !heap->auto_flags,
             "got auto_flags %#x\n", heap->auto_flags );
+    }
+}
+
+static void test_heap_tail_zeroing( DWORD heap_flags )
+{
+    static const ULONG_PTR large_block_min_size = 65536 * (2 * sizeof(void *));
+    HANDLE heap = GetProcessHeap();
+    size_t size, size_aligned;
+    ULONG_PTR v, expected;
+    char *p1, *p2;
+
+    if (heap_flags & HEAP_PAGE_ALLOCS)
+    {
+        /* This behaves differently, no support yet. */
+        skip( "Skipping test with HEAP_PAGE_ALLOCS.\n" );
+        return;
+    }
+
+    for (size = 1; size <= 1048576 * 2; size *= 2)
+    {
+        winetest_push_context( "heap_flags %#lx, size %Iu", heap_flags, size );
+        p1 = pHeapAlloc( heap, 0, size + 1 );
+        ok( !!p1, "got NULL.\n" );
+        size_aligned = ROUND_SIZE(size + 1, sizeof(void *) - 1);
+        /* This and read access below is going to make valgrind or ASAN unhappy but the purpose of this test is
+         * to specifically check what happens with the tail bytes following the allocation. */
+        if (!(heap_flags & (HEAP_VALIDATE_PARAMS | HEAP_VALIDATE_ALL)))
+            memset( p1, 0xcc, size_aligned );
+        pHeapFree( heap, 0, p1 );
+
+        /* We are not guarenteed to get the same pointer here but that often happens, especially when the test
+         * is run first, and spoling the data before that adds certainity to the results. */
+        p2 = pHeapAlloc( heap, HEAP_ZERO_MEMORY, size + 1 );
+        ok( !!p2, "got NULL.\n" );
+        v = 0;
+        memcpy( &v, p2 + size, size_aligned - size );
+        expected = 0;
+        if (size_aligned - size > 1 && size + 1 < large_block_min_size && heap_flags & HEAP_TAIL_CHECKING_ENABLED)
+            memset( (char *)&expected + 1, 0xab, size_aligned - size - 1 );
+        ok( v == expected, "got %#Ix, expected %#Ix.\n", v, expected );
+        pHeapFree( heap, 0, p2 );
+        winetest_pop_context();
     }
 }
 
@@ -3535,6 +3574,7 @@ static void test_child_heap( const char *arg )
     ok( ret, "HeapDestroy failed, error %lu\n", GetLastError() );
 
     test_heap_checks( heap_flags );
+    test_heap_tail_zeroing( heap_flags );
 }
 
 static void test_GetPhysicallyInstalledSystemMemory(void)
@@ -3659,7 +3699,7 @@ static void get_valloc_info( void *mem, char **base, SIZE_T *alloc_size )
     while (1)
     {
         size = VirtualQuery( p, &info2, sizeof(info2) );
-        ok( size == sizeof(info), "got %Iu.\n", size );
+        if (!size) break;
         if (info2.AllocationBase != info.AllocationBase)
             break;
         ok( info2.State == MEM_RESERVE || info2.State == MEM_COMMIT, "got %#lx.\n", info2.State );
@@ -3808,6 +3848,7 @@ START_TEST(heap)
     test_GetPhysicallyInstalledSystemMemory();
     test_GlobalMemoryStatus();
     test_HeapSummary();
+    test_heap_tail_zeroing( 0 );
 
     if (pRtlGetNtGlobalFlags)
     {

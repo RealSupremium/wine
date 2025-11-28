@@ -198,7 +198,7 @@ msgstr "インストール(&I)"
 #: dlls/inetcpl.cpl/inetcpl.rc:81 dlls/localui/localui.rc:45
 #: dlls/localui/localui.rc:58 dlls/mpr/mpr.rc:50 dlls/msacm32/msacm32.rc:54
 #: dlls/mshtml/mshtml.rc:48 dlls/mshtml/mshtml.rc:58 dlls/msvfw32/msvfw32.rc:37
-#: dlls/oledlg/oledlg.rc:63 dlls/oledlg/oledlg.rc:95
+#: dlls/oledlg/oledlg.rc:63 dlls/oledlg/oledlg.rc:95 dlls/sane.ds/sane.rc:70
 #: dlls/serialui/serialui.rc:42 dlls/setupapi/setupapi.rc:42
 #: dlls/setupapi/setupapi.rc:60 dlls/shell32/shell32.rc:279
 #: dlls/shell32/shell32.rc:303 dlls/shell32/shell32.rc:314
@@ -710,7 +710,7 @@ msgid "Font St&yle:"
 msgstr "スタイル(&Y):"
 
 #: dlls/comdlg32/comdlg32.rc:260 dlls/comdlg32/comdlg32.rc:439
-#: programs/winecfg/winecfg.rc:300
+#: programs/winecfg/winecfg.rc:302
 msgid "&Size:"
 msgstr "サイズ(&S):"
 
@@ -726,7 +726,7 @@ msgstr "取り消し線(&K)"
 msgid "&Underline"
 msgstr "下線(&U)"
 
-#: dlls/comdlg32/comdlg32.rc:270 programs/winecfg/winecfg.rc:298
+#: dlls/comdlg32/comdlg32.rc:270 programs/winecfg/winecfg.rc:300
 msgid "&Color:"
 msgstr "配色(&C):"
 
@@ -739,7 +739,7 @@ msgid "Scr&ipt:"
 msgstr "文字セット(&I):"
 
 #: dlls/comdlg32/comdlg32.rc:283 dlls/comdlg32/comdlg32.rc:288
-#: dlls/compstui/compstui.rc:33
+#: dlls/compstui/compstui.rc:33 dlls/sane.ds/sane.rc:42
 msgid "Color"
 msgstr "色"
 
@@ -903,7 +903,7 @@ msgstr "部数(&C):"
 msgid "C&ollate"
 msgstr "部単位で印刷(&O)"
 
-#: dlls/comdlg32/comdlg32.rc:414 programs/winecfg/winecfg.rc:306
+#: dlls/comdlg32/comdlg32.rc:414 programs/winecfg/winecfg.rc:308
 msgid "Si&ze:"
 msgstr "サイズ(&Z):"
 
@@ -1093,7 +1093,8 @@ msgstr "紫"
 msgid "Teal"
 msgstr "青緑"
 
-#: dlls/comdlg32/comdlg32.rc:129 programs/wordpad/wordpad.rc:132
+#: dlls/comdlg32/comdlg32.rc:129 dlls/sane.ds/sane.rc:41
+#: programs/wordpad/wordpad.rc:132
 msgid "Gray"
 msgstr "灰色"
 
@@ -2435,7 +2436,7 @@ msgid "&File name:"
 msgstr "ファイル名(&F):"
 
 #: dlls/cryptui/cryptui.rc:301 dlls/cryptui/cryptui.rc:323
-#: dlls/cryptui/cryptui.rc:437 programs/winecfg/winecfg.rc:319
+#: dlls/cryptui/cryptui.rc:437 programs/winecfg/winecfg.rc:321
 msgid "B&rowse..."
 msgstr "参照(&R)..."
 
@@ -3834,15 +3835,15 @@ msgstr "hidraw を無効にする"
 msgid "DInput"
 msgstr "DInput"
 
-#: dlls/joy.cpl/joy.rc:62
+#: dlls/joy.cpl/joy.rc:62 dlls/joy.cpl/joy.rc:111
 msgid "Axes"
 msgstr "軸"
 
-#: dlls/joy.cpl/joy.rc:63
+#: dlls/joy.cpl/joy.rc:63 dlls/joy.cpl/joy.rc:112
 msgid "POVs"
 msgstr "POV"
 
-#: dlls/joy.cpl/joy.rc:64
+#: dlls/joy.cpl/joy.rc:64 dlls/joy.cpl/joy.rc:113
 msgid "Buttons"
 msgstr "ボタン"
 
@@ -3851,8 +3852,12 @@ msgid "Force Feedback Effect"
 msgstr "フォース フィードバック効果"
 
 #: dlls/joy.cpl/joy.rc:67
+#, fuzzy
+#| msgid ""
+#| "Press any button in the controller to activate the chosen effect. The "
+#| "effect direction can be changed with the controller axis."
 msgid ""
-"Press any button in the controller to activate the chosen effect. The effect "
+"Hold any button in the controller to play the chosen effect. The effect "
 "direction can be changed with the controller axis."
 msgstr ""
 "選択した効果を有効化するにはコントローラーのボタンを押してください。効果の方"
@@ -3911,9 +3916,13 @@ msgstr ""
 "[ジョイスティック]タブでDInput用に上書きしていないか確認してください。"
 
 #: dlls/joy.cpl/joy.rc:98 dlls/joy.cpl/joy.rc:99 dlls/joy.cpl/joy.rc:100
-#: dlls/joy.cpl/joy.rc:101
+#: dlls/joy.cpl/joy.rc:101 dlls/joy.cpl/joy.rc:115
 msgid "Rumble"
 msgstr "振動"
+
+#: dlls/joy.cpl/joy.rc:106
+msgid "Windows.Gaming.Input"
+msgstr ""
 
 #: dlls/joy.cpl/joy.rc:31
 msgid "Game Controllers"
@@ -4027,19 +4036,19 @@ msgstr "条件コンパイルはオフにされています"
 msgid "Expected '@'"
 msgstr "'@'を期待していました"
 
-#: dlls/jscript/jscript.rc:90
+#: dlls/jscript/jscript.rc:97
 msgid "Microsoft JScript compilation error"
 msgstr "Microsoft JScript コンパイル エラー"
 
-#: dlls/jscript/jscript.rc:91
+#: dlls/jscript/jscript.rc:98
 msgid "Microsoft JScript runtime error"
 msgstr "Microsoft JScript 実行時エラー"
 
-#: dlls/jscript/jscript.rc:92 dlls/vbscript/vbscript.rc:64
+#: dlls/jscript/jscript.rc:99 dlls/vbscript/vbscript.rc:64
 msgid "Unknown runtime error"
 msgstr "未知の実行時エラー"
 
-#: dlls/jscript/jscript.rc:56
+#: dlls/jscript/jscript.rc:57
 msgid "Number expected"
 msgstr "数値を期待していました"
 
@@ -4048,82 +4057,94 @@ msgid "Function expected"
 msgstr "関数を期待していました"
 
 #: dlls/jscript/jscript.rc:55
+#, fuzzy
+#| msgid "'[object]' is not a date object"
+msgid "'[object]' is not a string object"
+msgstr "'[object]' は日付オブジェクトではありません"
+
+#: dlls/jscript/jscript.rc:56
 msgid "'[object]' is not a date object"
 msgstr "'[object]' は日付オブジェクトではありません"
 
-#: dlls/jscript/jscript.rc:57
+#: dlls/jscript/jscript.rc:58
 msgid "Object expected"
 msgstr "オブジェクトを期待していました"
 
-#: dlls/jscript/jscript.rc:58
+#: dlls/jscript/jscript.rc:59
 msgid "Illegal assignment"
 msgstr "不正な代入です"
 
-#: dlls/jscript/jscript.rc:59
+#: dlls/jscript/jscript.rc:60
 msgid "'|' is undefined"
 msgstr "'|'は未定義です"
 
-#: dlls/jscript/jscript.rc:60
+#: dlls/jscript/jscript.rc:61
 msgid "Boolean object expected"
 msgstr "Boolean オブジェクトを期待していました"
 
-#: dlls/jscript/jscript.rc:61
+#: dlls/jscript/jscript.rc:62
 msgid "Cannot delete '|'"
 msgstr "'|'を削除できません"
 
-#: dlls/jscript/jscript.rc:62
+#: dlls/jscript/jscript.rc:63
 msgid "VBArray object expected"
 msgstr "VBArray オブジェクトを期待していました"
 
-#: dlls/jscript/jscript.rc:63
+#: dlls/jscript/jscript.rc:64
 msgid "JScript object expected"
 msgstr "JScript オブジェクトを期待していました"
 
-#: dlls/jscript/jscript.rc:64
+#: dlls/jscript/jscript.rc:65
 msgid "Enumerator object expected"
 msgstr "列挙子オブジェクトを期待していました"
 
-#: dlls/jscript/jscript.rc:65
+#: dlls/jscript/jscript.rc:66
 msgid "Regular Expression object expected"
 msgstr "正規表現オブジェクトを期待していました"
 
-#: dlls/jscript/jscript.rc:66
+#: dlls/jscript/jscript.rc:67
 msgid "Syntax error in regular expression"
 msgstr "正規表現に構文誤りがあります"
 
-#: dlls/jscript/jscript.rc:67
+#: dlls/jscript/jscript.rc:68
 msgid "Unexpected quantifier"
 msgstr "予期しない数量詞です"
 
-#: dlls/jscript/jscript.rc:68
+#: dlls/jscript/jscript.rc:69
 msgid "Exception thrown and not caught"
 msgstr "例外が送出されましたが捕捉されませんでした"
 
-#: dlls/jscript/jscript.rc:70
+#: dlls/jscript/jscript.rc:71
 msgid "URI to be encoded contains invalid characters"
 msgstr "エンコードされる URI に使用できない文字が含まれています"
 
-#: dlls/jscript/jscript.rc:69
+#: dlls/jscript/jscript.rc:70
 msgid "URI to be decoded is incorrect"
 msgstr "デコードされる URI が正しくありません"
 
-#: dlls/jscript/jscript.rc:71
+#: dlls/jscript/jscript.rc:72
 msgid "Number of fraction digits is out of range"
 msgstr "小数点以下の桁数が範囲外です"
 
-#: dlls/jscript/jscript.rc:72
+#: dlls/jscript/jscript.rc:73
 msgid "Precision is out of range"
 msgstr "精度指定が範囲外です"
 
-#: dlls/jscript/jscript.rc:73
-msgid "Array length must be a finite positive integer"
-msgstr "配列の長さは有限の正整数である必要があります"
-
 #: dlls/jscript/jscript.rc:74
-msgid "Array object expected"
+#, fuzzy
+#| msgid "Array object expected"
+msgid "Array or arguments object expected"
 msgstr "配列オブジェクトを期待していました"
 
 #: dlls/jscript/jscript.rc:75
+msgid "Array length must be a finite positive integer"
+msgstr "配列の長さは有限の正整数である必要があります"
+
+#: dlls/jscript/jscript.rc:76
+msgid "Array object expected"
+msgstr "配列オブジェクトを期待していました"
+
+#: dlls/jscript/jscript.rc:77
 msgid ""
 "'writable' attribute on the property descriptor cannot be set to 'true' on "
 "this object"
@@ -4131,55 +4152,81 @@ msgstr ""
 "このオブジェクトにおけるプロパティ記述子の 'writable' 属性は 'true' に設定で"
 "きません"
 
-#: dlls/jscript/jscript.rc:76
+#: dlls/jscript/jscript.rc:78
 msgid "Cyclic __proto__ value"
 msgstr "循環した __proto__ 値"
 
-#: dlls/jscript/jscript.rc:77
+#: dlls/jscript/jscript.rc:79
 msgid "Cannot create property for a non-extensible object"
 msgstr "拡張可能ではないオブジェクトにプロパティを作成できません"
 
-#: dlls/jscript/jscript.rc:78
+#: dlls/jscript/jscript.rc:80
 msgid "Cannot define property '|': object is not extensible"
 msgstr "プロパティ '|' を定義できません: オブジェクトは拡張可能ではありません"
 
-#: dlls/jscript/jscript.rc:79
+#: dlls/jscript/jscript.rc:81
 msgid "Cannot redefine non-configurable property '|'"
 msgstr "変更不可のプロパティ '|' は再定義できません"
 
-#: dlls/jscript/jscript.rc:80
+#: dlls/jscript/jscript.rc:82
 msgid "Cannot modify non-writable property '|'"
 msgstr "書換不可のプロパティ '|' は変更できません"
 
-#: dlls/jscript/jscript.rc:81
+#: dlls/jscript/jscript.rc:84
+#, fuzzy
+#| msgid "DataView constructor argument offset is invalid"
+msgid "Typed array constructor argument is invalid"
+msgstr "DataView コンストラクター引数のオフセットが正しくありません"
+
+#: dlls/jscript/jscript.rc:83
+#, fuzzy
+#| msgid "'this' is not a | object"
+msgid "'this' is not a typed array object"
+msgstr "'this' は | オブジェクトではありません"
+
+#: dlls/jscript/jscript.rc:85
+msgid "Invalid offset/length when creating typed array"
+msgstr ""
+
+#: dlls/jscript/jscript.rc:86
+msgid "Invalid begin/end value in typed array subarray method"
+msgstr ""
+
+#: dlls/jscript/jscript.rc:87
+#, fuzzy
+#| msgid "Invalid module type for %1.\n"
+msgid "Invalid source in typed array set"
+msgstr "%1 に対するモジュールの種類が正しくありません。\n"
+
+#: dlls/jscript/jscript.rc:88
 msgid "'this' is not a DataView object"
 msgstr "'this' は DataView オブジェクトではありません"
 
-#: dlls/jscript/jscript.rc:82
+#: dlls/jscript/jscript.rc:89
 msgid "Required argument offset or value in DataView method is not specified"
 msgstr "DataView メソッドでオフセットと値の引数は省略できません"
 
-#: dlls/jscript/jscript.rc:83
+#: dlls/jscript/jscript.rc:90
 msgid "DataView operation access beyond specified buffer length"
 msgstr "DataView 操作によるアクセスが指定されたバッファ長を超えています"
 
-#: dlls/jscript/jscript.rc:84
+#: dlls/jscript/jscript.rc:91
 msgid "DataView constructor argument offset is invalid"
 msgstr "DataView コンストラクター引数のオフセットが正しくありません"
 
-#: dlls/jscript/jscript.rc:85
+#: dlls/jscript/jscript.rc:92
 msgid "'this' is not a | object"
 msgstr "'this' は | オブジェクトではありません"
 
-#: dlls/jscript/jscript.rc:86
+#: dlls/jscript/jscript.rc:93
 msgid "'key' is not an object"
 msgstr "'key' はオブジェクトではありません"
 
-#: dlls/jscript/jscript.rc:87
+#: dlls/jscript/jscript.rc:94
 msgid "ArrayBuffer object expected"
 msgstr "ArrayBuffer オブジェクトを期待していました"
 
-#: dlls/jscript/jscript.rc:88
+#: dlls/jscript/jscript.rc:95
 msgid "Property cannot have both accessors and a value"
 msgstr "プロパティはアクセサーと値の両方になることはできません"
 
@@ -9584,11 +9631,39 @@ msgstr "不明"
 msgid "the program which created it"
 msgstr "作成プログラム"
 
-#: dlls/sane.ds/sane.rc:41
+#: dlls/sane.ds/sane.rc:55 dlls/sane.ds/sane.rc:45
 msgid "Scanning"
 msgstr "スキャン中"
 
-#: dlls/sane.ds/sane.rc:44
+#: dlls/sane.ds/sane.rc:58
+#, fuzzy
+#| msgid "feature from:"
+msgid "Manufacturer:"
+msgstr "機能の導入元:"
+
+#: dlls/sane.ds/sane.rc:60
+#, fuzzy
+#| msgid "Product Updates:"
+msgid "Product family:"
+msgstr "製品の更新:"
+
+#: dlls/sane.ds/sane.rc:62
+#, fuzzy
+#| msgid "Product Updates:"
+msgid "Product name:"
+msgstr "製品の更新:"
+
+#: dlls/sane.ds/sane.rc:64
+#, fuzzy
+#| msgid "Screen resolution"
+msgid "Resolution:"
+msgstr "画面の解像度"
+
+#: dlls/sane.ds/sane.rc:66 programs/wordpad/wordpad.rc:181
+msgid "Page"
+msgstr "ページ"
+
+#: dlls/sane.ds/sane.rc:68
 msgid "SCANNING... Please Wait"
 msgstr "スキャン中... しばらくお待ちください"
 
@@ -9617,6 +9692,35 @@ msgstr "%"
 msgctxt "unit: microseconds"
 msgid "us"
 msgstr "µs"
+
+#: dlls/sane.ds/sane.rc:43
+msgid "LineArt"
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:44 dlls/setupapi/setupapi.rc:32
+#: programs/ipconfig/ipconfig.rc:34
+msgid "Unknown"
+msgstr "不明"
+
+#: dlls/sane.ds/sane.rc:46
+msgid ""
+"The Automatic Document Feeder (ADF) is empty. Please insert the sheets to be "
+"scanned."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:47
+msgid ""
+"The scanner reports a paper jam. Check for additional information on device "
+"display."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:48
+msgid "The scanner cover is open. Please close the scanner."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:49
+msgid "The scanner is busy. Try again later."
+msgstr ""
 
 #: dlls/serialui/serialui.rc:28
 msgid "Settings for %s"
@@ -9669,10 +9773,6 @@ msgstr "製造元のファイルのコピー元:"
 #: dlls/setupapi/setupapi.rc:31
 msgid "The file '%1' on %2 is needed"
 msgstr "%2 上のファイル '%1' が必要です"
-
-#: dlls/setupapi/setupapi.rc:32 programs/ipconfig/ipconfig.rc:34
-msgid "Unknown"
-msgstr "不明"
 
 #: dlls/setupapi/setupapi.rc:33
 msgid "Copy files from:"
@@ -13845,7 +13945,7 @@ msgid "Digi&tal"
 msgstr "デジタル(&T)"
 
 #: programs/clock/clock.rc:35 programs/notepad/notepad.rc:59
-#: programs/winecfg/winecfg.rc:313 programs/winefile/winefile.rc:63
+#: programs/winecfg/winecfg.rc:315 programs/winefile/winefile.rc:63
 #: programs/wordpad/wordpad.rc:84
 msgid "&Font..."
 msgstr "フォント(&F)..."
@@ -14702,6 +14802,12 @@ msgstr "ファイルの終端"
 #: programs/cmd/cmd.rc:410
 msgid "%t%1!u! file(s) copied\n"
 msgstr "%t%1!d! ファイルをコピーしました\n"
+
+#: programs/cmd/cmd.rc:411 programs/xcopy/xcopy.rc:83
+#, fuzzy
+#| msgid "The file cannot be accessed.\n"
+msgid "File cannot be copied onto itself.\n"
+msgstr "ネットワーク上の場所にアクセスできません。\n"
 
 #: programs/conhost/conhost.rc:54
 msgid "Cursor size"
@@ -18678,74 +18784,80 @@ msgid "Driver diagnostics"
 msgstr "ドライバー診断"
 
 #: programs/winecfg/winecfg.rc:271
-msgid "Defaults"
-msgstr "デフォルト"
-
-#: programs/winecfg/winecfg.rc:272
-msgid "Output device:"
-msgstr "出力デバイス:"
-
-#: programs/winecfg/winecfg.rc:273
-msgid "Voice output device:"
-msgstr "音声出力デバイス:"
-
-#: programs/winecfg/winecfg.rc:274
-msgid "Input device:"
-msgstr "入力デバイス:"
-
-#: programs/winecfg/winecfg.rc:275
-msgid "Voice input device:"
-msgstr "音声入力デバイス:"
-
-#: programs/winecfg/winecfg.rc:280
 msgid "&Test Sound"
 msgstr "音をテスト(&T)"
 
-#: programs/winecfg/winecfg.rc:281 programs/winecfg/winecfg.rc:89
+#: programs/winecfg/winecfg.rc:272
+msgid "Defaults"
+msgstr "デフォルト"
+
+#: programs/winecfg/winecfg.rc:273
+msgid "Output device:"
+msgstr "出力デバイス:"
+
+#: programs/winecfg/winecfg.rc:274
+msgid "Voice output device:"
+msgstr "音声出力デバイス:"
+
+#: programs/winecfg/winecfg.rc:275
+msgid "Input device:"
+msgstr "入力デバイス:"
+
+#: programs/winecfg/winecfg.rc:276
+msgid "Voice input device:"
+msgstr "音声入力デバイス:"
+
+#: programs/winecfg/winecfg.rc:277
+#, fuzzy
+#| msgid "Output device:"
+msgid "MIDI output device:"
+msgstr "出力デバイス:"
+
+#: programs/winecfg/winecfg.rc:283 programs/winecfg/winecfg.rc:89
 msgid "Speaker configuration"
 msgstr "スピーカー 設定"
 
-#: programs/winecfg/winecfg.rc:284
+#: programs/winecfg/winecfg.rc:286
 msgid "Speakers:"
 msgstr "スピーカー:"
 
-#: programs/winecfg/winecfg.rc:292
+#: programs/winecfg/winecfg.rc:294
 msgid "Appearance"
 msgstr "外観"
 
-#: programs/winecfg/winecfg.rc:293
+#: programs/winecfg/winecfg.rc:295
 msgid "&Theme:"
 msgstr "テーマ(&T):"
 
-#: programs/winecfg/winecfg.rc:295
+#: programs/winecfg/winecfg.rc:297
 msgid "&WinRT theme:"
 msgstr "&WinRT テーマ:"
 
-#: programs/winecfg/winecfg.rc:297
+#: programs/winecfg/winecfg.rc:299
 msgid "&Install theme..."
 msgstr "テーマのインストール(&I)..."
 
-#: programs/winecfg/winecfg.rc:302
+#: programs/winecfg/winecfg.rc:304
 msgid "It&em:"
 msgstr "項目(&E):"
 
-#: programs/winecfg/winecfg.rc:304
+#: programs/winecfg/winecfg.rc:306
 msgid "C&olor:"
 msgstr "色(&O):"
 
-#: programs/winecfg/winecfg.rc:310
+#: programs/winecfg/winecfg.rc:312
 msgid "MIME types"
 msgstr "MIME タイプ"
 
-#: programs/winecfg/winecfg.rc:311
+#: programs/winecfg/winecfg.rc:313
 msgid "Manage file and protocol &associations"
 msgstr "ファイルとプロトコル関連付けの管理(&A)"
 
-#: programs/winecfg/winecfg.rc:314
+#: programs/winecfg/winecfg.rc:316
 msgid "Folders"
 msgstr "フォルダー"
 
-#: programs/winecfg/winecfg.rc:317
+#: programs/winecfg/winecfg.rc:319
 msgid "&Link to:"
 msgstr "リンク先(&L):"
 
@@ -19552,6 +19664,10 @@ msgstr "エラー: PATH の構文が無効です\n"
 msgid "Supply a command\n"
 msgstr "コマンドを入力してください\n"
 
+#: programs/wmic/wmic.rc:33
+msgid "Example usage: wmic ALIAS get PROPERTY[,PROPERTY2,...]\n"
+msgstr ""
+
 #: programs/wordpad/wordpad.rc:31
 msgid "&New...\tCtrl+N"
 msgstr "新規作成(&N)...\tCtrl+N"
@@ -19850,10 +19966,6 @@ msgstr "拡大"
 #: programs/wordpad/wordpad.rc:179
 msgid "Zoom out"
 msgstr "縮小"
-
-#: programs/wordpad/wordpad.rc:181
-msgid "Page"
-msgstr "ページ"
 
 #: programs/wordpad/wordpad.rc:182
 msgid "Pages"

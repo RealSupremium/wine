@@ -111,11 +111,13 @@ typedef struct
 static BOOL test_DestroyWindow_flag;
 static BOOL test_context_menu;
 static BOOL ignore_mouse_messages = TRUE;
+static BOOL ignore_WM_NCHITTEST = TRUE;
 static HWINEVENTHOOK hEvent_hook;
 static HHOOK hKBD_hook;
 static HHOOK hCBT_hook;
 static DWORD cbt_hook_thread_id;
 static DWORD winevent_hook_thread_id;
+static HWND foreground;
 
 static const WCHAR testWindowClassW[] =
 { 'T','e','s','t','W','i','n','d','o','w','C','l','a','s','s','W',0 };
@@ -2692,6 +2694,76 @@ static void flush_sequence(void)
     sequence = 0;
     sequence_cnt = sequence_size = 0;
     LeaveCriticalSection( &sequence_cs );
+}
+
+#define create_foreground_window( a ) create_foreground_window_( __FILE__, __LINE__, a, 5 )
+static HWND create_foreground_window_( const char *file, int line, BOOL fullscreen, UINT retries )
+{
+    for (;;)
+    {
+        HWND hwnd;
+        BOOL ret;
+
+        hwnd = CreateWindowW( L"static", NULL, WS_POPUP | (fullscreen ? 0 : WS_VISIBLE),
+                              100, 100, 5, 5, NULL, NULL, NULL, NULL );
+        ok_(file, line)( hwnd != NULL, "CreateWindowW failed, error %lu\n", GetLastError() );
+
+        if (fullscreen)
+        {
+            HMONITOR hmonitor = MonitorFromWindow( hwnd, MONITOR_DEFAULTTOPRIMARY );
+            MONITORINFO mi = {.cbSize = sizeof(MONITORINFO)};
+
+            ok_(file, line)( hmonitor != NULL, "MonitorFromWindow failed, error %lu\n", GetLastError() );
+            ret = GetMonitorInfoW( hmonitor, &mi );
+            ok_(file, line)( ret, "GetMonitorInfoW failed, error %lu\n", GetLastError() );
+            ret = SetWindowPos( hwnd, 0, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+                                mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW );
+            ok_(file, line)( ret, "SetWindowPos failed, error %lu\n", GetLastError() );
+        }
+        flush_events();
+
+        if (GetForegroundWindow() == hwnd) return hwnd;
+        ok_(file, line)( retries > 0, "failed to create foreground window\n" );
+        if (!retries--) return hwnd;
+
+        ret = DestroyWindow( hwnd );
+        ok_(file, line)( ret, "DestroyWindow failed, error %lu\n", GetLastError() );
+        flush_events();
+    }
+}
+
+static LRESULT CALLBACK foreground_window_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
+{
+    if (msg == WM_USER) SetForegroundWindow( (HWND)wparam );
+    if (msg == WM_CLOSE) PostQuitMessage( 0 );
+    return DefWindowProcW( hwnd, msg, wparam, lparam );
+}
+
+static DWORD WINAPI foreground_window_thread( void *arg )
+{
+    HANDLE event = arg;
+    MSG msg;
+
+    foreground = create_foreground_window( FALSE );
+    SetWindowLongPtrW( foreground, GWLP_WNDPROC, (LONG_PTR)foreground_window_wndproc );
+    SetEvent( event );
+
+    while (GetMessageW( &msg, NULL, 0, 0 ))
+    {
+        if (msg.message == WM_QUIT) break;
+        TranslateMessage( &msg );
+        DispatchMessageW( &msg );
+    }
+
+    return 0;
+}
+
+static void start_foreground_window_thread(void)
+{
+    HANDLE event = CreateEventA( NULL, FALSE, FALSE, NULL );
+    CloseHandle( CreateThread( NULL, 0, foreground_window_thread, event, 0, NULL ) );
+    WaitForSingleObject( event, 10000 );
+    CloseHandle( event );
 }
 
 static const char* message_type_name(int flags) {
@@ -10935,7 +11007,9 @@ static LRESULT MsgCheckProc (BOOL unicode, HWND hwnd, UINT message,
 
 	/* test_accelerators() depends on this */
 	case WM_NCHITTEST:
-	    return HTCLIENT;
+		if (ignore_WM_NCHITTEST)
+			return HTCLIENT;
+		break;
 
 	case WM_USER+10:
 	{
@@ -14977,6 +15051,22 @@ static void pump_msg_loop_timeout(DWORD timeout, BOOL inject_mouse_move)
     } while (start_ticks + timeout >= end_ticks);
 }
 
+static DWORD WINAPI track_mouse_event_query_thread( void *context )
+{
+    TRACKMOUSEEVENT tme;
+    BOOL ret;
+
+    memset( &tme, 0xcc, sizeof(tme) );
+    tme.cbSize = sizeof(tme);
+    tme.dwFlags = TME_QUERY;
+    ret = pTrackMouseEvent( &tme );
+    ok( ret, "TrackMouseEvent(TME_QUERY) error %ld\n", GetLastError() );
+    ok( !tme.hwndTrack, "got %p.\n", tme.hwndTrack );
+    ok( !tme.dwHoverTime, "got %lu.\n", tme.dwHoverTime );
+    ok( !tme.dwFlags, "got %#lx.\n", tme.dwFlags );
+    return 0;
+}
+
 static void test_TrackMouseEvent(void)
 {
     TRACKMOUSEEVENT tme;
@@ -14985,6 +15075,7 @@ static void test_TrackMouseEvent(void)
     RECT rc_parent, rc_child;
     UINT default_hover_time, hover_width = 0, hover_height = 0;
     POINT old_pt;
+    HANDLE thread;
 
 #define track_hover(track_hwnd, track_hover_time) \
     tme.cbSize = sizeof(tme); \
@@ -15009,7 +15100,10 @@ static void test_TrackMouseEvent(void)
     ok(tme.hwndTrack == (expected_track_hwnd), \
        "wrong tme.hwndTrack %p, expected %p\n", tme.hwndTrack, (expected_track_hwnd)); \
     ok(tme.dwHoverTime == (expected_hover_time), \
-       "wrong tme.dwHoverTime %lu, expected %u\n", tme.dwHoverTime, (expected_hover_time))
+       "wrong tme.dwHoverTime %lu, expected %u\n", tme.dwHoverTime, (expected_hover_time)); \
+    thread = CreateThread( NULL, 0, track_mouse_event_query_thread, &tme, 0, NULL ); \
+    WaitForSingleObject( thread, INFINITE ); \
+    CloseHandle( thread )
 
 #define track_hover_cancel(track_hwnd) \
     tme.cbSize = sizeof(tme); \
@@ -15156,6 +15250,31 @@ static void test_TrackMouseEvent(void)
     track_hover_cancel(hwnd);
 
     DestroyWindow(hwnd);
+
+    /* Test that TrackMouseEvent() tracking doesn't produce WM_NCHITTEST */
+    hwnd2 = CreateWindowA("TestWindowClass", NULL, WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, 640, 480,
+                          0, NULL, NULL, 0);
+    ok(!!hwnd2, "Failed to create window, error %lu.\n", GetLastError());
+
+    GetCursorPos(&old_pt);
+    SetCursorPos(150, 150);
+
+    flush_events();
+    flush_sequence();
+
+    tme.cbSize = sizeof(tme);
+    tme.dwFlags = TME_LEAVE;
+    tme.hwndTrack = hwnd2;
+    tme.dwHoverTime = HOVER_DEFAULT;
+    SetLastError(0xdeadbeef);
+    ignore_WM_NCHITTEST = FALSE;
+    ret = pTrackMouseEvent(&tme);
+    ok(ret, "TrackMouseEvent(TME_LEAVE) failed, error %ld\n", GetLastError());
+    flush_events();
+    ignore_WM_NCHITTEST = TRUE;
+    ok_sequence(WmEmptySeq, "TrackMouseEventCallSeq", FALSE);
+    SetCursorPos(old_pt.x, old_pt.y);
+    DestroyWindow(hwnd2);
 
     /* Test that tracking a new window with TME_LEAVE and when the cursor is not in the new window,
      * WM_MOUSELEAVE is immediately posted to the window */
@@ -16499,16 +16618,72 @@ static void test_EndDialog(void)
     UnregisterClassA(cls.lpszClassName, cls.hInstance);
 }
 
+static const struct message WmUserSeq[] =
+{
+    { WM_USER, sent },
+    { 0 }
+};
+
 static void test_nullCallback(void)
 {
+    DWORD status;
     HWND hwnd;
+    BOOL ret;
 
     hwnd = CreateWindowExA(0, "TestWindowClass", "Test overlapped", WS_OVERLAPPEDWINDOW,
                            100, 100, 200, 200, 0, 0, 0, NULL);
     ok (hwnd != 0, "Failed to create overlapped window\n");
 
-    SendMessageCallbackA(hwnd,WM_NULL,0,0,NULL,0);
+    /* NULL callback and data being 0 with SendMessageCallbackA() */
+    flush_sequence();
+    ret = SendMessageCallbackA(hwnd, WM_USER, 0, 0, NULL, 0);
+    ok(ret, "SendMessageCallbackA failed, error %ld.", GetLastError());
+    ok_sequence(WmUserSeq, "WM_USER with NULL callback", FALSE);
+
+    /* NULL callback and data being 0 with SendMessageCallbackW() */
+    flush_sequence();
+    ret = SendMessageCallbackW(hwnd, WM_USER, 0, 0, NULL, 0);
+    ok(ret, "SendMessageCallbackW failed, error %ld.", GetLastError());
+    ok_sequence(WmUserSeq, "WM_USER with NULL callback", FALSE);
+
+    /* NULL callback and data being 1 with SendMessageCallbackA(). The result suggests that the
+     * message is not directly sent to the window */
+    flush_sequence();
+    ret = SendMessageCallbackA(hwnd, WM_USER, 0, 0, NULL, 1);
+    ok(ret, "SendMessageCallbackA failed, error %ld.", GetLastError());
+    ok_sequence(WmEmptySeq, "WM_USER with NULL callback", FALSE);
     flush_events();
+    ok_sequence(WmUserSeq, "WM_USER with NULL callback after flushing events", FALSE);
+
+    /* NULL callback and data being 1 with SendMessageCallbackW(). The result suggests that the
+     * message is not directly sent to the window */
+    flush_sequence();
+    ret = SendMessageCallbackW(hwnd, WM_USER, 0, 0, NULL, 1);
+    ok(ret, "SendMessageCallbackW failed, error %ld.", GetLastError());
+    ok_sequence(WmEmptySeq, "WM_USER with NULL callback", FALSE);
+    flush_events();
+    ok_sequence(WmUserSeq, "WM_USER with NULL callback after flushing events", FALSE);
+
+    /* NULL callback and data being 2 with SendMessageCallbackA() */
+    flush_sequence();
+    ret = SendMessageCallbackA(hwnd, WM_USER, 0, 0, NULL, 2);
+    ok(ret, "SendMessageCallbackA failed, error %ld.", GetLastError());
+    ok_sequence(WmUserSeq, "WM_USER with NULL callback", FALSE);
+
+    /* NULL callback and data being 2 with SendMessageCallbackW() */
+    flush_sequence();
+    ret = SendMessageCallbackW(hwnd, WM_USER, 0, 0, NULL, 2);
+    ok(ret, "SendMessageCallbackW failed, error %ld.", GetLastError());
+    ok_sequence(WmUserSeq, "WM_USER with NULL callback", FALSE);
+
+    /* Check the queue status after SendMessageCallbackA() with NULL callback and data being 1 */
+    flush_events();
+    ret = SendMessageCallbackA(hwnd, WM_USER, 0, 0, NULL, 1);
+    ok(ret, "SendMessageCallbackA failed, error %ld.", GetLastError());
+    status = GetQueueStatus(QS_ALLINPUT);
+    ok(HIWORD(status) & QS_SENDMESSAGE && LOWORD(status) & QS_SENDMESSAGE,
+       "Got unexpected status %#lx.\n", status);
+
     DestroyWindow(hwnd);
 }
 
@@ -19098,11 +19273,11 @@ static void test_WaitForInputIdle( char *argv0 )
                 WaitForSingleObject( pi.hProcess, 1000 );  /* give it a chance to exit on its own */
             }
             TerminateProcess( pi.hProcess, 0 );  /* just in case */
-            wait_child_process( pi.hProcess );
+            ret = WaitForSingleObject( pi.hProcess, 30000 );
+            ok( !ret, "got %d\n", ret );
             ret = WaitForInputIdle( pi.hProcess, 100 );
             ok( ret == WAIT_FAILED, "%u: WaitForInputIdle after exit error %08x\n", i, ret );
-            CloseHandle( pi.hProcess );
-            CloseHandle( pi.hThread );
+            wait_child_process( &pi );
         }
     }
     CloseHandle( end_event );
@@ -21294,6 +21469,8 @@ START_TEST(msg)
     cbt_hook_thread_id = winevent_hook_thread_id = GetCurrentThreadId();
     hCBT_hook = SetWindowsHookExA(WH_CBT, cbt_hook_proc, 0, GetCurrentThreadId());
     if (!hCBT_hook) win_skip( "cannot set global hook, will skip hook tests\n" );
+
+    start_foreground_window_thread();
 
     test_winevents();
     test_SendMessage_other_thread();

@@ -195,7 +195,7 @@ msgstr "설치(&I)"
 #: dlls/inetcpl.cpl/inetcpl.rc:81 dlls/localui/localui.rc:45
 #: dlls/localui/localui.rc:58 dlls/mpr/mpr.rc:50 dlls/msacm32/msacm32.rc:54
 #: dlls/mshtml/mshtml.rc:48 dlls/mshtml/mshtml.rc:58 dlls/msvfw32/msvfw32.rc:37
-#: dlls/oledlg/oledlg.rc:63 dlls/oledlg/oledlg.rc:95
+#: dlls/oledlg/oledlg.rc:63 dlls/oledlg/oledlg.rc:95 dlls/sane.ds/sane.rc:70
 #: dlls/serialui/serialui.rc:42 dlls/setupapi/setupapi.rc:42
 #: dlls/setupapi/setupapi.rc:60 dlls/shell32/shell32.rc:279
 #: dlls/shell32/shell32.rc:303 dlls/shell32/shell32.rc:314
@@ -708,7 +708,7 @@ msgid "Font St&yle:"
 msgstr "글꼴 스타일(&Y):"
 
 #: dlls/comdlg32/comdlg32.rc:260 dlls/comdlg32/comdlg32.rc:439
-#: programs/winecfg/winecfg.rc:300
+#: programs/winecfg/winecfg.rc:302
 msgid "&Size:"
 msgstr "크기(&S):"
 
@@ -724,7 +724,7 @@ msgstr "취소선(&K)"
 msgid "&Underline"
 msgstr "밑줄(&U)"
 
-#: dlls/comdlg32/comdlg32.rc:270 programs/winecfg/winecfg.rc:298
+#: dlls/comdlg32/comdlg32.rc:270 programs/winecfg/winecfg.rc:300
 msgid "&Color:"
 msgstr "색상(&C):"
 
@@ -737,7 +737,7 @@ msgid "Scr&ipt:"
 msgstr "스크립트(&I):"
 
 #: dlls/comdlg32/comdlg32.rc:283 dlls/comdlg32/comdlg32.rc:288
-#: dlls/compstui/compstui.rc:33
+#: dlls/compstui/compstui.rc:33 dlls/sane.ds/sane.rc:42
 msgid "Color"
 msgstr "색상"
 
@@ -901,7 +901,7 @@ msgstr "복사본 개수(&C):"
 msgid "C&ollate"
 msgstr "정렬(&O)"
 
-#: dlls/comdlg32/comdlg32.rc:414 programs/winecfg/winecfg.rc:306
+#: dlls/comdlg32/comdlg32.rc:414 programs/winecfg/winecfg.rc:308
 msgid "Si&ze:"
 msgstr "크기(&Z):"
 
@@ -1091,7 +1091,8 @@ msgstr "자주"
 msgid "Teal"
 msgstr "청록"
 
-#: dlls/comdlg32/comdlg32.rc:129 programs/wordpad/wordpad.rc:132
+#: dlls/comdlg32/comdlg32.rc:129 dlls/sane.ds/sane.rc:41
+#: programs/wordpad/wordpad.rc:132
 msgid "Gray"
 msgstr "회색"
 
@@ -2440,7 +2441,7 @@ msgid "&File name:"
 msgstr "파일 이름(&F):"
 
 #: dlls/cryptui/cryptui.rc:301 dlls/cryptui/cryptui.rc:323
-#: dlls/cryptui/cryptui.rc:437 programs/winecfg/winecfg.rc:319
+#: dlls/cryptui/cryptui.rc:437 programs/winecfg/winecfg.rc:321
 msgid "B&rowse..."
 msgstr "찾기(&R)..."
 
@@ -3852,15 +3853,15 @@ msgstr "사용 중지됨"
 msgid "DInput"
 msgstr "DInput"
 
-#: dlls/joy.cpl/joy.rc:62
+#: dlls/joy.cpl/joy.rc:62 dlls/joy.cpl/joy.rc:111
 msgid "Axes"
 msgstr "축"
 
-#: dlls/joy.cpl/joy.rc:63
+#: dlls/joy.cpl/joy.rc:63 dlls/joy.cpl/joy.rc:112
 msgid "POVs"
 msgstr "시점"
 
-#: dlls/joy.cpl/joy.rc:64
+#: dlls/joy.cpl/joy.rc:64 dlls/joy.cpl/joy.rc:113
 msgid "Buttons"
 msgstr "버튼"
 
@@ -3869,8 +3870,12 @@ msgid "Force Feedback Effect"
 msgstr "피드백 효과 강제"
 
 #: dlls/joy.cpl/joy.rc:67
+#, fuzzy
+#| msgid ""
+#| "Press any button in the controller to activate the chosen effect. The "
+#| "effect direction can be changed with the controller axis."
 msgid ""
-"Press any button in the controller to activate the chosen effect. The effect "
+"Hold any button in the controller to play the chosen effect. The effect "
 "direction can be changed with the controller axis."
 msgstr ""
 "선택한 효과를 활성화하려면 컨트롤러의 아무 버튼이나 누르십시오. 효과 방향은 "
@@ -3929,9 +3934,13 @@ msgstr ""
 "서 DInput으로 재정의되지 않았는지 확인하십시오."
 
 #: dlls/joy.cpl/joy.rc:98 dlls/joy.cpl/joy.rc:99 dlls/joy.cpl/joy.rc:100
-#: dlls/joy.cpl/joy.rc:101
+#: dlls/joy.cpl/joy.rc:101 dlls/joy.cpl/joy.rc:115
 msgid "Rumble"
 msgstr "진동"
+
+#: dlls/joy.cpl/joy.rc:106
+msgid "Windows.Gaming.Input"
+msgstr ""
 
 #: dlls/joy.cpl/joy.rc:31
 msgid "Game Controllers"
@@ -4045,19 +4054,19 @@ msgstr "조건부 컴파일이 해제되었습니다"
 msgid "Expected '@'"
 msgstr "'@'가 필요합니다"
 
-#: dlls/jscript/jscript.rc:90
+#: dlls/jscript/jscript.rc:97
 msgid "Microsoft JScript compilation error"
 msgstr "Microsoft JScript 컴파일 오류"
 
-#: dlls/jscript/jscript.rc:91
+#: dlls/jscript/jscript.rc:98
 msgid "Microsoft JScript runtime error"
 msgstr "Microsoft JScript 런타임 오류"
 
-#: dlls/jscript/jscript.rc:92 dlls/vbscript/vbscript.rc:64
+#: dlls/jscript/jscript.rc:99 dlls/vbscript/vbscript.rc:64
 msgid "Unknown runtime error"
 msgstr "알 수 없는 런타임 오류"
 
-#: dlls/jscript/jscript.rc:56
+#: dlls/jscript/jscript.rc:57
 msgid "Number expected"
 msgstr "숫자가 필요합니다"
 
@@ -4066,141 +4075,177 @@ msgid "Function expected"
 msgstr "함수가 필요합니다"
 
 #: dlls/jscript/jscript.rc:55
+#, fuzzy
+#| msgid "'[object]' is not a date object"
+msgid "'[object]' is not a string object"
+msgstr "'[object]'은(는) 날짜 개체가 아닙니다"
+
+#: dlls/jscript/jscript.rc:56
 msgid "'[object]' is not a date object"
 msgstr "'[object]'은(는) 날짜 개체가 아닙니다"
 
-#: dlls/jscript/jscript.rc:57
+#: dlls/jscript/jscript.rc:58
 msgid "Object expected"
 msgstr "개체가 필요합니다"
 
-#: dlls/jscript/jscript.rc:58
+#: dlls/jscript/jscript.rc:59
 msgid "Illegal assignment"
 msgstr "잘못된 할당"
 
-#: dlls/jscript/jscript.rc:59
+#: dlls/jscript/jscript.rc:60
 msgid "'|' is undefined"
 msgstr "'|'이(가) 정의되지 않았습니다"
 
-#: dlls/jscript/jscript.rc:60
+#: dlls/jscript/jscript.rc:61
 msgid "Boolean object expected"
 msgstr "Boolean 개체가 필요합니다"
 
-#: dlls/jscript/jscript.rc:61
+#: dlls/jscript/jscript.rc:62
 msgid "Cannot delete '|'"
 msgstr "'|'을(를) 삭제할 수 없습니다"
 
-#: dlls/jscript/jscript.rc:62
+#: dlls/jscript/jscript.rc:63
 msgid "VBArray object expected"
 msgstr "VBArray 개체가 필요합니다"
 
-#: dlls/jscript/jscript.rc:63
+#: dlls/jscript/jscript.rc:64
 msgid "JScript object expected"
 msgstr "JScript 개체가 필요합니다"
 
-#: dlls/jscript/jscript.rc:64
+#: dlls/jscript/jscript.rc:65
 msgid "Enumerator object expected"
 msgstr "열거형 개체가 필요합니다"
 
-#: dlls/jscript/jscript.rc:65
+#: dlls/jscript/jscript.rc:66
 msgid "Regular Expression object expected"
 msgstr "정규식 개체가 필요합니다"
 
-#: dlls/jscript/jscript.rc:66
+#: dlls/jscript/jscript.rc:67
 msgid "Syntax error in regular expression"
 msgstr "정규식에 구문 오류가 있습니다"
 
-#: dlls/jscript/jscript.rc:67
+#: dlls/jscript/jscript.rc:68
 msgid "Unexpected quantifier"
 msgstr "예기치 않은 수량자"
 
-#: dlls/jscript/jscript.rc:68
+#: dlls/jscript/jscript.rc:69
 msgid "Exception thrown and not caught"
 msgstr "예외가 발생했지만 catch할 수 없습니다"
 
-#: dlls/jscript/jscript.rc:70
+#: dlls/jscript/jscript.rc:71
 msgid "URI to be encoded contains invalid characters"
 msgstr "인코딩할 URI에 잘못된 문자가 들어 있습니다"
 
-#: dlls/jscript/jscript.rc:69
+#: dlls/jscript/jscript.rc:70
 msgid "URI to be decoded is incorrect"
 msgstr "디코딩할 URI가 잘못되었습니다"
 
-#: dlls/jscript/jscript.rc:71
+#: dlls/jscript/jscript.rc:72
 msgid "Number of fraction digits is out of range"
 msgstr "분수 자리수 값이 범위를 벗어났습니다"
 
-#: dlls/jscript/jscript.rc:72
+#: dlls/jscript/jscript.rc:73
 msgid "Precision is out of range"
 msgstr "정밀도가 범위를 벗어났습니다"
 
-#: dlls/jscript/jscript.rc:73
-msgid "Array length must be a finite positive integer"
-msgstr "배열의 길이는 유한한 양의 정수이어야 합니다"
-
 #: dlls/jscript/jscript.rc:74
-msgid "Array object expected"
+#, fuzzy
+#| msgid "Array object expected"
+msgid "Array or arguments object expected"
 msgstr "배열 개체가 필요합니다"
 
 #: dlls/jscript/jscript.rc:75
+msgid "Array length must be a finite positive integer"
+msgstr "배열의 길이는 유한한 양의 정수이어야 합니다"
+
+#: dlls/jscript/jscript.rc:76
+msgid "Array object expected"
+msgstr "배열 개체가 필요합니다"
+
+#: dlls/jscript/jscript.rc:77
 msgid ""
 "'writable' attribute on the property descriptor cannot be set to 'true' on "
 "this object"
 msgstr ""
 "속성 설명자의 'writable' 특성은 이 개체에서 'true'로 설정할 수 없습니다"
 
-#: dlls/jscript/jscript.rc:76
+#: dlls/jscript/jscript.rc:78
 msgid "Cyclic __proto__ value"
 msgstr "순환하는 __proto__ 값"
 
-#: dlls/jscript/jscript.rc:77
+#: dlls/jscript/jscript.rc:79
 msgid "Cannot create property for a non-extensible object"
 msgstr "확장 가능하지 않은 개체에 대한 속성을 만들 수 없습니다"
 
-#: dlls/jscript/jscript.rc:78
+#: dlls/jscript/jscript.rc:80
 msgid "Cannot define property '|': object is not extensible"
 msgstr "확장 가능하지 않은 속성 '|'을(를) 정의할 수 없습니다"
 
-#: dlls/jscript/jscript.rc:79
+#: dlls/jscript/jscript.rc:81
 msgid "Cannot redefine non-configurable property '|'"
 msgstr "구성 가능하지 않은 속성 '|'을(를) 재정의할 수 없습니다"
 
-#: dlls/jscript/jscript.rc:80
+#: dlls/jscript/jscript.rc:82
 msgid "Cannot modify non-writable property '|'"
 msgstr "쓰기 가능하지 않은 속성 '|'을(를) 수정할 수 없습니다"
 
-#: dlls/jscript/jscript.rc:81
+#: dlls/jscript/jscript.rc:84
+msgid "Typed array constructor argument is invalid"
+msgstr ""
+
+#: dlls/jscript/jscript.rc:83
+#, fuzzy
+#| msgid "'this' is not a | object"
+msgid "'this' is not a typed array object"
+msgstr "'this'는 '|' 개체가 아닙니다"
+
+#: dlls/jscript/jscript.rc:85
+msgid "Invalid offset/length when creating typed array"
+msgstr ""
+
+#: dlls/jscript/jscript.rc:86
+msgid "Invalid begin/end value in typed array subarray method"
+msgstr ""
+
+#: dlls/jscript/jscript.rc:87
+#, fuzzy
+#| msgid "Invalid module type for %1.\n"
+msgid "Invalid source in typed array set"
+msgstr "잘못된 %1 모듈 유형.\n"
+
+#: dlls/jscript/jscript.rc:88
 #, fuzzy
 #| msgid "'this' is not a | object"
 msgid "'this' is not a DataView object"
 msgstr "'this'는 '|' 개체가 아닙니다"
 
-#: dlls/jscript/jscript.rc:82
+#: dlls/jscript/jscript.rc:89
 msgid "Required argument offset or value in DataView method is not specified"
 msgstr ""
 
-#: dlls/jscript/jscript.rc:83
+#: dlls/jscript/jscript.rc:90
 msgid "DataView operation access beyond specified buffer length"
 msgstr ""
 
-#: dlls/jscript/jscript.rc:84
+#: dlls/jscript/jscript.rc:91
 msgid "DataView constructor argument offset is invalid"
 msgstr ""
 
-#: dlls/jscript/jscript.rc:85
+#: dlls/jscript/jscript.rc:92
 msgid "'this' is not a | object"
 msgstr "'this'는 '|' 개체가 아닙니다"
 
-#: dlls/jscript/jscript.rc:86
+#: dlls/jscript/jscript.rc:93
 msgid "'key' is not an object"
 msgstr "'key'는 개체가 아닙니다"
 
-#: dlls/jscript/jscript.rc:87
+#: dlls/jscript/jscript.rc:94
 #, fuzzy
 #| msgid "Array object expected"
 msgid "ArrayBuffer object expected"
 msgstr "배열 개체가 필요합니다"
 
-#: dlls/jscript/jscript.rc:88
+#: dlls/jscript/jscript.rc:95
 msgid "Property cannot have both accessors and a value"
 msgstr "속성에 접근자와 값을 둘 다 지정할 수는 없습니다"
 
@@ -9600,11 +9645,39 @@ msgstr "알 수 없는 원본"
 msgid "the program which created it"
 msgstr "개체를 만든 프로그램"
 
-#: dlls/sane.ds/sane.rc:41
+#: dlls/sane.ds/sane.rc:55 dlls/sane.ds/sane.rc:45
 msgid "Scanning"
 msgstr "스캔 중"
 
-#: dlls/sane.ds/sane.rc:44
+#: dlls/sane.ds/sane.rc:58
+#, fuzzy
+#| msgid "feature from:"
+msgid "Manufacturer:"
+msgstr "기능:"
+
+#: dlls/sane.ds/sane.rc:60
+#, fuzzy
+#| msgid "Product Updates:"
+msgid "Product family:"
+msgstr "제품 업데이트:"
+
+#: dlls/sane.ds/sane.rc:62
+#, fuzzy
+#| msgid "Product Updates:"
+msgid "Product name:"
+msgstr "제품 업데이트:"
+
+#: dlls/sane.ds/sane.rc:64
+#, fuzzy
+#| msgid "Screen resolution"
+msgid "Resolution:"
+msgstr "화면 해상도"
+
+#: dlls/sane.ds/sane.rc:66 programs/wordpad/wordpad.rc:181
+msgid "Page"
+msgstr "페이지"
+
+#: dlls/sane.ds/sane.rc:68
 msgid "SCANNING... Please Wait"
 msgstr "스캔 중... 기다려 주세요"
 
@@ -9633,6 +9706,35 @@ msgstr "%"
 msgctxt "unit: microseconds"
 msgid "us"
 msgstr "µs"
+
+#: dlls/sane.ds/sane.rc:43
+msgid "LineArt"
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:44 dlls/setupapi/setupapi.rc:32
+#: programs/ipconfig/ipconfig.rc:34
+msgid "Unknown"
+msgstr "알 수 없음"
+
+#: dlls/sane.ds/sane.rc:46
+msgid ""
+"The Automatic Document Feeder (ADF) is empty. Please insert the sheets to be "
+"scanned."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:47
+msgid ""
+"The scanner reports a paper jam. Check for additional information on device "
+"display."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:48
+msgid "The scanner cover is open. Please close the scanner."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:49
+msgid "The scanner is busy. Try again later."
+msgstr ""
 
 #: dlls/serialui/serialui.rc:28
 msgid "Settings for %s"
@@ -9685,10 +9787,6 @@ msgstr "제조업체의 파일을 복사하세요:"
 #: dlls/setupapi/setupapi.rc:31
 msgid "The file '%1' on %2 is needed"
 msgstr "%2의 '%1' 파일이 필요합니다"
-
-#: dlls/setupapi/setupapi.rc:32 programs/ipconfig/ipconfig.rc:34
-msgid "Unknown"
-msgstr "알 수 없음"
 
 #: dlls/setupapi/setupapi.rc:33
 msgid "Copy files from:"
@@ -13839,7 +13937,7 @@ msgid "Digi&tal"
 msgstr "디지털(&T)"
 
 #: programs/clock/clock.rc:35 programs/notepad/notepad.rc:59
-#: programs/winecfg/winecfg.rc:313 programs/winefile/winefile.rc:63
+#: programs/winecfg/winecfg.rc:315 programs/winefile/winefile.rc:63
 #: programs/wordpad/wordpad.rc:84
 msgid "&Font..."
 msgstr "글꼴(&F)..."
@@ -14702,6 +14800,12 @@ msgstr "파일 끝.\n"
 #| msgid "%1!d! file(s) copied\n"
 msgid "%t%1!u! file(s) copied\n"
 msgstr "%1!d! 파일이 복사되었습니다\n"
+
+#: programs/cmd/cmd.rc:411 programs/xcopy/xcopy.rc:83
+#, fuzzy
+#| msgid "The file cannot be accessed.\n"
+msgid "File cannot be copied onto itself.\n"
+msgstr "파일에 액세스할 수 없습니다.\n"
 
 #: programs/conhost/conhost.rc:54
 msgid "Cursor size"
@@ -18673,74 +18777,80 @@ msgid "Driver diagnostics"
 msgstr "드라이버 진단"
 
 #: programs/winecfg/winecfg.rc:271
-msgid "Defaults"
-msgstr "기본값"
-
-#: programs/winecfg/winecfg.rc:272
-msgid "Output device:"
-msgstr "출력 장치:"
-
-#: programs/winecfg/winecfg.rc:273
-msgid "Voice output device:"
-msgstr "음성 출력 장치:"
-
-#: programs/winecfg/winecfg.rc:274
-msgid "Input device:"
-msgstr "입력 장치:"
-
-#: programs/winecfg/winecfg.rc:275
-msgid "Voice input device:"
-msgstr "음성 입력 장치:"
-
-#: programs/winecfg/winecfg.rc:280
 msgid "&Test Sound"
 msgstr "소리 테스트(&T)"
 
-#: programs/winecfg/winecfg.rc:281 programs/winecfg/winecfg.rc:89
+#: programs/winecfg/winecfg.rc:272
+msgid "Defaults"
+msgstr "기본값"
+
+#: programs/winecfg/winecfg.rc:273
+msgid "Output device:"
+msgstr "출력 장치:"
+
+#: programs/winecfg/winecfg.rc:274
+msgid "Voice output device:"
+msgstr "음성 출력 장치:"
+
+#: programs/winecfg/winecfg.rc:275
+msgid "Input device:"
+msgstr "입력 장치:"
+
+#: programs/winecfg/winecfg.rc:276
+msgid "Voice input device:"
+msgstr "음성 입력 장치:"
+
+#: programs/winecfg/winecfg.rc:277
+#, fuzzy
+#| msgid "Output device:"
+msgid "MIDI output device:"
+msgstr "출력 장치:"
+
+#: programs/winecfg/winecfg.rc:283 programs/winecfg/winecfg.rc:89
 msgid "Speaker configuration"
 msgstr "스피커 구성"
 
-#: programs/winecfg/winecfg.rc:284
+#: programs/winecfg/winecfg.rc:286
 msgid "Speakers:"
 msgstr "스피커:"
 
-#: programs/winecfg/winecfg.rc:292
+#: programs/winecfg/winecfg.rc:294
 msgid "Appearance"
 msgstr "모양새"
 
-#: programs/winecfg/winecfg.rc:293
+#: programs/winecfg/winecfg.rc:295
 msgid "&Theme:"
 msgstr "테마(&T):"
 
-#: programs/winecfg/winecfg.rc:295
+#: programs/winecfg/winecfg.rc:297
 msgid "&WinRT theme:"
 msgstr "WinRT 테마(&W):"
 
-#: programs/winecfg/winecfg.rc:297
+#: programs/winecfg/winecfg.rc:299
 msgid "&Install theme..."
 msgstr "테마 설치(&I)..."
 
-#: programs/winecfg/winecfg.rc:302
+#: programs/winecfg/winecfg.rc:304
 msgid "It&em:"
 msgstr "목록(&E):"
 
-#: programs/winecfg/winecfg.rc:304
+#: programs/winecfg/winecfg.rc:306
 msgid "C&olor:"
 msgstr "색상(&O):"
 
-#: programs/winecfg/winecfg.rc:310
+#: programs/winecfg/winecfg.rc:312
 msgid "MIME types"
 msgstr "MIME 형식"
 
-#: programs/winecfg/winecfg.rc:311
+#: programs/winecfg/winecfg.rc:313
 msgid "Manage file and protocol &associations"
 msgstr "파일 및 프로토콜 연결 관리(&A)"
 
-#: programs/winecfg/winecfg.rc:314
+#: programs/winecfg/winecfg.rc:316
 msgid "Folders"
 msgstr "폴더"
 
-#: programs/winecfg/winecfg.rc:317
+#: programs/winecfg/winecfg.rc:319
 msgid "&Link to:"
 msgstr "연결 대상(&L):"
 
@@ -19550,6 +19660,10 @@ msgstr "오류: 잘못된 구문입니다\n"
 msgid "Supply a command\n"
 msgstr "잘못된 명령.\n"
 
+#: programs/wmic/wmic.rc:33
+msgid "Example usage: wmic ALIAS get PROPERTY[,PROPERTY2,...]\n"
+msgstr ""
+
 #: programs/wordpad/wordpad.rc:31
 msgid "&New...\tCtrl+N"
 msgstr "새 파일(&N)...\tCtrl+N"
@@ -19848,10 +19962,6 @@ msgstr "확대"
 #: programs/wordpad/wordpad.rc:179
 msgid "Zoom out"
 msgstr "축소"
-
-#: programs/wordpad/wordpad.rc:181
-msgid "Page"
-msgstr "페이지"
 
 #: programs/wordpad/wordpad.rc:182
 msgid "Pages"

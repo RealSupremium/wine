@@ -27,16 +27,15 @@ WINE_DEFAULT_DEBUG_CHANNEL(cmd);
 static RETURN_CODE WCMD_batch_main_loop(void)
 {
     RETURN_CODE return_code = NO_ERROR;
-    /* Work through the file line by line until an exit is called. */
-    while (!context->skip_rest)
-    {
-        CMD_NODE *node;
+    enum read_parse_line rpl;
+    CMD_NODE *node;
 
-        switch (WCMD_ReadAndParseLine(NULL, &node))
+    /* Work through the file line by line until an exit is called. */
+    while ((rpl = WCMD_ReadAndParseLine(&node)) != RPL_EOF)
+    {
+        switch (rpl)
         {
-        case RPL_EOF:
-            context->skip_rest = TRUE;
-            break;
+        case RPL_EOF: break; /* never reached; get rid of warning */
         case RPL_SUCCESS:
             if (node)
             {
@@ -51,7 +50,8 @@ static RETURN_CODE WCMD_batch_main_loop(void)
     }
 
     /* If there are outstanding setlocal's to the current context, unwind them. */
-    while (WCMD_endlocal() == NO_ERROR) {}
+    if (WCMD_is_in_context(NULL))
+        while (WCMD_endlocal() == NO_ERROR) {}
 
     return return_code;
 }
@@ -63,6 +63,7 @@ static struct batch_file *find_or_alloc_batch_file(const WCHAR *file)
     HANDLE h;
     unsigned int i;
 
+    if (!file) return NULL;
     for (ctx = context; ctx; ctx = ctx->prev_context)
     {
         if (ctx->batch_file && !wcscmp(ctx->batch_file->path_name, file))
@@ -95,9 +96,8 @@ static struct batch_context *push_batch_context(WCHAR *command, struct batch_fil
     context->command = command;
     memset(context->shift_count, 0x00, sizeof(context->shift_count));
     context->prev_context = prev;
-    context->skip_rest = FALSE;
     context->batch_file = batch_file;
-    batch_file->ref_count++;
+    if (batch_file) batch_file->ref_count++;
 
     return context;
 }
@@ -121,32 +121,26 @@ static struct batch_context *pop_batch_context(struct batch_context *ctx)
 }
 
 /****************************************************************************
- * WCMD_batch
+ * WCMD_call_batch
  *
  * Open and execute a batch file.
  * On entry *command includes the complete command line beginning with the name
  * of the batch file (if a CALL command was entered the CALL has been removed).
  * *file is the name of the file, which might not exist and may not have the
- * .BAT suffix on. Called is 1 for a CALL, 0 otherwise.
+ * .BAT suffix on.
  *
  * We need to handle recursion correctly, since one batch program might call another.
  * So parameters for this batch file are held in a BATCH_CONTEXT structure.
- *
- * To support call within the same batch program, another input parameter is
- * a label to goto once opened.
  */
-
 RETURN_CODE WCMD_call_batch(const WCHAR *file, WCHAR *command)
 {
-    RETURN_CODE return_code = NO_ERROR;
+    RETURN_CODE return_code;
 
     context = push_batch_context(command, find_or_alloc_batch_file(file), 0);
     return_code = WCMD_batch_main_loop();
     context = pop_batch_context(context);
 
-    if (return_code != NO_ERROR && return_code != RETURN_CODE_ABORTED)
-        errorlevel = return_code;
-    return errorlevel;
+    return return_code;
 }
 
 /*******************************************************************
@@ -271,58 +265,59 @@ WCHAR *WCMD_parameter (WCHAR *s, int n, WCHAR **start, BOOL raw,
 
 static WCHAR *WCMD_fgets_helper(WCHAR *buf, DWORD noChars, HANDLE h, UINT code_page)
 {
-  DWORD charsRead;
-  BOOL status;
-  DWORD i;
+    DWORD charsRead;
 
-  /* We can't use the native f* functions because of the filename syntax differences
-     between DOS and Unix. Also need to lose the LF (or CRLF) from the line. */
+    if (!WCMD_read_console(h, buf, noChars, &charsRead))
+    {
+        LARGE_INTEGER filepos;
+        char *bufA, *p;
 
-  if (WCMD_read_console(h, buf, noChars, &charsRead) && charsRead) {
-      /* Find first EOL */
-      for (i = 0; i < charsRead; i++) {
-          if (buf[i] == '\n' || buf[i] == '\r')
-              break;
-      }
-  }
-  else {
-      LARGE_INTEGER filepos;
-      char *bufA;
-      const char *p;
+        bufA = xalloc(noChars);
 
-      bufA = xalloc(noChars);
+        /* Save current file position */
+        filepos.QuadPart = 0;
+        if (GetFileType(h) == FILE_TYPE_DISK && SetFilePointerEx(h, filepos, &filepos, FILE_CURRENT))
+        {
+            if (!ReadFile(h, bufA, noChars, &charsRead, NULL) || charsRead == 0)
+            {
+                free(bufA);
+                return NULL;
+            }
 
-      /* Save current file position */
-      filepos.QuadPart = 0;
-      SetFilePointerEx(h, filepos, &filepos, FILE_CURRENT);
+            /* Find first EOL */
+            for (p = bufA; p < bufA + charsRead; p = CharNextExA(code_page, p, 0))
+            {
+                if (p[0] == L'\n') break;
+            }
+            if (p < bufA + charsRead)
+            {
+                /* Sets file pointer to the start of the next line, if any */
+                filepos.QuadPart += p - bufA + 1;
+                SetFilePointerEx(h, filepos, NULL, FILE_BEGIN);
+            }
+        }
+        else
+        {
+            for (p = bufA; p < bufA + noChars; p++)
+            {
+                if (!ReadFile(h, p, 1, &charsRead, NULL) || (!charsRead && p == bufA))
+                {
+                    free(bufA);
+                    return NULL;
+                }
+                /* FIXME: not multibyte charset compliant */
+                if (!charsRead || p[0] == '\n') break;
+            }
+        }
 
-      status = ReadFile(h, bufA, noChars, &charsRead, NULL);
-      if (!status || charsRead == 0) {
-          free(bufA);
-          return NULL;
-      }
+        charsRead = MultiByteToWideChar(code_page, 0, bufA, p - bufA, buf, noChars - 1);
+        free(bufA);
+    }
 
-      /* Find first EOL */
-      for (p = bufA; p < (bufA + charsRead); p = CharNextExA(code_page, p, 0)) {
-          if (*p == '\n' || *p == '\r')
-              break;
-      }
+    while (charsRead && (buf[charsRead - 1] == L'\n' || buf[charsRead - 1] == L'\r')) charsRead--;
+    buf[charsRead] = L'\0';
 
-      /* Sets file pointer to the start of the next line, if any */
-      filepos.QuadPart += p - bufA + 1 + (*p == '\r' ? 1 : 0);
-      SetFilePointerEx(h, filepos, NULL, FILE_BEGIN);
-
-      i = MultiByteToWideChar(code_page, 0, bufA, p - bufA, buf, noChars);
-      free(bufA);
-  }
-
-  /* Truncate at EOL (or end of buffer) */
-  if (i == noChars)
-    i--;
-
-  buf[i] = '\0';
-
-  return buf;
+    return buf;
 }
 
 static UINT get_current_code_page(void)
@@ -426,7 +421,7 @@ void WCMD_HandleTildeModifiers(WCHAR **start, BOOL atExecute)
      Special case param 0 - With %~0 you get the batch label which was called
      whereas if you start applying other modifiers to it, you get the filename
      the batch label is in                                                     */
-  if (*lastModifier == '0' && modifierLen > 1) {
+  if (*lastModifier == '0' && modifierLen > 1 && context->batch_file) {
     lstrcpyW(outputparam, context->batch_file->path_name);
   } else if ((*lastModifier >= '0' && *lastModifier <= '9')) {
     lstrcpyW(outputparam,
@@ -541,14 +536,11 @@ void WCMD_HandleTildeModifiers(WCHAR **start, BOOL atExecute)
 
     /* 4. Handle 'z' : File length (File doesn't have to exist) */
     if (wmemchr(firstModifier, 'z', modifierLen) != NULL) {
-      /* FIXME: Output full 64 bit size (sprintf does not support I64 here) */
-      ULONG/*64*/ fullsize = /*(fileInfo.nFileSizeHigh << 32) +*/
-                                  fileInfo.nFileSizeLow;
-
       doneModifier = TRUE;
       if (exists) {
+        ULONG64 fullsize = ((ULONG64)fileInfo.nFileSizeHigh << 32) | fileInfo.nFileSizeLow;
         if (finaloutput[0] != 0x00) lstrcatW(finaloutput, L" ");
-        wsprintfW(thisoutput, L"%u", fullsize);
+        wsprintfW(thisoutput, L"%I64u", fullsize);
         lstrcatW(finaloutput, thisoutput);
       }
     }
@@ -663,26 +655,24 @@ RETURN_CODE WCMD_call(WCHAR *command)
 {
     RETURN_CODE return_code;
     WCHAR buffer[MAXSTRING];
+    WCHAR *start;
+
     WCMD_expand(command, buffer);
 
+    /* (call) shall return 1, while (call ) returns 0 */
+    start = WCMD_skip_leading_spaces(buffer);
+    if (*start == L'\0')
+        return_code = errorlevel = start == buffer ? ERROR_INVALID_FUNCTION : NO_ERROR;
     /* Run other program if no leading ':' */
-    if (*command != ':')
+    else if (*start != ':')
     {
-        if (*WCMD_skip_leading_spaces(buffer) == L'\0')
-            /* FIXME it's incomplete as (call) should return 1, and (call ) should return 0...
-             * but we need to get the untouched string in command
-             */
-            return_code = errorlevel = NO_ERROR;
-        else
-        {
-            WCMD_call_command(buffer);
-            /* If the thing we try to run does not exist, call returns 1 */
-            if (errorlevel == RETURN_CODE_CANT_LAUNCH)
-                errorlevel = ERROR_INVALID_FUNCTION;
-            return_code = errorlevel;
-        }
+        WCMD_call_command(start);
+        /* If the thing we try to run does not exist, call returns 1 */
+        if (errorlevel == RETURN_CODE_CANT_LAUNCH)
+            errorlevel = ERROR_INVALID_FUNCTION;
+        return_code = errorlevel;
     }
-    else if (context)
+    else if (WCMD_is_in_context(NULL))
     {
         WCHAR gotoLabel[MAX_PATH];
 
@@ -705,11 +695,13 @@ RETURN_CODE WCMD_call(WCHAR *command)
 
         /* Restore the for loop context */
         WCMD_restore_for_loop_context();
-  } else {
-      WCMD_output_asis_stderr(WCMD_LoadMessage(WCMD_CALLINSCRIPT));
-      return_code = ERROR_INVALID_FUNCTION;
-  }
-  return return_code;
+    }
+    else
+    {
+        WCMD_output_asis_stderr(WCMD_LoadMessage(WCMD_CALLINSCRIPT));
+        return_code = ERROR_INVALID_FUNCTION;
+    }
+    return return_code;
 }
 
 void WCMD_set_label_end(WCHAR *string)

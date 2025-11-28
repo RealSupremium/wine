@@ -83,7 +83,7 @@ static void wayland_gl_drawable_sync_size(struct wayland_gl_drawable *gl)
     wl_egl_window_resize(gl->wl_egl_window, client_width, client_height, 0, 0);
 }
 
-static BOOL wayland_opengl_surface_create(HWND hwnd, HDC hdc, int format, struct opengl_drawable **drawable)
+static BOOL wayland_opengl_surface_create(HWND hwnd, int format, struct opengl_drawable **drawable)
 {
     EGLConfig config = egl_config_for_format(format);
     struct wayland_client_surface *client;
@@ -113,6 +113,10 @@ static BOOL wayland_opengl_surface_create(HWND hwnd, HDC hdc, int format, struct
     gl = opengl_drawable_create(sizeof(*gl), &wayland_drawable_funcs, format, &client->client);
     client_surface_release(&client->client);
     if (!gl) return FALSE;
+    gl->base.buffer_map[0] = GL_BACK_LEFT;
+    gl->base.buffer_map[1] = GL_BACK_RIGHT;
+    gl->base.buffer_map[GL_FRONT - GL_FRONT_LEFT] = GL_BACK;
+    gl->base.buffer_map[GL_FRONT_AND_BACK - GL_FRONT_LEFT] = GL_BACK;
 
     if (!(gl->wl_egl_window = wl_egl_window_create(client->wl_surface, rect.right, rect.bottom))) goto err;
     if (!(gl->base.surface = funcs->p_eglCreateWindowSurface(egl->display, config, gl->wl_egl_window, attribs))) goto err;
@@ -154,7 +158,7 @@ static BOOL wayland_drawable_swap(struct opengl_drawable *base)
 {
     struct wayland_gl_drawable *gl = impl_from_opengl_drawable(base);
 
-    client_surface_present(base->client, NULL);
+    client_surface_present(base->client);
     funcs->p_eglSwapBuffers(egl->display, gl->base.surface);
 
     return TRUE;

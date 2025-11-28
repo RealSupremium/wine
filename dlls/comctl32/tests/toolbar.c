@@ -104,6 +104,22 @@ static const struct message restore_parent_seq[] = {
     { 0 }
 };
 
+static const struct message wm_paint_parent_seq[] = {
+    { WM_NOTIFY, sent },
+    { 0 }
+};
+
+static const struct message wm_paint_transparent_parent_v5_seq[] = {
+    { WM_NOTIFY, sent },
+    { 0 }
+};
+
+static const struct message wm_paint_transparent_parent_v6_seq[] = {
+    { WM_ERASEBKGND, sent },
+    { WM_NOTIFY, sent },
+    { 0 }
+};
+
 #define DEFINE_EXPECT(func) \
     static BOOL expect_ ## func = FALSE, called_ ## func = FALSE
 
@@ -292,7 +308,7 @@ static LRESULT parent_wnd_notify(WPARAM wParam, LPARAM lParam)
             if (save->iItem == -1)
             {
                 save->cbData = save->cbData * 2 + 11 * sizeof(DWORD);
-                save->pData = heap_alloc( save->cbData );
+                save->pData = HeapAlloc( GetProcessHeap(), 0, save->cbData );
                 save->pData[0] = 0xcafe;
                 save->pCurrent = save->pData + 1;
             }
@@ -368,7 +384,7 @@ static LRESULT parent_wnd_notify(WPARAM wParam, LPARAM lParam)
 
                 if (restore->iItem == 0)
                 {
-                    restore->tbButton.iString = (INT_PTR)heap_alloc_zero( 8 );
+                    restore->tbButton.iString = (INT_PTR)HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, 8 );
                     strcpy( (char *)restore->tbButton.iString, "foo" );
                 }
                 else if (restore->iItem == 1)
@@ -398,7 +414,7 @@ static LRESULT parent_wnd_notify(WPARAM wParam, LPARAM lParam)
             {
             case 0:
                 tb->tbButton.idCommand = 7;
-                alloced_str = heap_alloc_zero( 8 );
+                alloced_str = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, 8 );
                 strcpy( alloced_str, "foo" );
                 tb->tbButton.iString = (INT_PTR)alloced_str;
                 return 1;
@@ -513,7 +529,6 @@ static void basic_test(void)
     TBBUTTON buttons[9];
     HWND hToolbar;
     int i;
-    DWORD idx;
 
     for (i=0; i<9; i++)
         MakeButton(buttons+i, 1000+i, TBSTYLE_CHECKGROUP, 0);
@@ -529,9 +544,6 @@ static void basic_test(void)
         0, 0, 20, 16, sizeof(TBBUTTON));
     ok(hToolbar != NULL, "Toolbar creation\n");
     SendMessageA(hToolbar, TB_ADDSTRINGA, 0, (LPARAM)"test\000");
-
-    idx = SendMessageA(hToolbar, WM_GETOBJECT, 0, OBJID_QUERYCLASSNAMEIDX);
-    ok(idx == 0x1000c, "Got index 0x%08lx\n", idx);
 
     /* test for exclusion working inside a separator-separated :-) group */
     SendMessageA(hToolbar, TB_CHECKBUTTON, 1000, 1); /* press A1 */
@@ -1151,7 +1163,7 @@ static tbsize_result_t init_tbsize_result(int nButtonsAlloc, int cleft, int ctop
     ret.szMin.cx = minx;
     ret.szMin.cy = miny;
     ret.nButtons = 0;
-    ret.prcButtons = heap_alloc_zero(nButtonsAlloc * sizeof(*ret.prcButtons));
+    ret.prcButtons = calloc( nButtonsAlloc, sizeof(*ret.prcButtons) );
 
     return ret;
 }
@@ -1173,7 +1185,7 @@ static void init_tbsize_results(void) {
     int fontheight = system_font_height();
     int buttonwidth;
 
-    tbsize_results = heap_alloc_zero(tbsize_results_num * sizeof(*tbsize_results));
+    tbsize_results = calloc( tbsize_results_num, sizeof(*tbsize_results) );
 
     tbsize_results[0] = init_tbsize_result(5, 0, 0 ,672 ,26, 100 ,22);
     tbsize_addbutton(&tbsize_results[0],   0,   2,  23,  24);
@@ -1431,8 +1443,8 @@ static void free_tbsize_results(void) {
     int i;
 
     for (i = 0; i < tbsize_results_num; i++)
-        heap_free(tbsize_results[i].prcButtons);
-    heap_free(tbsize_results);
+        free(tbsize_results[i].prcButtons);
+    free(tbsize_results);
     tbsize_results = NULL;
 }
 
@@ -2147,7 +2159,7 @@ static void test_getstring(void)
     expect(-1, r);
     r = SendMessageW(hToolbar, TB_GETSTRINGW, MAKEWPARAM(0, 0), 0);
     expect(-1, r);
-    r = SendMessageA(hToolbar, TB_ADDSTRINGA, 0, (LPARAM)"STR");
+    r = SendMessageA(hToolbar, TB_ADDSTRINGA, 0, (LPARAM)"STR\0");
     expect(0, r);
     r = SendMessageA(hToolbar, TB_GETSTRINGA, MAKEWPARAM(0, 0), 0);
     ok(r == 3, "Unexpected return value %d.\n", r);
@@ -2944,6 +2956,152 @@ static void test_WM_NOTIFY(void)
     DestroyWindow(toolbar);
 }
 
+static void test_unicode_format(void)
+{
+    HWND hwnd = NULL;
+    LRESULT lr;
+
+    rebuild_toolbar(&hwnd);
+
+    /* Test that CCM_SETVERSION shouldn't change the Unicode character format flag for the control */
+    SendMessageA(hwnd, CCM_SETVERSION, 5, 0);
+    lr = SendMessageA(hwnd, TB_GETUNICODEFORMAT, 0, 0);
+    ok(lr == 0, "Got unexpected %Id.\n", lr);
+
+    SendMessageA(hwnd, CCM_SETVERSION, 6, 0);
+    lr = SendMessageA(hwnd, TB_GETUNICODEFORMAT, 0, 0);
+    ok(lr == 0, "Got unexpected %Id.\n", lr);
+
+    DestroyWindow(hwnd);
+}
+
+static void test_WM_ERASEBKGND(BOOL v6)
+{
+    COLORREF color;
+    HBRUSH brush;
+    LRESULT lr;
+    HWND hwnd;
+    RECT rect;
+    HDC hdc;
+
+    /* Check WM_ERASEBKGND without TBSTYLE_TRANSPARENT */
+    hwnd = CreateWindowA(TOOLBARCLASSNAMEA, NULL, WS_CHILD | WS_VISIBLE, 100, 100, 100, 100,
+                         hMainWnd, NULL, GetModuleHandleA(NULL), NULL);
+    ok(hwnd != NULL, "CreateWindowA failed.\n");
+
+    GetClientRect(hwnd, &rect);
+    brush = CreateSolidBrush(RGB(255, 0, 0));
+    hdc = GetDC(hwnd);
+    FillRect(hdc, &rect, brush);
+    color = GetPixel(hdc, 10, 10);
+    ok(color == RGB(255, 0, 0), "Got unexpected color %#lx.\n", color);
+
+    lr = SendMessageA(hwnd, WM_ERASEBKGND, (WPARAM)hdc, 0);
+    ok(lr == 1, "Got unexpected %Id.\n", lr);
+    color = GetPixel(hdc, 10, 10);
+    ok(color != RGB(255, 0, 0), "Got unexpected color %#lx.\n", color);
+
+    DeleteObject(brush);
+    ReleaseDC(hwnd, hdc);
+    DestroyWindow(hwnd);
+
+    /* Check WM_ERASEBKGND with TBSTYLE_TRANSPARENT */
+    hwnd = CreateWindowA(TOOLBARCLASSNAMEA, NULL, WS_CHILD | WS_VISIBLE | TBSTYLE_TRANSPARENT, 100,
+                         100, 100, 100, hMainWnd, NULL, GetModuleHandleA(NULL), NULL);
+    ok(hwnd != NULL, "CreateWindowA failed.\n");
+
+    GetClientRect(hwnd, &rect);
+    brush = CreateSolidBrush(RGB(255, 0, 0));
+    hdc = GetDC(hwnd);
+    FillRect(hdc, &rect, brush);
+    color = GetPixel(hdc, 10, 10);
+    ok(color == RGB(255, 0, 0), "Got unexpected color %#lx.\n", color);
+
+    lr = SendMessageA(hwnd, WM_ERASEBKGND, (WPARAM)hdc, 0);
+    ok(lr == 1, "Got unexpected %Id.\n", lr);
+    color = GetPixel(hdc, 10, 10);
+    if (v6)
+        ok(color == RGB(255, 0, 0), "Got unexpected color %#lx.\n", color);
+    else
+        ok(color == GetSysColor(COLOR_WINDOW), "Got unexpected color %#lx.\n", color);
+
+    DeleteObject(brush);
+    ReleaseDC(hwnd, hdc);
+    DestroyWindow(hwnd);
+}
+
+static LRESULT CALLBACK wm_paint_parent_wnd_proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
+{
+    static LONG defwndproc_counter = 0;
+    struct message msg;
+    LRESULT ret;
+
+    msg.message = message;
+    msg.flags = sent | wparam | lparam;
+    if (defwndproc_counter)
+        msg.flags |= defwinproc;
+    msg.wParam = wp;
+    msg.lParam = lp;
+
+    add_message(sequences, PARENT_SEQ_INDEX, &msg);
+
+    defwndproc_counter++;
+    ret = DefWindowProcW(hwnd, message, wp, lp);
+    defwndproc_counter--;
+    return ret;
+}
+
+static void test_WM_PAINT(BOOL v6)
+{
+    WNDCLASSW wc = {0};
+    HWND parent, hwnd;
+
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_IBEAM);
+    wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
+    wc.lpszClassName = L"ToolbarWmPaintParentClass";
+    wc.lpfnWndProc = wm_paint_parent_wnd_proc;
+    RegisterClassW(&wc);
+
+    parent = CreateWindowW(wc.lpszClassName, L"Parent", WS_POPUP | WS_VISIBLE, 100, 100, 100, 100,
+                           NULL, NULL, GetModuleHandleW(NULL), 0);
+    ok(parent != NULL, "CreateWindowW failed.\n");
+
+    /* Check WM_PAINT without TBSTYLE_TRANSPARENT */
+    hwnd = CreateWindowW(TOOLBARCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE, 0, 0, 100, 100, parent,
+                         NULL, GetModuleHandleA(NULL), NULL);
+    ok(hwnd != NULL, "CreateWindowW failed.\n");
+    flush_events();
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    InvalidateRect(hwnd, NULL, FALSE);
+    flush_events();
+    ok_sequence(sequences, PARENT_SEQ_INDEX, wm_paint_parent_seq, "WM_PAINT without TBSTYLE_TRANSPARENT", FALSE);
+
+    DestroyWindow(hwnd);
+
+    /* Check WM_PAINT with TBSTYLE_TRANSPARENT */
+    hwnd = CreateWindowW(TOOLBARCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | TBSTYLE_TRANSPARENT, 0, 0,
+                         100, 100, parent, NULL, GetModuleHandleA(NULL), NULL);
+    ok(hwnd != NULL, "CreateWindowW failed.\n");
+    flush_events();
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    InvalidateRect(hwnd, NULL, FALSE);
+    flush_events();
+    if (v6)
+        ok_sequence(sequences, PARENT_SEQ_INDEX, wm_paint_transparent_parent_v6_seq,
+                    "WM_PAINT with TBSTYLE_TRANSPARENT v6", FALSE);
+    else
+        ok_sequence(sequences, PARENT_SEQ_INDEX, wm_paint_transparent_parent_v5_seq,
+                    "WM_PAINT with TBSTYLE_TRANSPARENT v5", FALSE);
+    DestroyWindow(hwnd);
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    DestroyWindow(parent);
+    UnregisterClassW(wc.lpszClassName, 0);
+}
+
 START_TEST(toolbar)
 {
     ULONG_PTR ctx_cookie;
@@ -2996,6 +3154,9 @@ START_TEST(toolbar)
     test_imagelist();
     test_BTNS_SEP();
     test_WM_NOTIFY();
+    test_unicode_format();
+    test_WM_ERASEBKGND(FALSE);
+    test_WM_PAINT(FALSE);
 
     if (!load_v6_module(&ctx_cookie, &ctx))
         return;
@@ -3003,6 +3164,9 @@ START_TEST(toolbar)
     test_create(TRUE);
     test_visual();
     test_BTNS_SEP();
+    test_unicode_format();
+    test_WM_ERASEBKGND(TRUE);
+    test_WM_PAINT(TRUE);
 
     PostQuitMessage(0);
     while(GetMessageA(&msg,0,0,0)) {

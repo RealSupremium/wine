@@ -181,7 +181,7 @@ static TW_UINT16 msg_get_array(pTW_CAPABILITY pCapability, TW_UINT16 type, const
 
 static TW_UINT16 TWAIN_GetSupportedCaps(pTW_CAPABILITY pCapability)
 {
-    static const int supported_caps[] = { CAP_SUPPORTEDCAPS, CAP_XFERCOUNT, CAP_UICONTROLLABLE,
+    static const int supported_caps[] = { CAP_SUPPORTEDCAPS, CAP_XFERCOUNT, CAP_UICONTROLLABLE, CAP_INDICATORS,
                     CAP_AUTOFEED, CAP_FEEDERENABLED,
                     ICAP_XFERMECH, ICAP_PIXELTYPE, ICAP_UNITS, ICAP_BITDEPTH, ICAP_COMPRESSION, ICAP_PIXELFLAVOR,
                     ICAP_XRESOLUTION, ICAP_YRESOLUTION, ICAP_PHYSICALHEIGHT, ICAP_PHYSICALWIDTH, ICAP_SUPPORTEDSIZES };
@@ -215,8 +215,13 @@ static TW_UINT16 SANE_ICAPXferMech (pTW_CAPABILITY pCapability, TW_UINT16 action
             twCC = msg_set(pCapability, &val);
             if (twCC == TWCC_SUCCESS)
             {
-               activeDS.capXferMech = (TW_UINT16) val;
-               FIXME("Partial Stub:  XFERMECH set to %ld, but ignored\n", val);
+                if (val == TWSX_NATIVE || val == TWSX_MEMORY)
+                {
+                    activeDS.capXferMech = (TW_UINT16) val;
+                    FIXME("Partial Stub:  XFERMECH set to %ld, but ignored\n", val);
+                }
+                else
+                    twCC = TWCC_BADVALUE;
             }
             break;
 
@@ -241,6 +246,7 @@ static TW_UINT16 SANE_ICAPXferMech (pTW_CAPABILITY pCapability, TW_UINT16 action
 static TW_UINT16 SANE_CAPXferCount (pTW_CAPABILITY pCapability, TW_UINT16 action)
 {
     TW_UINT32 val;
+    TW_INT16  val16;
     TW_UINT16 twCC = TWCC_BADCAP;
 
     TRACE("CAP_XFERCOUNT\n");
@@ -259,8 +265,22 @@ static TW_UINT16 SANE_CAPXferCount (pTW_CAPABILITY pCapability, TW_UINT16 action
 
         case MSG_SET:
             twCC = msg_set(pCapability, &val);
-            if (twCC == TWCC_SUCCESS)
-               FIXME("Partial Stub:  XFERCOUNT set to %ld, but ignored\n", val);
+            val16 = (TW_INT16) val;
+            if (val16==0)
+            {
+                /* This case is explicitly mentioned in the TWAIN specification */
+                activeDS.capXferCount = -1;
+                twCC = TWCC_CHECKSTATUS;
+            }
+            else if (val16>0 || val16==-1)
+            {
+                activeDS.capXferCount = val16;
+                TRACE("Set XFERCOUNT %d", activeDS.capXferCount);
+            }
+            else
+            {
+                twCC = TWCC_BADVALUE;
+            }
             break;
 
         case MSG_GETDEFAULT:
@@ -268,10 +288,11 @@ static TW_UINT16 SANE_CAPXferCount (pTW_CAPABILITY pCapability, TW_UINT16 action
             break;
 
         case MSG_RESET:
+            activeDS.capXferCount = -1;
             /* .. fall through intentional .. */
 
         case MSG_GETCURRENT:
-            twCC = set_onevalue(pCapability, TWTY_INT16, -1);
+            twCC = set_onevalue(pCapability, TWTY_INT16, activeDS.capXferCount);
             break;
     }
     return twCC;
@@ -1036,6 +1057,46 @@ static TW_UINT16 SANE_CAPFeederEnabled (pTW_CAPABILITY pCapability, TW_UINT16 ac
 }
 
 
+/* CAP_INDICATORS */
+static TW_UINT16 SANE_CAPIndicators (pTW_CAPABILITY pCapability, TW_UINT16 action)
+{
+    TW_UINT16 twCC = TWCC_BADCAP;
+    TW_UINT32 val;
+
+    TRACE("CAP_INDICATORS\n");
+
+    switch (action)
+    {
+        case MSG_QUERYSUPPORT:
+            twCC = set_onevalue(pCapability, TWTY_INT32,
+                    TWQC_GET | TWQC_SET | TWQC_GETDEFAULT | TWQC_GETCURRENT | TWQC_RESET );
+            break;
+
+        case MSG_GET:
+            twCC = set_onevalue(pCapability, TWTY_BOOL, activeDS.capIndicators);
+            break;
+
+        case MSG_SET:
+            twCC = msg_set(pCapability, &val);
+            if (twCC == TWCC_SUCCESS)
+                activeDS.capIndicators = (TW_BOOL) val;
+            break;
+
+        case MSG_GETDEFAULT:
+            twCC = set_onevalue(pCapability, TWTY_BOOL, TRUE);
+            break;
+
+        case MSG_RESET:
+            activeDS.capIndicators = TRUE;
+            /* .. fall through intentional .. */
+
+        case MSG_GETCURRENT:
+            twCC = set_onevalue(pCapability, TWTY_BOOL, activeDS.capIndicators);
+            break;
+    }
+    return twCC;
+}
+
 
 TW_UINT16 SANE_SaneCapability (pTW_CAPABILITY pCapability, TW_UINT16 action)
 {
@@ -1066,6 +1127,10 @@ TW_UINT16 SANE_SaneCapability (pTW_CAPABILITY pCapability, TW_UINT16 action)
 
         case CAP_FEEDERENABLED:
             twCC = SANE_CAPFeederEnabled (pCapability, action);
+            break;
+
+        case CAP_INDICATORS:
+            twCC = SANE_CAPIndicators (pCapability, action);
             break;
 
         case ICAP_PIXELTYPE:

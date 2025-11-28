@@ -235,28 +235,15 @@ static const IDOMDocumentTypeVtbl DocumentTypeVtbl = {
     DocumentType_get_internalSubset
 };
 
-static inline DocumentType *DocumentType_from_HTMLDOMNode(HTMLDOMNode *iface)
-{
-    return CONTAINING_RECORD(iface, DocumentType, node);
-}
-
 static inline DocumentType *DocumentType_from_DispatchEx(DispatchEx *iface)
 {
     return CONTAINING_RECORD(iface, DocumentType, node.event_target.dispex);
-}
-
-static HRESULT DocumentType_clone(HTMLDOMNode *iface, nsIDOMNode *nsnode, HTMLDOMNode **ret)
-{
-    DocumentType *This = DocumentType_from_HTMLDOMNode(iface);
-
-    return create_doctype_node(This->node.doc, nsnode, ret);
 }
 
 static const cpc_entry_t DocumentType_cpc[] = {{NULL}};
 
 static const NodeImplVtbl DocumentTypeImplVtbl = {
     .cpc_entries           = DocumentType_cpc,
-    .clone                 = DocumentType_clone
 };
 
 static void *DocumentType_query_interface(DispatchEx *dispex, REFIID riid)
@@ -626,21 +613,19 @@ static HRESULT WINAPI HTMLDocument_get_anchors(IHTMLDocument2 *iface, IHTMLEleme
         return E_UNEXPECTED;
     }
 
-    if(!This->html_document) {
-        FIXME("Not implemented for XML document\n");
-        return E_NOTIMPL;
+    if(This->html_document) {
+        nsres = nsIDOMHTMLDocument_GetAnchors(This->html_document, &nscoll);
+        if(NS_FAILED(nsres)) {
+            ERR("GetAnchors failed: %08lx\n", nsres);
+            return E_FAIL;
+        }
+    }else {
+        FIXME("Not implemented for XML document, returning empty list\n");
     }
 
-    nsres = nsIDOMHTMLDocument_GetAnchors(This->html_document, &nscoll);
-    if(NS_FAILED(nsres)) {
-        ERR("GetAnchors failed: %08lx\n", nsres);
-        return E_FAIL;
-    }
-
-    if(nscoll) {
-        *p = create_collection_from_htmlcol(nscoll, &This->node.event_target.dispex);
+    *p = create_collection_from_htmlcol(nscoll, &This->node.event_target.dispex);
+    if(nscoll)
         nsIDOMHTMLCollection_Release(nscoll);
-    }
 
     return S_OK;
 }
@@ -1282,6 +1267,7 @@ static HRESULT WINAPI HTMLDocument_get_mimeType(IHTMLDocument2 *iface, BSTR *p)
     nsAString nsstr;
     nsresult nsres;
     HRESULT hres;
+    size_t len;
 
     TRACE("(%p)->(%p)\n", This, p);
 
@@ -1296,6 +1282,12 @@ static HRESULT WINAPI HTMLDocument_get_mimeType(IHTMLDocument2 *iface, BSTR *p)
         return map_nsresult(nsres);
 
     nsAString_GetData(&nsstr, &content_type);
+
+    /* Unknown content types with +xml are reported as XML */
+    if((len = wcslen(content_type)) >= 4 && !memcmp(content_type + len - 4, L"+xml", 4 * sizeof(WCHAR)) &&
+       wcscmp(content_type, L"application/xhtml+xml") && wcscmp(content_type, L"image/svg+xml"))
+        content_type = L"text/xml";
+
     hres = get_mime_type_display_name(content_type, p);
     nsAString_Finish(&nsstr);
     return hres;
@@ -1476,6 +1468,11 @@ static HRESULT WINAPI HTMLDocument_open(IHTMLDocument2 *iface, BSTR url, VARIANT
 
     if(tmp)
         nsISupports_Release(tmp);
+
+    /* Open resets all document event handlers. Reflect this in the DOM event target and reinitialize
+     * our Gecko listeners. */
+    release_event_target(&This->node.event_target);
+    doc_init_events(This);
 
     *pomWindowResult = (IDispatch*)&This->window->base.outer_window->base.IHTMLWindow2_iface;
     IHTMLWindow2_AddRef(&This->window->base.outer_window->base.IHTMLWindow2_iface);
@@ -3535,13 +3532,35 @@ static HRESULT WINAPI HTMLDocument7_createElement(IHTMLDocument7 *iface, BSTR bs
     return IHTMLDocument2_createElement(&This->IHTMLDocument2_iface, bstrTag, newElem);
 }
 
-static HRESULT WINAPI HTMLDocument7_createAttribute(IHTMLDocument7 *iface, BSTR bstrAttrName, IHTMLDOMAttribute **ppAttribute)
+static HRESULT WINAPI HTMLDocument7_createAttribute(IHTMLDocument7 *iface, BSTR name, IHTMLDOMAttribute **p)
 {
     HTMLDocumentNode *This = impl_from_IHTMLDocument7(iface);
+    HTMLDOMAttribute *attr;
+    nsIDOMAttr *nsattr;
+    nsAString nsstr;
+    nsresult nsres;
+    HRESULT hres;
 
-    TRACE("(%p)->(%s %p)\n", This, debugstr_w(bstrAttrName), ppAttribute);
+    TRACE("(%p)->(%s %p)\n", This, debugstr_w(name), p);
 
-    return IHTMLDocument5_createAttribute(&This->IHTMLDocument5_iface, bstrAttrName, ppAttribute);
+    if(!This->dom_document) {
+        FIXME("NULL dom_document\n");
+        return E_FAIL;
+    }
+
+    nsAString_InitDepend(&nsstr, name);
+    nsres = nsIDOMDocument_CreateAttribute(This->dom_document, &nsstr, &nsattr);
+    nsAString_Finish(&nsstr);
+    if(NS_FAILED(nsres))
+        return map_nsresult(nsres);
+
+    hres = create_attr_node(This, nsattr, &attr);
+    nsIDOMAttr_Release(nsattr);
+    if(FAILED(hres))
+        return hres;
+
+    *p = &attr->IHTMLDOMAttribute_iface;
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLDocument7_getElementsByClassName(IHTMLDocument7 *iface, BSTR v, IHTMLElementCollection **pel)
@@ -5625,7 +5644,7 @@ static HTMLInnerWindow *HTMLDocumentNode_get_script_global(DispatchEx *dispex, d
     if(This->node.vtbl != &HTMLDocumentNodeImplVtbl)
         *dispex_data = &DocumentFragment_dispex;
     else
-        *dispex_data = This->document_mode < COMPAT_MODE_IE11 ? &Document_dispex : &HTMLDocument_dispex;
+        *dispex_data = This->document_mode < COMPAT_MODE_IE11 ? &Document_dispex : This->html_document ? &HTMLDocument_dispex : &XMLDocument_dispex;
     return This->script_global;
 }
 
@@ -5847,7 +5866,7 @@ dispex_static_data_t Document_dispex = {
     .disp_tid     = DispHTMLDocument_tid,
     .iface_tids   = HTMLDocumentNode_iface_tids,
     .init_info    = HTMLDocumentNode_init_dispex_info,
-    .js_flags     = HOSTOBJ_VOLATILE_FILL,
+    .js_flags     = HOSTOBJ_VOLATILE_FILL | HOSTOBJ_VOLATILE_PROPS,
 };
 
 dispex_static_data_t HTMLDocument_dispex = {
@@ -5857,7 +5876,18 @@ dispex_static_data_t HTMLDocument_dispex = {
     .disp_tid     = DispHTMLDocument_tid,
     .iface_tids   = HTMLDocumentNode_iface_tids,
     .init_info    = HTMLDocumentNode_init_dispex_info,
-    .js_flags     = HOSTOBJ_VOLATILE_FILL,
+    .js_flags     = HOSTOBJ_VOLATILE_FILL | HOSTOBJ_VOLATILE_PROPS,
+    .min_compat_mode = COMPAT_MODE_IE11,
+};
+
+dispex_static_data_t XMLDocument_dispex = {
+    .id           = OBJID_XMLDocument,
+    .prototype_id = OBJID_Document,
+    .vtbl         = &HTMLDocument_event_target_vtbl.dispex_vtbl,
+    .disp_tid     = DispHTMLDocument_tid,
+    .iface_tids   = HTMLDocumentNode_iface_tids,
+    .init_info    = HTMLDocumentNode_init_dispex_info,
+    .js_flags     = HOSTOBJ_VOLATILE_FILL | HOSTOBJ_VOLATILE_PROPS,
     .min_compat_mode = COMPAT_MODE_IE11,
 };
 
@@ -5912,6 +5942,7 @@ static HTMLDocumentNode *alloc_doc_node(HTMLDocumentObj *doc_obj, HTMLInnerWindo
 HRESULT create_document_node(nsIDOMDocument *nsdoc, GeckoBrowser *browser, HTMLInnerWindow *window,
                              HTMLInnerWindow *script_global, compat_mode_t parent_mode, HTMLDocumentNode **ret)
 {
+    dispex_static_data_t *dispex = &XMLDocument_dispex;
     HTMLDocumentObj *doc_obj = browser->doc;
     HTMLDocumentNode *doc;
 
@@ -5932,12 +5963,13 @@ HRESULT create_document_node(nsIDOMDocument *nsdoc, GeckoBrowser *browser, HTMLI
     if(NS_SUCCEEDED(nsIDOMDocument_QueryInterface(nsdoc, &IID_nsIDOMHTMLDocument, (void**)&doc->html_document))) {
         doc->dom_document = (nsIDOMDocument*)doc->html_document;
         nsIDOMHTMLDocument_Release(doc->html_document);
+        dispex = &HTMLDocument_dispex;
     }else {
         doc->dom_document = nsdoc;
         doc->html_document = NULL;
     }
 
-    HTMLDOMNode_Init(doc, &doc->node, (nsIDOMNode*)doc->dom_document, &HTMLDocument_dispex);
+    HTMLDOMNode_Init(doc, &doc->node, (nsIDOMNode*)doc->dom_document, dispex);
 
     init_document_mutation(doc);
     doc_init_events(doc);
@@ -5958,6 +5990,10 @@ HRESULT create_document_node(nsIDOMDocument *nsdoc, GeckoBrowser *browser, HTMLI
             ERR("SetDesignMode failed: %08lx\n", nsres);
     }
 
+    /* make sure dispex info is initialized for the prototype */
+    if(parent_mode >= COMPAT_MODE_IE9 && !window)
+        dispex_compat_mode(&doc->node.event_target.dispex);
+
     *ret = doc;
     return S_OK;
 }
@@ -5973,8 +6009,10 @@ static void DocumentFragment_init_dispex_info(dispex_data_t *info, compat_mode_t
     if(mode < COMPAT_MODE_IE9) {
         HTMLDocumentNode_init_dispex_info(info, mode);
         dispex_info_add_interface(info, IHTMLDocument5_tid, NULL);
-    } else if(mode < COMPAT_MODE_IE11) {
-        dispex_info_add_dispids(info, IHTMLDocument3_tid, document3_dispids);
+    } else {
+        HTMLDOMNode_init_dispex_info(info, mode);
+        if(mode < COMPAT_MODE_IE11)
+            dispex_info_add_dispids(info, IHTMLDocument3_tid, document3_dispids);
     }
 }
 
@@ -5991,7 +6029,7 @@ dispex_static_data_t DocumentFragment_dispex = {
     .disp_tid     = DispHTMLDocument_tid,
     .iface_tids   = DocumentFragment_iface_tids,
     .init_info    = DocumentFragment_init_dispex_info,
-    .js_flags     = HOSTOBJ_VOLATILE_FILL,
+    .js_flags     = HOSTOBJ_VOLATILE_FILL | HOSTOBJ_VOLATILE_PROPS,
 };
 
 static HRESULT create_document_fragment(nsIDOMNode *nsnode, HTMLDocumentNode *doc_node, HTMLDocumentNode **ret)

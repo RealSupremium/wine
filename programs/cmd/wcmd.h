@@ -56,6 +56,7 @@ typedef enum _CMD_OPERATOR
     CMD_ONFAILURE,   /* ||                      */
     CMD_ONSUCCESS,   /* &&                      */
     CMD_PIPE,        /* Single |                */
+    CMD_BLOCK,       /* ( block )               */
     CMD_IF,          /* IF command              */
     CMD_FOR,         /* FOR command             */
 } CMD_OPERATOR;
@@ -111,6 +112,7 @@ typedef struct _CMD_FOR_CONTROL
 typedef struct _CMD_NODE
 {
     CMD_OPERATOR      op;            /* operator */
+    BOOL              do_echo;
     CMD_REDIRECTION  *redirects;     /* Redirections */
     union
     {
@@ -131,6 +133,10 @@ typedef struct _CMD_NODE
             CMD_FOR_CONTROL   for_ctrl;
             struct _CMD_NODE *do_block;
         };
+        struct                       /* CMD_BLOCK */
+        {
+            struct _CMD_NODE *block;
+        };
     };
 } CMD_NODE;
 
@@ -147,7 +153,14 @@ struct _DIRECTORY_STACK *WCMD_dir_stack_free(struct _DIRECTORY_STACK *dir);
 typedef int RETURN_CODE;
 #define RETURN_CODE_SYNTAX_ERROR         255
 #define RETURN_CODE_CANT_LAUNCH          9009
-#define RETURN_CODE_ABORTED              (-999999)
+#define RETURN_CODE_ABORTED              (-999999) /* generated for exit /b so that all loops (and al.) are exited*/
+#define RETURN_CODE_GOTO                 (-999998) /* generated when changing file position (and break from if/for instructions) */
+#define RETURN_CODE_EXITED               (-999997) /* generated when batch file terminates because child has terminated */
+/* to test if one shall break from instruction within a batch file */
+static inline BOOL WCMD_is_break(RETURN_CODE return_code)
+{
+    return return_code == RETURN_CODE_ABORTED || return_code == RETURN_CODE_GOTO;
+}
 
 BOOL WCMD_print_volume_information(const WCHAR *);
 
@@ -171,11 +184,12 @@ RETURN_CODE WCMD_label(void);
 void WCMD_leave_paged_mode(void);
 RETURN_CODE WCMD_more(WCHAR *);
 RETURN_CODE WCMD_move (void);
-WCHAR* WINAPIV WCMD_format_string (const WCHAR *format, ...);
-void WINAPIV WCMD_output (const WCHAR *format, ...);
-void WINAPIV WCMD_output_stderr (const WCHAR *format, ...);
-RETURN_CODE WCMD_output_asis (const WCHAR *message);
-RETURN_CODE WCMD_output_asis_stderr (const WCHAR *message);
+WCHAR* WINAPIV WCMD_format_string(const WCHAR *format, ...);
+void WINAPIV WCMD_output(const WCHAR *format, ...);
+void WINAPIV WCMD_output_stderr(const WCHAR *format, ...);
+RETURN_CODE WCMD_output_asis(const WCHAR *message);
+RETURN_CODE WCMD_output_flush(void);
+RETURN_CODE WCMD_output_asis_stderr(const WCHAR *message);
 RETURN_CODE WCMD_pause(void);
 RETURN_CODE WCMD_popd(void);
 void WCMD_print_error (void);
@@ -211,12 +225,12 @@ WCHAR *WCMD_strip_quotes(WCHAR *cmd);
 WCHAR *WCMD_LoadMessage(UINT id);
 WCHAR *WCMD_strsubstW(WCHAR *start, const WCHAR* next, const WCHAR* insert, int len);
 RETURN_CODE WCMD_wait_for_input(HANDLE hIn);
-BOOL WCMD_ReadFile(const HANDLE hIn, WCHAR *intoBuf, const DWORD maxChars, LPDWORD charsRead);
+RETURN_CODE WCMD_wait_for_console_input(void);
 BOOL WCMD_read_console(const HANDLE hInput, WCHAR *inputBuffer, const DWORD inputBufferLength, LPDWORD numRead);
 
 enum read_parse_line {RPL_SUCCESS, RPL_EOF, RPL_SYNTAXERROR};
-enum read_parse_line WCMD_ReadAndParseLine(const WCHAR *initialcmd, CMD_NODE **output);
-void      node_dispose_tree(CMD_NODE *cmds);
+enum read_parse_line WCMD_ReadAndParseLine(CMD_NODE **output);
+void node_dispose_tree(CMD_NODE *cmds);
 RETURN_CODE node_execute(CMD_NODE *node);
 
 RETURN_CODE WCMD_call_batch(const WCHAR *, WCHAR *);
@@ -279,9 +293,10 @@ struct batch_context
     LARGE_INTEGER         file_position;
     int                   shift_count[10];  /* Offset in terms of shifts for %0 - %9 */
     struct batch_context *prev_context;     /* Pointer to the previous context block */
-    BOOL                  skip_rest;        /* Skip the rest of the batch program and exit */
     struct batch_file    *batch_file;       /* Reference to the file itself */
 };
+
+#define WCMD_FILE_POSITION_EOF (~(DWORD64)0)
 
 /* Data structure to handle building lists during recursive calls */
 
@@ -343,14 +358,14 @@ extern BOOL delayedsubst;
 static inline BOOL WCMD_is_in_context(const WCHAR *ext)
 {
     size_t c_len, e_len;
-    if (!context) return FALSE;
+    if (!context || !context->batch_file) return FALSE;
     if (!ext) return TRUE;
     c_len = wcslen(context->batch_file->path_name);
     e_len = wcslen(ext);
     return (c_len > e_len) && !wcsicmp(&context->batch_file->path_name[c_len - e_len], ext);
 }
 
- #endif /* !RC_INVOKED */
+#endif /* !RC_INVOKED */
 
 /*
  *	Serial nos of builtin commands. These constants must be in step with
@@ -468,3 +483,4 @@ extern WCHAR version_string[];
 #define WCMD_ENDOFLINE        1048
 #define WCMD_ENDOFFILE        1049
 #define WCMD_NUMCOPIED        1050
+#define WCMD_NOCOPYTOSELF     1051

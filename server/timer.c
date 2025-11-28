@@ -53,7 +53,7 @@ struct type_descr timer_type =
 struct timer
 {
     struct object        obj;       /* object header */
-    struct event_sync   *sync;      /* sync object for wait/signal */
+    struct object       *sync;      /* sync object for wait/signal */
     int                  manual;    /* manual reset */
     int                  signaled;  /* current signaled state */
     unsigned int         period;    /* timer period in ms */
@@ -113,7 +113,7 @@ static struct timer *create_timer( struct object *root, const struct unicode_str
             timer->timeout  = NULL;
             timer->thread   = NULL;
 
-            if (!(timer->sync = create_event_sync( manual, 0 )))
+            if (!(timer->sync = create_internal_sync( manual, 0 )))
             {
                 release_object( timer );
                 return NULL;
@@ -136,6 +136,7 @@ static void timer_callback( void *private )
         assert (timer->callback);
         memset( &data, 0, sizeof(data) );
         data.type         = APC_USER;
+        data.user.flags   = 0;
         data.user.func    = timer->callback;
         data.user.args[0] = timer->arg;
         data.user.args[1] = (unsigned int)timer->when;

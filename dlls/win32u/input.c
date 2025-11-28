@@ -730,9 +730,9 @@ BOOL WINAPI NtUserSetCursorPos( INT x, INT y )
 }
 
 /***********************************************************************
- *	     get_cursor_pos
+ *	     NtUserGetCursorPos (win32u.@)
  */
-BOOL get_cursor_pos( POINT *pt )
+BOOL WINAPI NtUserGetCursorPos( POINT *pt )
 {
     struct object_lock lock = OBJECT_LOCK_INIT;
     const desktop_shm_t *desktop_shm;
@@ -783,23 +783,8 @@ BOOL WINAPI NtUserGetCursorInfo( CURSORINFO *info )
         info->flags = CURSOR_SHOWING;
     }
 
-    get_cursor_pos( &info->ptScreenPos );
+    NtUserGetCursorPos( &info->ptScreenPos );
     return TRUE;
-}
-
-static void check_for_events( UINT flags )
-{
-    struct peek_message_filter filter =
-    {
-        .internal = TRUE,
-        .flags = PM_REMOVE,
-    };
-    MSG msg;
-
-    if (!user_driver->pProcessEvents( flags ))
-        flush_window_surfaces( TRUE );
-
-    peek_message( &msg, &filter );
 }
 
 /**********************************************************************
@@ -1019,14 +1004,25 @@ SHORT WINAPI NtUserGetKeyState( INT vkey )
 {
     struct object_lock lock = OBJECT_LOCK_INIT;
     const input_shm_t *input_shm;
+    UINT64 keystate_serial = 0;
     BOOL ret = FALSE;
     SHORT retval = 0;
     NTSTATUS status;
 
     while ((status = get_shared_input( GetCurrentThreadId(), &lock, &input_shm )) == STATUS_PENDING)
     {
-        ret = !!input_shm->keystate_lock; /* needs a request for sync_input_keystate */
+        ret = !!input_shm->keystate_lock; /* needs a request for sync_input_keystate if desktop keystate differs. */
+        keystate_serial = input_shm->keystate_serial;
         retval = (signed char)(input_shm->keystate[vkey & 0xff] & 0x81);
+    }
+
+    if (!ret)
+    {
+        struct object_lock lock = OBJECT_LOCK_INIT;
+        const desktop_shm_t *desktop_shm;
+
+        while ((status = get_shared_desktop( &lock, &desktop_shm )) == STATUS_PENDING)
+            ret = keystate_serial == desktop_shm->keystate_serial;
     }
 
     if (!ret) SERVER_START_REQ( get_key_state )
@@ -1644,79 +1640,106 @@ static WORD get_key_state(void)
     return ret;
 }
 
-struct tracking_list
+static struct mouse_tracking_info *get_mouse_tracking_info(void)
 {
-    TRACKMOUSEEVENT info;
-    POINT pos; /* center of hover rectangle */
-};
+    struct user_thread_info *thread_info = get_user_thread_info();
+    if (!thread_info->mouse_tracking_info)
+        thread_info->mouse_tracking_info = calloc(1, sizeof(*thread_info->mouse_tracking_info));
+    return thread_info->mouse_tracking_info;
+}
 
-/* FIXME: move tracking stuff into per-thread data */
-static struct tracking_list tracking_info;
-
-static void check_mouse_leave( HWND hwnd, int hittest )
+void update_current_mouse_window( HWND hwnd, INT hittest, POINT pos )
 {
-    if (tracking_info.info.hwndTrack != hwnd)
+    struct mouse_tracking_info *tracking = get_mouse_tracking_info();
+
+    tracking->last_mouse_message_hwnd = hwnd;
+    tracking->last_mouse_message_hittest = hittest;
+    tracking->last_mouse_message_pos = pos;
+}
+
+static void check_mouse_leave( HWND hwnd, int hittest, struct mouse_tracking_info *tracking )
+{
+    if (tracking->info.hwndTrack != hwnd)
     {
-        if (tracking_info.info.dwFlags & TME_NONCLIENT)
-            NtUserPostMessage( tracking_info.info.hwndTrack, WM_NCMOUSELEAVE, 0, 0 );
+        if (tracking->info.dwFlags & TME_NONCLIENT)
+            NtUserPostMessage( tracking->info.hwndTrack, WM_NCMOUSELEAVE, 0, 0 );
         else
-            NtUserPostMessage( tracking_info.info.hwndTrack, WM_MOUSELEAVE, 0, 0 );
+            NtUserPostMessage( tracking->info.hwndTrack, WM_MOUSELEAVE, 0, 0 );
 
-        tracking_info.info.dwFlags &= ~TME_LEAVE;
+        tracking->info.dwFlags &= ~TME_LEAVE;
     }
     else
     {
         if (hittest == HTCLIENT)
         {
-            if (tracking_info.info.dwFlags & TME_NONCLIENT)
+            if (tracking->info.dwFlags & TME_NONCLIENT)
             {
-                NtUserPostMessage( tracking_info.info.hwndTrack, WM_NCMOUSELEAVE, 0, 0 );
-                tracking_info.info.dwFlags &= ~TME_LEAVE;
+                NtUserPostMessage( tracking->info.hwndTrack, WM_NCMOUSELEAVE, 0, 0 );
+                tracking->info.dwFlags &= ~TME_LEAVE;
             }
         }
         else
         {
-            if (!(tracking_info.info.dwFlags & TME_NONCLIENT))
+            if (!(tracking->info.dwFlags & TME_NONCLIENT))
             {
-                NtUserPostMessage( tracking_info.info.hwndTrack, WM_MOUSELEAVE, 0, 0 );
-                tracking_info.info.dwFlags &= ~TME_LEAVE;
+                NtUserPostMessage( tracking->info.hwndTrack, WM_MOUSELEAVE, 0, 0 );
+                tracking->info.dwFlags &= ~TME_LEAVE;
             }
         }
     }
 }
 
+static HWND get_mouse_window( HWND hwnd, INT *hittest, POINT *ret_pos, struct mouse_tracking_info *tracking )
+{
+    POINT pos;
+    HWND ret;
+
+    NtUserGetCursorPos( &pos );
+    ret = window_from_point( hwnd, pos, hittest, FALSE );
+    if (ret && ret == tracking->last_mouse_message_hwnd)
+    {
+        *hittest = tracking->last_mouse_message_hittest;
+        *ret_pos = tracking->last_mouse_message_pos;
+    }
+    else
+    {
+        tracking->last_mouse_message_hwnd = NULL;
+        *ret_pos = pos;
+    }
+    TRACE( "point %s hwnd %p hittest %d\n", wine_dbgstr_point(&pos), ret, *hittest );
+    return ret;
+}
+
 void update_mouse_tracking_info( HWND hwnd )
 {
+    struct mouse_tracking_info *tracking = get_mouse_tracking_info();
     int hover_width = 0, hover_height = 0, hittest;
     POINT pos;
 
     TRACE( "hwnd %p\n", hwnd );
 
-    get_cursor_pos( &pos );
-    hwnd = window_from_point( hwnd, pos, &hittest );
-
-    TRACE( "point %s hwnd %p hittest %d\n", wine_dbgstr_point(&pos), hwnd, hittest );
+    hwnd = get_mouse_window( hwnd, &hittest, &pos, tracking );
 
     NtUserSystemParametersInfo( SPI_GETMOUSEHOVERWIDTH, 0, &hover_width, 0 );
     NtUserSystemParametersInfo( SPI_GETMOUSEHOVERHEIGHT, 0, &hover_height, 0 );
 
     TRACE( "tracked pos %s, current pos %s, hover width %d, hover height %d\n",
-           wine_dbgstr_point(&tracking_info.pos), wine_dbgstr_point(&pos),
+           wine_dbgstr_point(&tracking->pos), wine_dbgstr_point(&pos),
            hover_width, hover_height );
 
-    if (tracking_info.info.dwFlags & TME_LEAVE)
-        check_mouse_leave( hwnd, hittest );
+    if (tracking->info.dwFlags & TME_LEAVE)
+        check_mouse_leave( hwnd, hittest, tracking );
 
-    if (tracking_info.info.hwndTrack != hwnd)
-        tracking_info.info.dwFlags &= ~TME_HOVER;
+    if (tracking->info.hwndTrack != hwnd)
+        tracking->info.dwFlags &= ~TME_HOVER;
 
-    if (tracking_info.info.dwFlags & TME_HOVER)
+    if (tracking->info.dwFlags & TME_HOVER)
     {
         /* has the cursor moved outside the rectangle centered around pos? */
-        if ((abs( pos.x - tracking_info.pos.x ) > (hover_width / 2)) ||
-            (abs( pos.y - tracking_info.pos.y ) > (hover_height / 2)))
+        if ((abs( pos.x - tracking->pos.x ) > (hover_width / 2)) ||
+            (abs( pos.y - tracking->pos.y ) > (hover_height / 2)))
         {
-            tracking_info.pos = pos;
+            tracking->pos = pos;
         }
         else
         {
@@ -1725,28 +1748,28 @@ void update_mouse_tracking_info( HWND hwnd )
                 screen_to_client(hwnd, &pos);
                 TRACE( "client cursor pos %s\n", wine_dbgstr_point(&pos) );
 
-                NtUserPostMessage( tracking_info.info.hwndTrack, WM_MOUSEHOVER,
+                NtUserPostMessage( tracking->info.hwndTrack, WM_MOUSEHOVER,
                                    get_key_state(), MAKELPARAM( pos.x, pos.y ) );
             }
             else
             {
-                if (tracking_info.info.dwFlags & TME_NONCLIENT)
-                    NtUserPostMessage( tracking_info.info.hwndTrack, WM_NCMOUSEHOVER,
+                if (tracking->info.dwFlags & TME_NONCLIENT)
+                    NtUserPostMessage( tracking->info.hwndTrack, WM_NCMOUSEHOVER,
                                        hittest, MAKELPARAM( pos.x, pos.y ) );
             }
 
             /* stop tracking mouse hover */
-            tracking_info.info.dwFlags &= ~TME_HOVER;
+            tracking->info.dwFlags &= ~TME_HOVER;
         }
     }
 
     /* stop the timer if the tracking list is empty */
-    if (!(tracking_info.info.dwFlags & (TME_HOVER | TME_LEAVE)))
+    if (!(tracking->info.dwFlags & (TME_HOVER | TME_LEAVE)))
     {
-        NtUserKillSystemTimer( tracking_info.info.hwndTrack, SYSTEM_TIMER_TRACK_MOUSE );
-        tracking_info.info.hwndTrack = 0;
-        tracking_info.info.dwFlags = 0;
-        tracking_info.info.dwHoverTime = 0;
+        NtUserKillSystemTimer( tracking->info.hwndTrack, SYSTEM_TIMER_TRACK_MOUSE );
+        tracking->info.hwndTrack = 0;
+        tracking->info.dwFlags = 0;
+        tracking->info.dwHoverTime = 0;
     }
 }
 
@@ -1755,6 +1778,7 @@ void update_mouse_tracking_info( HWND hwnd )
  */
 BOOL WINAPI NtUserTrackMouseEvent( TRACKMOUSEEVENT *info )
 {
+    struct mouse_tracking_info *tracking = get_mouse_tracking_info();
     DWORD hover_time;
     int hittest;
     HWND hwnd;
@@ -1772,7 +1796,7 @@ BOOL WINAPI NtUserTrackMouseEvent( TRACKMOUSEEVENT *info )
 
     if (info->dwFlags & TME_QUERY)
     {
-        *info = tracking_info.info;
+        *info = tracking->info;
         info->cbSize = sizeof(TRACKMOUSEEVENT);
         return TRUE;
     }
@@ -1783,13 +1807,15 @@ BOOL WINAPI NtUserTrackMouseEvent( TRACKMOUSEEVENT *info )
         return FALSE;
     }
 
+    if (!is_current_thread_window( info->hwndTrack ))
+        return send_notify_message( info->hwndTrack, WM_WINE_TRACKMOUSEEVENT, info->dwFlags, info->dwHoverTime, FALSE );
+
     hover_time = (info->dwFlags & TME_HOVER) ? info->dwHoverTime : HOVER_DEFAULT;
 
     if (hover_time == HOVER_DEFAULT || hover_time == 0)
         NtUserSystemParametersInfo( SPI_GETMOUSEHOVERTIME, 0, &hover_time, 0 );
 
-    get_cursor_pos( &pos );
-    hwnd = window_from_point( info->hwndTrack, pos, &hittest );
+    hwnd = get_mouse_window( info->hwndTrack, &hittest, &pos, tracking );
     TRACE( "point %s hwnd %p hittest %d\n", wine_dbgstr_point(&pos), hwnd, hittest );
 
     if (info->dwFlags & ~(TME_CANCEL | TME_HOVER | TME_LEAVE | TME_NONCLIENT))
@@ -1797,17 +1823,17 @@ BOOL WINAPI NtUserTrackMouseEvent( TRACKMOUSEEVENT *info )
 
     if (info->dwFlags & TME_CANCEL)
     {
-        if (tracking_info.info.hwndTrack == info->hwndTrack)
+        if (tracking->info.hwndTrack == info->hwndTrack)
         {
-            tracking_info.info.dwFlags &= ~(info->dwFlags & ~TME_CANCEL);
+            tracking->info.dwFlags &= ~(info->dwFlags & ~TME_CANCEL);
 
             /* if we aren't tracking on hover or leave remove this entry */
-            if (!(tracking_info.info.dwFlags & (TME_HOVER | TME_LEAVE)))
+            if (!(tracking->info.dwFlags & (TME_HOVER | TME_LEAVE)))
             {
-                NtUserKillSystemTimer( tracking_info.info.hwndTrack, SYSTEM_TIMER_TRACK_MOUSE );
-                tracking_info.info.hwndTrack = 0;
-                tracking_info.info.dwFlags = 0;
-                tracking_info.info.dwHoverTime = 0;
+                NtUserKillSystemTimer( tracking->info.hwndTrack, SYSTEM_TIMER_TRACK_MOUSE );
+                tracking->info.hwndTrack = 0;
+                tracking->info.dwFlags = 0;
+                tracking->info.dwHoverTime = 0;
             }
         }
     }
@@ -1827,24 +1853,24 @@ BOOL WINAPI NtUserTrackMouseEvent( TRACKMOUSEEVENT *info )
         /* In our implementation, it's possible that another window will receive
          * WM_MOUSEMOVE and call TrackMouseEvent before TrackMouseEventProc is
          * called. In such a situation, post the WM_MOUSELEAVE now. */
-        if ((tracking_info.info.dwFlags & TME_LEAVE) && tracking_info.info.hwndTrack != NULL)
-            check_mouse_leave(hwnd, hittest);
+        if ((tracking->info.dwFlags & TME_LEAVE) && tracking->info.hwndTrack != NULL)
+            check_mouse_leave( hwnd, hittest, tracking );
 
-        NtUserKillSystemTimer( tracking_info.info.hwndTrack, SYSTEM_TIMER_TRACK_MOUSE );
-        tracking_info.info.hwndTrack = 0;
-        tracking_info.info.dwFlags = 0;
-        tracking_info.info.dwHoverTime = 0;
+        NtUserKillSystemTimer( tracking->info.hwndTrack, SYSTEM_TIMER_TRACK_MOUSE );
+        tracking->info.hwndTrack = 0;
+        tracking->info.dwFlags = 0;
+        tracking->info.dwHoverTime = 0;
 
         if (info->hwndTrack == hwnd)
         {
             /* Adding new mouse event to the tracking list */
-            tracking_info.info = *info;
-            tracking_info.info.dwHoverTime = hover_time;
+            tracking->info = *info;
+            tracking->info.dwHoverTime = hover_time;
 
             /* Initialize HoverInfo variables even if not hover tracking */
-            tracking_info.pos = pos;
+            tracking->pos = pos;
 
-            NtUserSetSystemTimer( tracking_info.info.hwndTrack, SYSTEM_TIMER_TRACK_MOUSE, hover_time );
+            NtUserSetSystemTimer( tracking->info.hwndTrack, SYSTEM_TIMER_TRACK_MOUSE, hover_time );
         }
     }
 
@@ -1984,7 +2010,7 @@ BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new
     {
         send_message( previous, WM_NCACTIVATE, FALSE, (LPARAM)hwnd );
         send_message( previous, WM_ACTIVATE,
-                      MAKEWPARAM( WA_INACTIVE, is_iconic(previous) ), (LPARAM)hwnd );
+                      MAKEWPARAM( WA_INACTIVE, is_iconic(previous) ? 0x20 : 0 ), (LPARAM)hwnd );
     }
 
     SERVER_START_REQ( set_active_window )
@@ -2043,7 +2069,7 @@ BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new
     {
         send_message( hwnd, WM_NCACTIVATE, hwnd == NtUserGetForegroundWindow(), (LPARAM)previous );
         send_message( hwnd, WM_ACTIVATE,
-                      MAKEWPARAM( mouse ? WA_CLICKACTIVE : WA_ACTIVE, is_iconic(hwnd) ),
+                      MAKEWPARAM( mouse ? WA_CLICKACTIVE : WA_ACTIVE, is_iconic(hwnd) ? 0x20 : 0 ),
                       (LPARAM)previous );
         if (NtUserGetAncestor( hwnd, GA_PARENT ) == get_desktop_window())
             NtUserPostMessage( get_desktop_window(), WM_PARENTNOTIFY, WM_NCACTIVATE, (LPARAM)hwnd );
@@ -2142,7 +2168,7 @@ HWND WINAPI NtUserSetFocus( HWND hwnd )
         if (call_hooks( WH_CBT, HCBT_SETFOCUS, (WPARAM)hwnd, (LPARAM)previous, 0 )) return 0;
 
         /* activate hwndTop if needed. */
-        if (!(active = get_active_window()) && !set_foreground_window( hwndTop, FALSE )) return 0;
+        if (!(active = get_active_window()) && !set_foreground_window( hwndTop, FALSE, FALSE )) return 0;
         if (hwndTop != active)
         {
             if (!set_active_window( hwndTop, NULL, FALSE, FALSE, 0 )) return 0;
@@ -2167,13 +2193,13 @@ HWND WINAPI NtUserSetFocus( HWND hwnd )
  */
 BOOL WINAPI NtUserSetForegroundWindow( HWND hwnd )
 {
-    return set_foreground_window( hwnd, FALSE );
+    return set_foreground_window( hwnd, FALSE, FALSE );
 }
 
 /*******************************************************************
  *		set_foreground_window
  */
-BOOL set_foreground_window( HWND hwnd, BOOL mouse )
+BOOL set_foreground_window( HWND hwnd, BOOL mouse, BOOL internal )
 {
     BOOL ret, send_msg_old = FALSE, send_msg_new = FALSE;
     DWORD new_thread_id;
@@ -2185,6 +2211,7 @@ BOOL set_foreground_window( HWND hwnd, BOOL mouse )
     SERVER_START_REQ( set_foreground_window )
     {
         req->handle = wine_server_user_handle( hwnd );
+        req->internal = internal;
         if ((ret = !wine_server_call_err( req )))
         {
             previous = wine_server_ptr_handle( reply->previous );
@@ -2614,6 +2641,12 @@ static BOOL is_captured_by_system(void)
     return NtUserGetGUIThreadInfo( GetCurrentThreadId(), &info ) && info.hwndCapture && (info.flags & (GUI_INMOVESIZE | GUI_INMENUMODE));
 }
 
+static BOOL is_fullscreen( const MONITORINFO *info, const RECT *rect )
+{
+    return rect->left <= info->rcMonitor.left && rect->right >= info->rcMonitor.right &&
+           rect->top <= info->rcMonitor.top && rect->bottom >= info->rcMonitor.bottom;
+}
+
 /***********************************************************************
  *      clip_fullscreen_window
  *
@@ -2623,9 +2656,9 @@ BOOL clip_fullscreen_window( HWND hwnd, BOOL reset )
 {
     struct user_thread_info *thread_info = get_user_thread_info();
     MONITORINFO monitor_info = {.cbSize = sizeof(MONITORINFO)};
-    RECT rect, virtual_rect;
+    RECT monitor_rect, window_rect, virtual_rect;
     DWORD style;
-    UINT dpi, ctx;
+    UINT ctx;
     BOOL ret;
 
     if (hwnd == NtUserGetDesktopWindow()) return FALSE;
@@ -2637,18 +2670,17 @@ BOOL clip_fullscreen_window( HWND hwnd, BOOL reset )
     /* maximized windows don't count as full screen */
     if ((style & WS_MAXIMIZE) && (style & WS_CAPTION) == WS_CAPTION) return FALSE;
 
-    dpi = get_dpi_for_window( hwnd );
-    if (!get_window_rect( hwnd, &rect, dpi )) return FALSE;
-    if (!is_window_rect_full_screen( &rect, dpi )) return FALSE;
+    ctx = set_thread_dpi_awareness_context( NTUSER_DPI_PER_MONITOR_AWARE );
+    ret = get_window_rect( hwnd, &window_rect, get_thread_dpi() );
+    monitor_info = monitor_info_from_window( hwnd, MONITOR_DEFAULTTONEAREST );
+    virtual_rect = get_virtual_screen_rect( get_thread_dpi(), MDT_DEFAULT );
+    monitor_rect = map_rect_virt_to_raw( monitor_info.rcMonitor, get_thread_dpi() );
+    set_thread_dpi_awareness_context( ctx );
+
+    if (!ret || !is_fullscreen( &monitor_info, &window_rect )) return FALSE;
     if (is_captured_by_system()) return FALSE;
     if (NtGetTickCount() - thread_info->clipping_reset < 1000) return FALSE;
     if (!reset && clipping_cursor && thread_info->clipping_cursor) return FALSE;  /* already clipping */
-
-    ctx = set_thread_dpi_awareness_context( NTUSER_DPI_PER_MONITOR_AWARE );
-    monitor_info = monitor_info_from_window( hwnd, MONITOR_DEFAULTTONEAREST );
-    virtual_rect = get_virtual_screen_rect( get_thread_dpi(), MDT_DEFAULT );
-    rect = map_rect_virt_to_raw( monitor_info.rcMonitor, get_thread_dpi() );
-    set_thread_dpi_awareness_context( ctx );
 
     if (!grab_fullscreen)
     {
@@ -2661,7 +2693,7 @@ BOOL clip_fullscreen_window( HWND hwnd, BOOL reset )
     SERVER_START_REQ( set_cursor )
     {
         req->flags = SET_CURSOR_CLIP | SET_CURSOR_FSCLIP;
-        req->clip  = wine_server_rectangle( rect );
+        req->clip  = wine_server_rectangle( monitor_rect );
         ret = !wine_server_call( req );
     }
     SERVER_END_REQ;

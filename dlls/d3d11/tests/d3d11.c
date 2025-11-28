@@ -2341,9 +2341,7 @@ static void test_create_device(void)
     startup.cb = sizeof(startup);
     ok(CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &info), "CreateProcess failed.\n");
 
-    wait_child_process(info.hProcess);
-    CloseHandle(info.hProcess);
-    CloseHandle(info.hThread);
+    wait_child_process(&info);
 }
 
 static void test_device_interfaces(const D3D_FEATURE_LEVEL feature_level)
@@ -5464,6 +5462,16 @@ static void test_create_sampler_state(void)
     ok(refcount == 1, "Got unexpected refcount %lu.\n", refcount);
     refcount = ID3D11SamplerState_Release(sampler_state1);
     ok(!refcount, "Got unexpected refcount %lu.\n", refcount);
+
+    desc.Filter = D3D11_FILTER_ANISOTROPIC;
+    desc.MaxAnisotropy = 0;
+    hr = ID3D11Device_CreateSamplerState(device, &desc, &sampler_state1);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ID3D11SamplerState_GetDesc(sampler_state1, &desc);
+    ok(desc.Filter == D3D11_FILTER_ANISOTROPIC, "Got filter %#x.\n", desc.Filter);
+    ok(!desc.MaxAnisotropy, "Got max anisotropy %u.\n", desc.MaxAnisotropy);
+    refcount = ID3D11SamplerState_Release(sampler_state1);
+    ok(!refcount, "Got refcount %lu.\n", refcount);
 
     for (i = 0; i < ARRAY_SIZE(desc_conversion_tests); ++i)
     {
@@ -14825,6 +14833,7 @@ static void test_copy_subresource_region(void)
 
     ID3D11DeviceContext_ClearRenderTargetView(context, test_context.backbuffer_rtv, red);
 
+    set_box(&box, 0, 0, 0, 1, 1, 1);
     ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)dst_texture, 0,
             1, 1, 0, NULL, 0, &box);
     ID3D11DeviceContext_CopySubresourceRegion(context, NULL, 0,
@@ -21001,6 +21010,10 @@ static void test_index_buffer_offset(void)
     }
     release_resource_readback(&rb);
 
+    /* Without index buffer */
+    ID3D11DeviceContext_IASetIndexBuffer(context, NULL, DXGI_FORMAT_R32_UINT, 0);
+    ID3D11DeviceContext_DrawIndexed(context, 4, 0, 0);
+
     /* indirect draws */
     args_buffer = create_buffer_misc(device, 0, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS,
             sizeof(argument_data), argument_data);
@@ -21028,6 +21041,10 @@ static void test_index_buffer_offset(void)
                 data->x, data->y, data->z, data->w, i);
     }
     release_resource_readback(&rb);
+
+    /* Without index buffer */
+    ID3D11DeviceContext_IASetIndexBuffer(context, NULL, DXGI_FORMAT_R32_UINT, 0);
+    ID3D11DeviceContext_DrawIndexedInstancedIndirect(context, args_buffer, 0);
 
     ID3D11Buffer_Release(so_buffer);
     ID3D11Buffer_Release(args_buffer);
@@ -37060,7 +37077,7 @@ static void test_h264_decoder(void)
     extension.pPrivateOutputData = &h264_status;
     extension.PrivateOutputDataSize = sizeof(h264_status);
     hr = ID3D11VideoContext_DecoderExtension(video_context, decoder, &extension);
-    todo_wine ok(hr == E_FAIL /* AMD */ || hr == S_OK /* NVidia */, "Got hr %#lx.\n", hr);
+    ok(hr == E_FAIL /* AMD */ || hr == S_OK /* NVidia */, "Got hr %#lx.\n", hr);
     if (hr == S_OK)
     {
         DXVA_Status_H264 zero_status = {0};
@@ -37270,23 +37287,30 @@ static void test_h264_decoder(void)
     memset(&extension, 0, sizeof(extension));
     extension.Function = DXVA_STATUS_REPORTING_FUNCTION;
     extension.pPrivateOutputData = &h264_status;
+    extension.PrivateOutputDataSize = sizeof(h264_status) - 1;
+    hr = ID3D11VideoContext_DecoderExtension(video_context, decoder, &extension);
+    ok(hr == E_FAIL, "Got hr %#lx.\n", hr);
+
+    memset(&h264_status, 0xcc, sizeof(h264_status));
+    memset(&extension, 0, sizeof(extension));
+    extension.Function = DXVA_STATUS_REPORTING_FUNCTION;
+    extension.pPrivateInputData = (void *)0xdeadbeef;
+    extension.PrivateInputDataSize = 123;
+    extension.pPrivateOutputData = &h264_status;
     extension.PrivateOutputDataSize = sizeof(h264_status);
     hr = ID3D11VideoContext_DecoderExtension(video_context, decoder, &extension);
-    todo_wine ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    if (hr == S_OK)
-    {
-        ok(h264_status.StatusReportFeedbackNumber == 2, "Got number %u.\n", h264_status.StatusReportFeedbackNumber);
-        ok(h264_status.CurrPic.bPicEntry == 1, "Got index %#x.\n", h264_status.CurrPic.bPicEntry);
-        ok(!h264_status.field_pic_flag, "Got field pic flag %#x.\n", h264_status.field_pic_flag);
-        ok(h264_status.bDXVA_Func == DXVA_PICTURE_DECODING_FUNCTION, "Got function %#x.\n", h264_status.bDXVA_Func);
-        ok(h264_status.bBufType == (UCHAR)~0, "Got buffer type %#x.\n", h264_status.bBufType);
-        ok(!h264_status.bStatus, "Got status %#x.\n", h264_status.bStatus);
-        ok(!h264_status.bReserved8Bits, "Got reserved %#x.\n", h264_status.bReserved8Bits);
-        /* AMD reports that 1 macroblock was successfully decoded, which is
-         * obviously wrong.
-         * NVidia returns 0xffff, which is valid and means that no estimate was
-         * provided. */
-    }
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(h264_status.StatusReportFeedbackNumber == 2, "Got number %u.\n", h264_status.StatusReportFeedbackNumber);
+    ok(h264_status.CurrPic.bPicEntry == 1, "Got index %#x.\n", h264_status.CurrPic.bPicEntry);
+    ok(!h264_status.field_pic_flag, "Got field pic flag %#x.\n", h264_status.field_pic_flag);
+    ok(h264_status.bDXVA_Func == DXVA_PICTURE_DECODING_FUNCTION, "Got function %#x.\n", h264_status.bDXVA_Func);
+    ok(h264_status.bBufType == (UCHAR)~0, "Got buffer type %#x.\n", h264_status.bBufType);
+    ok(!h264_status.bStatus, "Got status %#x.\n", h264_status.bStatus);
+    ok(!h264_status.bReserved8Bits, "Got reserved %#x.\n", h264_status.bReserved8Bits);
+    /* AMD reports that 1 macroblock was successfully decoded, which is
+     * obviously wrong.
+     * NVidia returns 0xffff, which is valid and means that no estimate was
+     * provided. */
 
     for (unsigned int i = 0; i < ARRAY_SIZE(output_views); ++i)
         ID3D11VideoDecoderOutputView_Release(output_views[i]);

@@ -31,7 +31,6 @@
 #include "controls.h"
 #include "wine/exception.h"
 #include "wine/debug.h"
-#include "wine/heap.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(listbox);
 
@@ -149,7 +148,7 @@ static BOOL resize_storage(LB_DESCR *descr, UINT items_size)
         items_size = (items_size + LB_ARRAY_GRANULARITY - 1) & ~(LB_ARRAY_GRANULARITY - 1);
         if ((descr->style & (LBS_NODATA | LBS_MULTIPLESEL | LBS_EXTENDEDSEL)) != LBS_NODATA)
         {
-            items = heap_realloc(descr->u.items, items_size * get_sizeof_item(descr));
+            items = realloc(descr->u.items, items_size * get_sizeof_item(descr));
             if (!items)
             {
                 SEND_NOTIFICATION(descr, LBN_ERRSPACE);
@@ -458,18 +457,31 @@ static void LISTBOX_UpdateSize( LB_DESCR *descr )
     descr->height = rect.bottom - rect.top;
     if (!(descr->style & LBS_NOINTEGRALHEIGHT) && !(descr->style & LBS_OWNERDRAWVARIABLE))
     {
+        int height = descr->height;
         INT remaining;
         RECT rect;
 
+        /* The whole point of integral height is to ensure that partial items
+         * aren't displayed. Native seems to fail to take the horizontal
+         * scrollbar into account (while successfully taking into account e.g.
+         * WS_EX_CLIENTEDGE), so it ends up obscuring partial items anyway.
+         *
+         * It's not clear if native is trying to work from
+         * the window rect as opposed to the client rect [and badly
+         * reimplementing AdjustWindowRect()] or poorly working around the case
+         * where the horizontal scrollbar is repeatedly toggled (which could
+         * unnecessarily shrink the scrollbar every time it happens). */
+        if (GetWindowLongW( descr->self, GWL_STYLE ) & WS_HSCROLL)
+            height += GetSystemMetrics( SM_CYHSCROLL );
+
         GetWindowRect( descr->self, &rect );
         if(descr->item_height != 0)
-            remaining = descr->height % descr->item_height;
+            remaining = height % descr->item_height;
         else
             remaining = 0;
-        if ((descr->height > descr->item_height) && remaining)
+        if ((height > descr->item_height) && remaining)
         {
-            TRACE("[%p]: changing height %d -> %d\n",
-                  descr->self, descr->height, descr->height - remaining );
+            TRACE( "[%p]: changing height %d -> %d\n", descr->self, height, height - remaining );
             NtUserSetWindowPos( descr->self, 0, 0, 0, rect.right - rect.left,
                                 rect.bottom - rect.top - remaining,
                                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE );
@@ -1789,7 +1801,7 @@ static void LISTBOX_ResetContent( LB_DESCR *descr )
 
     if (!(descr->style & LBS_NODATA))
         for (i = descr->nb_items - 1; i >= 0; i--) LISTBOX_DeleteItem(descr, i);
-    HeapFree( GetProcessHeap(), 0, descr->u.items );
+    free( descr->u.items );
     descr->nb_items      = 0;
     descr->top_item      = 0;
     descr->selected_item = -1;

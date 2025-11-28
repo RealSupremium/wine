@@ -1137,7 +1137,7 @@ static void wined3d_cs_exec_draw(struct wined3d_cs *cs, const void *data)
 }
 
 static void reference_graphics_pipeline_resources(struct wined3d_device_context *context,
-        BOOL indexed, const struct wined3d_d3d_info *d3d_info)
+        bool indexed, const struct wined3d_d3d_info *d3d_info)
 {
     const struct wined3d_state *state = context->state;
     unsigned int i;
@@ -1204,6 +1204,13 @@ void CDECL wined3d_device_context_draw_indirect(struct wined3d_device_context *c
     struct wined3d_cs_draw *op;
 
     wined3d_device_context_lock(context);
+
+    if (indexed && !state->index_buffer)
+    {
+        wined3d_device_context_unlock(context);
+        return;
+    }
+
     op = wined3d_device_context_require_space(context, sizeof(*op), WINED3D_CS_QUEUE_DEFAULT);
     op->opcode = WINED3D_CS_OP_DRAW;
     op->primitive_type = state->primitive_type;
@@ -1571,7 +1578,7 @@ void wined3d_device_context_emit_set_constant_buffers(struct wined3d_device_cont
 static bool texture_binding_might_invalidate_ps(struct wined3d_shader_resource_view *view,
         struct wined3d_shader_resource_view *prev, const struct wined3d_d3d_info *d3d_info)
 {
-    unsigned int old_usage, new_usage, old_caps, new_caps;
+    unsigned int old_usage, new_usage;
     const struct wined3d_format *old_format, *new_format;
 
     if (!prev)
@@ -1586,9 +1593,7 @@ static bool texture_binding_might_invalidate_ps(struct wined3d_shader_resource_v
 
     old_format = prev->resource->format;
     new_format = view->resource->format;
-    old_caps = prev->resource->format_caps;
-    new_caps = view->resource->format_caps;
-    if ((old_caps & WINED3D_FORMAT_CAP_SHADOW) != (new_caps & WINED3D_FORMAT_CAP_SHADOW))
+    if ((old_format->attrs & WINED3D_FORMAT_ATTR_SHADOW) != (new_format->attrs & WINED3D_FORMAT_ATTR_SHADOW))
         return true;
 
     if (is_same_fixup(old_format->color_fixup, new_format->color_fixup))

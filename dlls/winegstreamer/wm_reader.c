@@ -1454,7 +1454,7 @@ static const IWMReaderTimecodeVtbl timecode_vtbl =
     timecode_GetTimecodeRangeBounds,
 };
 
-static void destroy_stream(struct wm_reader *reader)
+static void free_stream_buffers(struct wm_reader *reader)
 {
     unsigned int i;
 
@@ -1587,6 +1587,9 @@ static HRESULT reinit_stream(struct wm_reader *reader, bool read_compressed)
     WORD i;
 
     ReleaseSemaphore(reader->read_sem, 1, NULL);
+
+    free_stream_buffers(reader);
+
     wg_parser_disconnect(reader->wg_parser);
 
     EnterCriticalSection(&reader->shutdown_cs);
@@ -1598,7 +1601,6 @@ static HRESULT reinit_stream(struct wm_reader *reader, bool read_compressed)
     reader->read_thread = NULL;
     reader->read_sem = NULL;
 
-    destroy_stream(reader);
     wg_parser_destroy(reader->wg_parser);
     reader->wg_parser = 0;
 
@@ -1665,7 +1667,7 @@ out_destroy_parser:
         CloseHandle(reader->read_sem);
         reader->read_sem = NULL;
     }
-    destroy_stream(reader);
+    free_stream_buffers(reader);
     wg_parser_destroy(reader->wg_parser);
     reader->wg_parser = 0;
 
@@ -1772,7 +1774,7 @@ static HRESULT wm_reader_read_stream_sample(struct wm_reader *reader, struct wg_
     {
         ERR("Failed to allocate sample of %lu bytes, hr %#lx.\n", capacity, hr);
         wg_parser_stream_release_buffer(stream->wg_stream);
-        return hr;
+        return NS_E_NO_MORE_SAMPLES;
     }
 
     if (FAILED(hr = INSSBuffer_GetBufferAndLength(*sample, &data, &size)))
@@ -1945,6 +1947,9 @@ static HRESULT WINAPI reader_Close(IWMSyncReader2 *iface)
     }
 
     ReleaseSemaphore(reader->read_sem, 1, NULL);
+
+    free_stream_buffers(reader);
+
     wg_parser_disconnect(reader->wg_parser);
 
     EnterCriticalSection(&reader->shutdown_cs);
@@ -1956,7 +1961,6 @@ static HRESULT WINAPI reader_Close(IWMSyncReader2 *iface)
     reader->read_thread = NULL;
     reader->read_sem = NULL;
 
-    destroy_stream(reader);
     wg_parser_destroy(reader->wg_parser);
     reader->wg_parser = 0;
 
@@ -2413,8 +2417,8 @@ static HRESULT WINAPI reader_SetOutputProps(IWMSyncReader2 *iface, DWORD output,
 
     if (!(stream = get_stream_by_output_number(reader, output)))
     {
-        LeaveCriticalSection(&reader->cs);
-        return E_INVALIDARG;
+        hr = E_INVALIDARG;
+        goto out;
     }
 
     wg_parser_stream_get_current_format(stream->wg_stream, &pref_format);
@@ -2452,8 +2456,7 @@ static HRESULT WINAPI reader_SetOutputProps(IWMSyncReader2 *iface, DWORD output,
     if (FAILED(hr))
     {
         WARN("Unsupported media type, returning %#lx.\n", hr);
-        LeaveCriticalSection(&reader->cs);
-        return hr;
+        goto out;
     }
 
     stream->format = format;
@@ -2475,10 +2478,11 @@ static HRESULT WINAPI reader_SetOutputProps(IWMSyncReader2 *iface, DWORD output,
     wg_parser_stream_seek(reader->streams[0].wg_stream, 1.0, reader->start_time, 0,
             AM_SEEKING_AbsolutePositioning, AM_SEEKING_NoPositioning);
 
+out:
     LeaveCriticalSection(&reader->cs);
     if (WaitForSingleObject(reader->read_sem, INFINITE) != WAIT_OBJECT_0)
         ERR("Failed to wait for read thread to pause.\n");
-    return S_OK;
+    return hr;
 }
 
 static HRESULT WINAPI reader_SetOutputSetting(IWMSyncReader2 *iface, DWORD output,

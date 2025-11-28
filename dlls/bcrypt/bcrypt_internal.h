@@ -62,13 +62,17 @@ enum alg_id
 
     /* secret agreement */
     ALG_ID_DH,
+    ALG_ID_ECDH,
     ALG_ID_ECDH_P256,
     ALG_ID_ECDH_P384,
+    ALG_ID_ECDH_P521,
 
     /* signature */
     ALG_ID_RSA_SIGN,
+    ALG_ID_ECDSA,
     ALG_ID_ECDSA_P256,
     ALG_ID_ECDSA_P384,
+    ALG_ID_ECDSA_P521,
     ALG_ID_DSA,
 
     /* rng */
@@ -87,12 +91,21 @@ enum chain_mode
     CHAIN_MODE_GCM,
 };
 
+enum ecc_curve_id
+{
+    ECC_CURVE_NONE,
+    ECC_CURVE_P256R1,
+    ECC_CURVE_P384R1,
+    ECC_CURVE_P521R1,
+};
+
 struct algorithm
 {
-    struct object   hdr;
-    enum alg_id     id;
-    enum chain_mode mode;
-    unsigned        flags;
+    struct object     hdr;
+    enum alg_id       id;
+    enum chain_mode   mode;
+    unsigned          flags;
+    enum ecc_curve_id curve_id;
 };
 
 struct key_symmetric
@@ -111,7 +124,8 @@ struct key_symmetric
 
 struct key_asymmetric
 {
-    ULONG             bitlen;     /* ignored for ECC keys */
+    ULONG             bitlen;     /* key strength for ECC keys */
+    enum ecc_curve_id curve_id;
     unsigned          flags;
     DSSSEED           dss_seed;
 };
@@ -276,5 +290,10 @@ enum key_funcs
     unix_key_asymmetric_derive_key,
     unix_funcs_count,
 };
+
+static inline ULONG len_from_bitlen( ULONG bitlen )
+{
+    return (bitlen + 7) / 8;
+}
 
 #endif /* __BCRYPT_INTERNAL_H */

@@ -2386,6 +2386,8 @@ HRESULT __cdecl wined3d_decoder_decode(struct wined3d_decoder *decoder,
         unsigned int bitstream_size, unsigned int slice_control_size);
 ULONG __cdecl wined3d_decoder_decref(struct wined3d_decoder *decoder);
 HRESULT __cdecl wined3d_decoder_end_frame(struct wined3d_decoder *decoder);
+HRESULT __cdecl wined3d_decoder_extension(struct wined3d_decoder *decoder, unsigned int function,
+        const void *input, unsigned int input_size, void *output, unsigned int output_size);
 struct wined3d_resource * __cdecl wined3d_decoder_get_buffer(
         struct wined3d_decoder *decoder, enum wined3d_decoder_buffer_type type);
 
@@ -2672,7 +2674,7 @@ static inline void wined3d_private_store_free_private_data(struct wined3d_privat
     if (entry->flags & WINED3DSPD_IUNKNOWN)
         IUnknown_Release(entry->content.object);
     list_remove(&entry->entry);
-    HeapFree(GetProcessHeap(), 0, entry);
+    free(entry);
 }
 
 static inline void wined3d_private_store_cleanup(struct wined3d_private_store *store)
@@ -2700,8 +2702,7 @@ static inline HRESULT wined3d_private_store_set_private_data(struct wined3d_priv
         ptr = &data;
     }
 
-    if (!(d = HeapAlloc(GetProcessHeap(), 0,
-            FIELD_OFFSET(struct wined3d_private_data, content.data[data_size]))))
+    if (!(d = malloc(FIELD_OFFSET(struct wined3d_private_data, content.data[data_size]))))
         return E_OUTOFMEMORY;
 
     d->tag = *guid;

@@ -256,7 +256,7 @@ static unsigned int get_pe_file_info( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *n
 
     *handle = 0;
     memset( info, 0, sizeof(*info) );
-    if (!(status = get_nt_and_unix_names( attr, nt_name, unix_name, FILE_OPEN )))
+    if (!(status = get_nt_and_unix_names( attr, nt_name, unix_name, FILE_OPEN, FALSE )))
     {
         status = open_unix_file( handle, *unix_name, GENERIC_READ, attr, 0,
                                  FILE_SHARE_READ | FILE_SHARE_DELETE,
@@ -340,7 +340,7 @@ static int get_unix_curdir( const RTL_USER_PROCESS_PARAMETERS *params )
     nt_name.Length = wcslen( nt_name.Buffer ) * sizeof(WCHAR);
 
     InitializeObjectAttributes( &attr, &nt_name, OBJ_CASE_INSENSITIVE, 0, NULL );
-    status = get_nt_and_unix_names( &attr, &true_nt_name, &unix_name, FILE_OPEN );
+    status = get_nt_and_unix_names( &attr, &true_nt_name, &unix_name, FILE_OPEN, FALSE );
     if (status) goto done;
     status = open_unix_file( &handle, unix_name, FILE_TRAVERSE | SYNCHRONIZE, &attr, 0,
                              FILE_SHARE_READ | FILE_SHARE_DELETE,
@@ -554,8 +554,8 @@ static NTSTATUS fork_and_exec( OBJECT_ATTRIBUTES *attr, const char *unix_name, i
 {
     pid_t pid;
     int fd[2], stdin_fd = -1, stdout_fd = -1;
-    char **argv, **envp;
-    NTSTATUS status;
+    char **argv;
+    NTSTATUS status = STATUS_SUCCESS;
 
 #ifdef HAVE_PIPE2
     if (pipe2( fd, O_CLOEXEC ) == -1)
@@ -597,13 +597,12 @@ static NTSTATUS fork_and_exec( OBJECT_ATTRIBUTES *attr, const char *unix_name, i
             signal( SIGPIPE, SIG_DFL );
 
             argv = build_argv( &params->CommandLine, 0 );
-            envp = build_envp( params->Environment );
             if (unixdir != -1)
             {
                 fchdir( unixdir );
                 close( unixdir );
             }
-            execve( unix_name, argv, envp );
+            execv( unix_name, argv );
         }
 
         if (pid <= 0)  /* grandchild if exec failed or child if fork failed */
@@ -752,6 +751,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     {
         if (status == STATUS_INVALID_IMAGE_NOT_MZ && !fork_and_exec( &attr, unix_name, unixdir, params ))
         {
+            *process_handle_ptr = *thread_handle_ptr = 0;
             memset( info, 0, sizeof(*info) );
             free( unix_name );
             free( nt_name.Buffer );
@@ -1094,7 +1094,6 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
     UNIMPLEMENTED_INFO_CLASS(ProcessUserModeIOPL);
     UNIMPLEMENTED_INFO_CLASS(ProcessEnableAlignmentFaultFixup);
     UNIMPLEMENTED_INFO_CLASS(ProcessWx86Information);
-    UNIMPLEMENTED_INFO_CLASS(ProcessPriorityBoost);
     UNIMPLEMENTED_INFO_CLASS(ProcessDeviceMap);
     UNIMPLEMENTED_INFO_CLASS(ProcessForegroundInformation);
     UNIMPLEMENTED_INFO_CLASS(ProcessLUIDDeviceMapsEnabled);
@@ -1124,7 +1123,7 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
                             pbi.InheritedFromUniqueProcessId = reply->ppid;
                             if (is_old_wow64())
                             {
-                                if (reply->machine != native_machine)
+                                if (!is_machine_64bit( reply->machine ))
                                     pbi.PebBaseAddress = (PEB *)((char *)pbi.PebBaseAddress + 0x1000);
                                 else
                                     pbi.PebBaseAddress = NULL;
@@ -1288,6 +1287,23 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
                 ret = STATUS_SUCCESS;
             }
             else return ret;
+        }
+        break;
+
+    case ProcessPriorityBoost:
+        len = sizeof(ULONG);
+        if (size != len) return STATUS_INFO_LENGTH_MISMATCH;
+        if (!info) ret = STATUS_ACCESS_VIOLATION;
+        else
+        {
+            ULONG *disable_boost = info;
+            SERVER_START_REQ(get_process_info)
+            {
+                req->handle = wine_server_obj_handle( handle );
+                ret = wine_server_call( req );
+                *disable_boost = reply->disable_boost;
+            }
+            SERVER_END_REQ;
         }
         break;
 
@@ -1530,20 +1546,6 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
         else ret = STATUS_INFO_LENGTH_MISMATCH;
         break;
 
-    case ProcessWineLdtCopy:
-        if (handle == NtCurrentProcess())
-        {
-#ifdef __i386__
-            len = sizeof(struct ldt_copy *);
-            if (size == len) *(struct ldt_copy **)info = &__wine_ldt_copy;
-            else ret = STATUS_INFO_LENGTH_MISMATCH;
-#else
-            ret = STATUS_NOT_IMPLEMENTED;
-#endif
-        }
-        else ret = STATUS_INVALID_PARAMETER;
-        break;
-
     case ProcessQuotaLimits:
         {
             QUOTA_LIMITS qlimits;
@@ -1726,6 +1728,23 @@ NTSTATUS WINAPI NtSetInformationProcess( HANDLE handle, PROCESSINFOCLASS class, 
                 req->handle        = wine_server_obj_handle( handle );
                 req->base_priority = *base_priority;
                 req->mask          = SET_PROCESS_INFO_BASE_PRIORITY;
+                ret = wine_server_call( req );
+            }
+            SERVER_END_REQ;
+        }
+        break;
+
+    case ProcessPriorityBoost:
+        if (size != sizeof(ULONG)) return STATUS_INVALID_PARAMETER;
+        else
+        {
+            ULONG* disable_boost = info;
+
+            SERVER_START_REQ( set_process_info )
+            {
+                req->handle        = wine_server_obj_handle( handle );
+                req->disable_boost = *disable_boost;
+                req->mask          = SET_PROCESS_INFO_DISABLE_BOOST;
                 ret = wine_server_call( req );
             }
             SERVER_END_REQ;

@@ -78,6 +78,7 @@
 #include <shlwapi.h>
 #include <shellapi.h>
 #include <setupapi.h>
+#include <wininet.h>
 #include <newdev.h>
 #include "resource.h"
 
@@ -833,15 +834,16 @@ static void create_computer_name_keys(void)
 
     if (gethostname( buffer, sizeof(buffer) )) return;
     hints.ai_flags = AI_CANONNAME;
-    if (!getaddrinfo( buffer, NULL, &hints, &res ) &&
-        res->ai_canonname && strcasecmp(res->ai_canonname, "localhost") != 0)
+    if (getaddrinfo( buffer, NULL, &hints, &res ) != 0)
+        res = NULL;
+    else if (strcasecmp( res->ai_canonname, "localhost" ) != 0)
         name = res->ai_canonname;
     dot = strchr( name, '.' );
     if (dot) *dot++ = 0;
     else dot = name + strlen(name);
     SetComputerNameExA( ComputerNamePhysicalDnsDomain, dot );
     SetComputerNameExA( ComputerNamePhysicalDnsHostname, name );
-    if (name != buffer) freeaddrinfo( res );
+    if (res) freeaddrinfo( res );
 
     if (RegOpenKeyW( HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\ComputerName", &key ))
         return;
@@ -1050,6 +1052,17 @@ static void create_known_dlls(void)
     RegCloseKey( key );
 }
 
+/* Some broken applications expect the ProxyEnable registry value to exist.
+ * This value is automatically created by wininet when initializing.
+ * This value is not initialized for new users on Windows, but it is created
+ * for the admin user. */
+static void initialize_internet(void)
+{
+    HINTERNET inet;
+
+    if ((inet = InternetOpenW( L"Wine", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0 )))
+        InternetCloseHandle( inet );
+}
 
 /* Performs the rename operations dictated in %SystemRoot%\Wininit.ini.
  * Returns FALSE if there was an error, or otherwise if all is ok.
@@ -1891,6 +1904,7 @@ int __cdecl main( int argc, char *argv[] )
 
     create_volatile_environment_registry_key();
     create_known_dlls();
+    initialize_internet();
 
     ProcessRunKeys( HKEY_LOCAL_MACHINE, L"RunOnce", TRUE, TRUE );
 

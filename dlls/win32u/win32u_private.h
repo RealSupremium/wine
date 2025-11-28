@@ -90,17 +90,17 @@ extern BOOL grab_pointer;
 extern BOOL grab_fullscreen;
 extern HWND get_active_window(void);
 extern HWND get_capture(void);
-extern BOOL get_cursor_pos( POINT *pt );
 extern HWND get_focus(void);
 extern DWORD get_input_state(void);
 extern DWORD get_last_input_time(void);
 extern BOOL get_async_keyboard_state( BYTE state[256] );
 extern BOOL set_capture_window( HWND hwnd, UINT gui_flags, HWND *prev_ret );
-extern BOOL set_foreground_window( HWND hwnd, BOOL mouse );
+extern BOOL set_foreground_window( HWND hwnd, BOOL mouse, BOOL force );
 extern BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new_active_thread_id );
 extern BOOL set_ime_composition_rect( HWND hwnd, RECT rect );
 extern void toggle_caret( HWND hwnd );
 extern void update_mouse_tracking_info( HWND hwnd );
+extern void update_current_mouse_window( HWND hwnd, INT hittest, POINT pos );
 extern BOOL process_wine_clipcursor( HWND hwnd, UINT flags, BOOL reset );
 extern BOOL clip_fullscreen_window( HWND hwnd, BOOL reset );
 extern USHORT map_scan_to_kbd_vkey( USHORT scan, HKL layout );
@@ -168,8 +168,8 @@ extern UINT get_thread_dpi(void);
 extern UINT set_thread_dpi_awareness_context( UINT context );
 extern UINT get_thread_dpi_awareness_context(void);
 extern RECT get_virtual_screen_rect( UINT dpi, MONITOR_DPI_TYPE type );
+extern const char *gpu_device_name( UINT16 vendor, UINT16 device, const char *name );
 extern BOOL is_exiting_thread( DWORD tid );
-extern BOOL is_window_rect_full_screen( const RECT *rect, UINT dpi );
 extern POINT map_dpi_point( POINT pt, UINT dpi_from, UINT dpi_to );
 extern RECT map_dpi_rect( RECT rect, UINT dpi_from, UINT dpi_to );
 extern HRGN map_dpi_region( HRGN region, UINT dpi_from, UINT dpi_to );
@@ -190,6 +190,8 @@ extern void user_lock(void);
 extern void user_unlock(void);
 extern void user_check_not_lock(void);
 
+/* d3dkmtc. */
+
 struct vulkan_gpu
 {
     struct list entry;
@@ -202,6 +204,18 @@ struct vulkan_gpu
 extern BOOL get_vulkan_gpus( struct list *gpus );
 extern void free_vulkan_gpu( struct vulkan_gpu *gpu );
 extern BOOL get_vulkan_uuid_from_luid( const LUID *luid, GUID *uuid );
+extern BOOL get_luid_from_vulkan_uuid( const GUID *uuid, LUID *luid, UINT32 *node_mask );
+
+extern int d3dkmt_object_get_fd( D3DKMT_HANDLE local );
+extern NTSTATUS d3dkmt_destroy_mutex( D3DKMT_HANDLE local );
+
+extern D3DKMT_HANDLE d3dkmt_create_resource( int fd, D3DKMT_HANDLE *global );
+extern D3DKMT_HANDLE d3dkmt_open_resource( D3DKMT_HANDLE global, HANDLE shared, D3DKMT_HANDLE *mutex_local, D3DKMT_HANDLE *sync_local );
+extern NTSTATUS d3dkmt_destroy_resource( D3DKMT_HANDLE local );
+
+extern D3DKMT_HANDLE d3dkmt_create_sync( int fd, D3DKMT_HANDLE *global );
+extern D3DKMT_HANDLE d3dkmt_open_sync( D3DKMT_HANDLE global, HANDLE shared );
+extern NTSTATUS d3dkmt_destroy_sync( D3DKMT_HANDLE local );
 
 /* winstation.c */
 
@@ -261,8 +275,8 @@ extern BOOL is_window_enabled( HWND hwnd );
 extern BOOL is_window_unicode( HWND hwnd );
 extern BOOL is_window_visible( HWND hwnd );
 extern BOOL is_zoomed( HWND hwnd );
-extern BOOL set_window_pixel_format( HWND hwnd, int format, BOOL internal );
-extern int get_window_pixel_format( HWND hwnd, BOOL internal );
+extern BOOL set_window_pixel_format( HWND hwnd, int format );
+extern int get_window_pixel_format( HWND hwnd );
 extern DWORD get_window_long( HWND hwnd, INT offset );
 extern ULONG_PTR get_window_long_ptr( HWND hwnd, INT offset, BOOL ansi );
 extern BOOL get_window_rect( HWND hwnd, RECT *rect, UINT dpi );
@@ -281,10 +295,13 @@ extern LONG_PTR set_window_long( HWND hwnd, INT offset, UINT size, LONG_PTR newv
 extern BOOL set_window_pos( WINDOWPOS *winpos, int parent_x, int parent_y );
 extern UINT set_window_style_bits( HWND hwnd, UINT set_bits, UINT clear_bits );
 extern void update_window_state( HWND hwnd );
-extern HWND window_from_point( HWND hwnd, POINT pt, INT *hittest );
+extern HWND window_from_point( HWND hwnd, POINT pt, INT *hittest, BOOL send_nchittest );
 extern HWND get_shell_window(void);
 extern HWND get_progman_window(void);
 extern HWND get_taskman_window(void);
+extern BOOL is_client_surface_window( struct client_surface *surface, HWND hwnd );
+extern HICON get_window_icon_info( HWND hwnd, UINT type, HICON icon, ICONINFO *ret );
+extern void init_startup_info(void);
 
 /* to release pointers retrieved by win_get_ptr */
 static inline void release_win_ptr( struct tagWND *ptr )
@@ -318,7 +335,9 @@ extern void reg_delete_value( HKEY hkey, const WCHAR *name );
 
 extern HKEY hkcu_key;
 
+/* driver.c */
 extern const struct user_driver_funcs *user_driver;
+extern struct client_surface *nulldrv_client_surface_create( HWND hwnd );
 
 extern ULONG_PTR zero_bits;
 

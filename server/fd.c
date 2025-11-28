@@ -86,6 +86,13 @@
 #ifdef HAVE_SYS_SYSCALL_H
 #include <sys/syscall.h>
 #endif
+#ifdef HAVE_SYS_XATTR_H
+#include <sys/xattr.h>
+#endif
+#ifdef HAVE_SYS_EXTATTR_H
+#undef XATTR_ADDITIONAL_OPTIONS
+#include <sys/extattr.h>
+#endif
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -97,6 +104,7 @@
 
 #include "winternl.h"
 #include "winioctl.h"
+#include "ddk/ntifs.h"
 #include "ddk/wdm.h"
 
 #if defined(HAVE_SYS_EPOLL_H) && defined(HAVE_EPOLL_CREATE)
@@ -129,7 +137,7 @@ struct fd
 {
     struct object        obj;         /* object header */
     const struct fd_ops *fd_ops;      /* file descriptor operations */
-    struct event_sync   *sync;        /* sync object for wait/signal */
+    struct object       *sync;        /* sync object for wait/signal */
     struct inode        *inode;       /* inode that this fd belongs to */
     struct list          inode_entry; /* entry in inode fd list */
     struct closed_fd    *closed;      /* structure to store the unix fd at destroy time */
@@ -273,7 +281,7 @@ static const struct object_ops inode_ops =
 struct file_lock
 {
     struct object       obj;         /* object header */
-    struct event_sync  *sync;        /* sync object for wait/signal */
+    struct object      *sync;        /* sync object for wait/signal */
     struct fd          *fd;          /* fd owning this lock */
     struct list         fd_entry;    /* entry in list of locks on a given fd */
     struct list         inode_entry; /* entry in inode list of locks */
@@ -1341,7 +1349,7 @@ static void remove_unix_locks( struct fd *fd, file_pos_t start, file_pos_t end )
         file_pos_t   end;
     } *first, *cur, *next, *buffer;
 
-    struct list *ptr;
+    struct file_lock *lock;
     int count = 0;
 
     if (!fd->inode) return;
@@ -1351,9 +1359,8 @@ static void remove_unix_locks( struct fd *fd, file_pos_t start, file_pos_t end )
 
     /* count the number of locks overlapping the specified area */
 
-    LIST_FOR_EACH( ptr, &fd->inode->locks )
+    LIST_FOR_EACH_ENTRY( lock, &fd->inode->locks, struct file_lock, inode_entry )
     {
-        struct file_lock *lock = LIST_ENTRY( ptr, struct file_lock, inode_entry );
         if (lock->start == lock->end) continue;
         if (lock_overlaps( lock, start, end )) count++;
     }
@@ -1377,9 +1384,8 @@ static void remove_unix_locks( struct fd *fd, file_pos_t start, file_pos_t end )
 
     /* build a sorted list of unlocked holes in the specified area */
 
-    LIST_FOR_EACH( ptr, &fd->inode->locks )
+    LIST_FOR_EACH_ENTRY( lock, &fd->inode->locks, struct file_lock, inode_entry )
     {
-        struct file_lock *lock = LIST_ENTRY( ptr, struct file_lock, inode_entry );
         if (lock->start == lock->end) continue;
         if (!lock_overlaps( lock, start, end )) continue;
 
@@ -1443,7 +1449,7 @@ static struct file_lock *add_lock( struct fd *fd, int shared, file_pos_t start, 
     lock->fd      = fd;
     lock->process = current->process;
 
-    if (!(lock->sync = create_event_sync( 1, 0 ))) goto error;
+    if (!(lock->sync = create_internal_sync( 1, 0 ))) goto error;
     /* now try to set a Unix lock */
     if (!set_unix_lock( lock->fd, lock->start, lock->end, lock->shared ? F_RDLCK : F_WRLCK )) goto error;
     list_add_tail( &fd->locks, &lock->fd_entry );
@@ -1503,7 +1509,7 @@ static void remove_fd_locks( struct fd *fd )
 /* returns handle to wait on */
 obj_handle_t lock_fd( struct fd *fd, file_pos_t start, file_pos_t count, int shared, int wait )
 {
-    struct list *ptr;
+    struct file_lock *lock;
     file_pos_t end = start + count;
 
     if (!fd->inode)  /* not a regular file */
@@ -1520,9 +1526,8 @@ obj_handle_t lock_fd( struct fd *fd, file_pos_t start, file_pos_t count, int sha
     }
 
     /* check if another lock on that file overlaps the area */
-    LIST_FOR_EACH( ptr, &fd->inode->locks )
+    LIST_FOR_EACH_ENTRY( lock, &fd->inode->locks, struct file_lock, inode_entry )
     {
-        struct file_lock *lock = LIST_ENTRY( ptr, struct file_lock, inode_entry );
         if (!lock_overlaps( lock, start, end )) continue;
         if (shared && (lock->shared || lock->fd == fd)) continue;
         /* found one */
@@ -1548,13 +1553,12 @@ obj_handle_t lock_fd( struct fd *fd, file_pos_t start, file_pos_t count, int sha
 /* remove a lock on an fd */
 void unlock_fd( struct fd *fd, file_pos_t start, file_pos_t count )
 {
-    struct list *ptr;
+    struct file_lock *lock;
     file_pos_t end = start + count;
 
     /* find an existing lock with the exact same parameters */
-    LIST_FOR_EACH( ptr, &fd->locks )
+    LIST_FOR_EACH_ENTRY( lock, &fd->locks, struct file_lock, fd_entry )
     {
-        struct file_lock *lock = LIST_ENTRY( ptr, struct file_lock, fd_entry );
         if ((lock->start == start) && (lock->end == end))
         {
             remove_lock( lock, 1 );
@@ -1621,20 +1625,17 @@ static unsigned int check_sharing( struct fd *fd, unsigned int access, unsigned 
 
     unsigned int existing_sharing = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
     unsigned int existing_access = 0;
-    struct list *ptr;
+    struct fd *fd_ptr;
 
     fd->access = access;
     fd->sharing = sharing;
 
-    LIST_FOR_EACH( ptr, &fd->inode->open )
+    LIST_FOR_EACH_ENTRY( fd_ptr, &fd->inode->open, struct fd, inode_entry )
     {
-        struct fd *fd_ptr = LIST_ENTRY( ptr, struct fd, inode_entry );
-        if (fd_ptr != fd)
-        {
-            /* if access mode is 0, sharing mode is ignored */
-            if (fd_ptr->access & all_access) existing_sharing &= fd_ptr->sharing;
-            existing_access |= fd_ptr->access;
-        }
+        if (fd_ptr == fd) continue;
+        /* if access mode is 0, sharing mode is ignored */
+        if (fd_ptr->access & all_access) existing_sharing &= fd_ptr->sharing;
+        existing_access |= fd_ptr->access;
     }
 
     if (((access & read_access) && !(existing_sharing & FILE_SHARE_READ)) ||
@@ -1731,7 +1732,7 @@ static struct fd *alloc_fd_object(void)
     list_init( &fd->inode_entry );
     list_init( &fd->locks );
 
-    if (!(fd->sync = create_event_sync( 1, 1 ))) goto error;
+    if (!(fd->sync = create_internal_sync( 1, 1 ))) goto error;
     if ((fd->poll_index = add_poll_user( fd )) == -1) goto error;
 
     return fd;
@@ -1774,7 +1775,7 @@ struct fd *alloc_pseudo_fd( const struct fd_ops *fd_user_ops, struct object *use
     list_init( &fd->inode_entry );
     list_init( &fd->locks );
 
-    if (!(fd->sync = create_event_sync( 1, 1 )))
+    if (!(fd->sync = create_internal_sync( 1, 1 )))
     {
         release_object( fd );
         return NULL;
@@ -2332,6 +2333,31 @@ void default_fd_reselect_async( struct fd *fd, struct async_queue *queue )
     }
 }
 
+static int is_dir_empty( int fd )
+{
+    DIR *dir;
+    int empty;
+    struct dirent *de;
+
+    if ((fd = dup( fd )) == -1)
+        return -1;
+
+    if (!(dir = fdopendir( fd )))
+    {
+        close( fd );
+        return -1;
+    }
+
+    empty = 1;
+    while (empty && (de = readdir( dir )))
+    {
+        if (!strcmp( de->d_name, "." ) || !strcmp( de->d_name, ".." )) continue;
+        empty = 0;
+    }
+    closedir( dir );
+    return empty;
+}
+
 static inline int is_valid_mounted_device( struct stat *st )
 {
 #if defined(linux) || defined(__sun__)
@@ -2377,6 +2403,214 @@ static void unmount_device( struct fd *device_fd )
     list_remove( &device->entry );
     list_init( &device->entry );
     release_object( device );
+}
+
+#ifndef XATTR_USER_PREFIX
+# define XATTR_USER_PREFIX "user."
+#endif
+#ifndef XATTR_USER_PREFIX_LEN
+# define XATTR_USER_PREFIX_LEN (sizeof(XATTR_USER_PREFIX) - 1)
+#endif
+
+#define XATTR_REPARSE XATTR_USER_PREFIX "WINEREPARSE"
+
+static int xattr_fset( int filedes, const char *name, const void *value, size_t size )
+{
+#ifdef HAVE_SYS_XATTR_H
+# ifdef XATTR_ADDITIONAL_OPTIONS
+    return fsetxattr( filedes, name, value, size, 0, 0 );
+# else
+    return fsetxattr( filedes, name, value, size, 0 );
+# endif
+#elif defined(HAVE_SYS_EXTATTR_H)
+    return extattr_set_fd( filedes, EXTATTR_NAMESPACE_USER, &name[XATTR_USER_PREFIX_LEN],
+                           value, size );
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+static int xattr_fget( int filedes, const char *name, void *value, size_t size )
+{
+#ifdef HAVE_SYS_XATTR_H
+# ifdef XATTR_ADDITIONAL_OPTIONS
+    return fgetxattr( filedes, name, value, size, 0, 0 );
+# else
+    return fgetxattr( filedes, name, value, size );
+# endif
+#elif defined(HAVE_SYS_EXTATTR_H)
+    return extattr_get_fd( filedes, EXTATTR_NAMESPACE_USER, &name[XATTR_USER_PREFIX_LEN],
+                           value, size );
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+static int xattr_fremove( int filedes, const char *name )
+{
+#ifdef HAVE_SYS_XATTR_H
+# ifdef XATTR_ADDITIONAL_OPTIONS
+    return fremovexattr( filedes, name, 0 );
+# else
+    return fremovexattr( filedes, name );
+# endif
+#elif defined(HAVE_SYS_EXTATTR_H)
+    return extattr_delete_fd( filedes, EXTATTR_NAMESPACE_USER, &name[XATTR_USER_PREFIX_LEN] );
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+static void set_reparse_point( struct fd *fd, struct async *async )
+{
+    char *reparse_name;
+    struct stat st;
+    size_t len;
+
+    if (!fd->unix_name)
+    {
+        set_error( STATUS_OBJECT_TYPE_MISMATCH );
+        return;
+    }
+
+    if (fstat( fd->unix_fd, &st ) == -1)
+    {
+        file_set_error();
+        return;
+    }
+
+    if (S_ISDIR(st.st_mode) && !is_dir_empty( fd->unix_fd ))
+    {
+        set_error( STATUS_DIRECTORY_NOT_EMPTY );
+        return;
+    }
+
+    if (xattr_fset( fd->unix_fd, XATTR_REPARSE, get_req_data(), get_req_data_size() ) < 0)
+    {
+        file_set_error();
+        return;
+    }
+
+    len = strlen( fd->unix_name );
+    if (fd->unix_name[len - 1] != '?')
+    {
+        /* we are adding a reparse point where there previously was not one;
+         * move the file out of the way so open attempts will fail */
+
+        if (!(reparse_name = mem_alloc( len + 2 ))) return;
+        memcpy( reparse_name, fd->unix_name, len );
+        strcpy( reparse_name + len, "?" );
+
+        if (rename( fd->unix_name, reparse_name ))
+        {
+            free( reparse_name );
+            return;
+        }
+        free( fd->unix_name );
+        fd->closed->unix_name = fd->unix_name = reparse_name;
+    }
+}
+
+static void get_reparse_point( struct fd *fd, struct async *async )
+{
+    /* we can't just allocate get_reply_max_size() here;
+     * Linux won't return any data if the size is too small */
+    char buffer[MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+    int ret;
+
+    if (!fd->unix_name)
+    {
+        set_error( STATUS_OBJECT_TYPE_MISMATCH );
+        return;
+    }
+
+    if (!get_reply_max_size())
+    {
+        set_error( STATUS_INVALID_USER_BUFFER );
+        return;
+    }
+
+    if (fd->unix_name[strlen( fd->unix_name ) - 1] != '?')
+    {
+        set_error( STATUS_NOT_A_REPARSE_POINT );
+        return;
+    }
+
+    if (get_reply_max_size() < sizeof(REPARSE_GUID_DATA_BUFFER))
+    {
+        set_error( STATUS_BUFFER_TOO_SMALL );
+        return;
+    }
+
+    ret = xattr_fget( fd->unix_fd, XATTR_REPARSE, buffer, sizeof(buffer) );
+    if (ret >= 0)
+    {
+        if (ret > get_reply_max_size())
+        {
+            set_error( STATUS_BUFFER_OVERFLOW );
+            ret = get_reply_max_size();
+        }
+        set_reply_data( buffer, ret );
+    }
+    else file_set_error();
+}
+
+static void delete_reparse_point( struct fd *fd, struct async *async )
+{
+    const REPARSE_DATA_BUFFER *data = get_req_data();
+    char *base_name;
+    size_t len;
+
+    if (!fd->unix_name)
+    {
+        set_error( STATUS_OBJECT_TYPE_MISMATCH );
+        return;
+    }
+
+    if (!get_req_data_size())
+    {
+        set_error( STATUS_INVALID_BUFFER_SIZE );
+        return;
+    }
+
+    len = strlen( fd->unix_name );
+    if (fd->unix_name[len - 1] != '?')
+    {
+        set_error( STATUS_NOT_A_REPARSE_POINT );
+        return;
+    }
+
+    if (get_req_data_size() != sizeof(REPARSE_DATA_BUFFER) || data->ReparseDataLength)
+    {
+        set_error( STATUS_IO_REPARSE_DATA_INVALID );
+        return;
+    }
+
+    if (!data->ReparseTag)
+    {
+        set_error( STATUS_IO_REPARSE_TAG_INVALID );
+        return;
+    }
+
+    if (!(base_name = mem_alloc( len )))
+        return;
+    memcpy( base_name, fd->unix_name, len - 1 );
+    base_name[len - 1] = 0;
+
+    if (rename( fd->unix_name, base_name ) < 0)
+    {
+        file_set_error();
+        free( base_name );
+        return;
+    }
+
+    free( fd->unix_name );
+    fd->closed->unix_name = fd->unix_name = base_name;
+
+    xattr_fremove( fd->unix_fd, XATTR_REPARSE );
 }
 
 /* default read() routine */
@@ -2497,6 +2731,18 @@ void default_fd_ioctl( struct fd *fd, ioctl_code_t code, struct async *async )
         unmount_device( fd );
         break;
 
+    case FSCTL_SET_REPARSE_POINT:
+        set_reparse_point( fd, async );
+        break;
+
+    case FSCTL_GET_REPARSE_POINT:
+        get_reparse_point( fd, async );
+        break;
+
+    case FSCTL_DELETE_REPARSE_POINT:
+        delete_reparse_point( fd, async );
+        break;
+
     default:
         set_error( STATUS_NOT_SUPPORTED );
     }
@@ -2515,31 +2761,6 @@ static struct fd *get_handle_fd_obj( struct process *process, obj_handle_t handl
         release_object( obj );
     }
     return fd;
-}
-
-static int is_dir_empty( int fd )
-{
-    DIR *dir;
-    int empty;
-    struct dirent *de;
-
-    if ((fd = dup( fd )) == -1)
-        return -1;
-
-    if (!(dir = fdopendir( fd )))
-    {
-        close( fd );
-        return -1;
-    }
-
-    empty = 1;
-    while (empty && (de = readdir( dir )))
-    {
-        if (!strcmp( de->d_name, "." ) || !strcmp( de->d_name, ".." )) continue;
-        empty = 0;
-    }
-    closedir( dir );
-    return empty;
 }
 
 /* set disposition for the fd */
@@ -2638,8 +2859,10 @@ static void set_fd_name( struct fd *fd, struct fd *root, const char *nameptr, da
         set_error( STATUS_OBJECT_PATH_SYNTAX_BAD );
         return;
     }
-    if (!(name = mem_alloc( len + 1 ))) return;
+    if (!(name = mem_alloc( len + 2 ))) return;
     memcpy( name, nameptr, len );
+    if (fd->unix_name[strlen( fd->unix_name ) - 1] == '?' && name[len - 1] != '?')
+        name[len++] = '?';
     name[len] = 0;
 
     if (root)

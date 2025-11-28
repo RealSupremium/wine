@@ -18,8 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#import <Carbon/Carbon.h>
-
 #import "cocoa_app.h"
 #import "cocoa_cursorclipping.h"
 #import "cocoa_event.h"
@@ -43,7 +41,7 @@ static NSString* const WineActivatingAppPrefixKey = @"ActivatingAppPrefix";
 static NSString* const WineActivatingAppConfigDirKey = @"ActivatingAppConfigDir";
 
 
-int macdrv_err_on;
+bool macdrv_err_on;
 
 
 #if !defined(MAC_OS_VERSION_14_0) || MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_VERSION_14_0
@@ -307,7 +305,7 @@ static NSString* WineLocalizedString(unsigned int stringID)
         }
     }
 
-    - (BOOL) waitUntilQueryDone:(int*)done timeout:(NSDate*)timeout processEvents:(BOOL)processEvents
+    - (BOOL) waitUntilQueryDone:(bool*)done timeout:(NSDate*)timeout processEvents:(BOOL)processEvents
     {
         PerformRequest(NULL);
 
@@ -581,7 +579,8 @@ static NSString* WineLocalizedString(unsigned int stringID)
         NSUInteger nextFloatingIndex = 0;
         __block NSInteger maxLevel = NSIntegerMin;
         __block NSInteger maxNonfloatingLevel = NSNormalWindowLevel;
-        __block NSInteger minFloatingLevel = NSFloatingWindowLevel;
+        /* Windows with WS_EX_TOPMOST should have a window level higher than the macOS dock */
+        __block NSInteger minFloatingLevel = kCGDockWindowLevel + 1;
         __block WineWindow* prev = nil;
         WineWindow* window;
 
@@ -2138,7 +2137,7 @@ static NSString* WineLocalizedString(unsigned int stringID)
         [bestOption deminiaturize:self];
     }
 
-    - (void) setRetinaMode:(int)mode
+    - (void) setRetinaMode:(BOOL)mode
     {
         retina_on = mode;
 
@@ -2397,7 +2396,7 @@ void macdrv_window_rejected_focus(const macdrv_event *event)
  *
  * Returns the keyboard layout uchr data, keyboard type and input source.
  */
-void macdrv_get_input_source_info(CFDataRef* uchr, CGEventSourceKeyboardType* keyboard_type, int* is_iso, TISInputSourceRef* input_source)
+void macdrv_get_input_source_info(CFDataRef* uchr, CGEventSourceKeyboardType* keyboard_type, bool* is_iso, TISInputSourceRef* input_source)
 {
     OnMainThread(^{
         TISInputSourceRef inputSourceLayout;
@@ -2433,13 +2432,12 @@ void macdrv_beep(void)
 /***********************************************************************
  *              macdrv_set_display_mode
  */
-int macdrv_set_display_mode(const struct macdrv_display* display,
-                            CGDisplayModeRef display_mode)
+int macdrv_set_display_mode(CGDirectDisplayID displayID, CGDisplayModeRef display_mode)
 {
     __block int ret;
 
     OnMainThread(^{
-        ret = [[WineApplicationController sharedController] setMode:display_mode forDisplay:display->displayID];
+        ret = [[WineApplicationController sharedController] setMode:display_mode forDisplay:displayID];
     });
 
     return ret;
@@ -2611,9 +2609,9 @@ void macdrv_quit_reply(int reply)
 /***********************************************************************
  *              macdrv_using_input_method
  */
-int macdrv_using_input_method(void)
+bool macdrv_using_input_method(void)
 {
-    __block BOOL ret;
+    __block bool ret;
 
     OnMainThread(^{
         ret = [[WineApplicationController sharedController] inputSourceIsInputMethod];
@@ -2685,9 +2683,9 @@ CFArrayRef macdrv_create_input_source_list(void)
     return ret;
 }
 
-int macdrv_select_input_source(TISInputSourceRef input_source)
+bool macdrv_select_input_source(TISInputSourceRef input_source)
 {
-    __block int ret = FALSE;
+    __block bool ret = false;
 
     OnMainThread(^{
         ret = (TISSelectInputSource(input_source) == noErr);
@@ -2696,16 +2694,16 @@ int macdrv_select_input_source(TISInputSourceRef input_source)
     return ret;
 }
 
-void macdrv_set_cocoa_retina_mode(int new_mode)
+void macdrv_set_cocoa_retina_mode(bool new_mode)
 {
     OnMainThread(^{
         [[WineApplicationController sharedController] setRetinaMode:new_mode];
     });
 }
 
-int macdrv_is_any_wine_window_visible(void)
+bool macdrv_is_any_wine_window_visible(void)
 {
-    __block int ret = FALSE;
+    __block bool ret = false;
 
     OnMainThread(^{
         ret = [[WineApplicationController sharedController] isAnyWineWindowVisible];

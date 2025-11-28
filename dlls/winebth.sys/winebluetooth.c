@@ -29,7 +29,6 @@
 #include <winbase.h>
 
 #include <wine/debug.h>
-#include <wine/heap.h>
 #include <wine/unixlib.h>
 
 #include "winebth_priv.h"
@@ -196,6 +195,16 @@ void winebluetooth_gatt_service_free( winebluetooth_gatt_service_t service )
 
     args.service = service.handle;
     UNIX_BLUETOOTH_CALL( bluetooth_gatt_service_free, &args );
+}
+
+void winebluetooth_gatt_characteristic_free( winebluetooth_gatt_characteristic_t characteristic )
+{
+    struct bluetooth_gatt_characteristic_free_params args = {0};
+
+    TRACE( "(%p)\n", (void *)characteristic.handle );
+
+    args.characteristic = characteristic.handle;
+    UNIX_BLUETOOTH_CALL( bluetooth_gatt_characteristic_free, &args );
 }
 
 NTSTATUS winebluetooth_get_event( struct winebluetooth_event *result )

@@ -35,29 +35,6 @@ static inline const char *debugstr_us( const UNICODE_STRING *us )
     return debugstr_wn( us->Buffer, us->Length / sizeof(WCHAR) );
 }
 
-
-/***********************************************************************
- *           get_int_atom_value
- */
-ATOM get_int_atom_value( UNICODE_STRING *name )
-{
-    const WCHAR *ptr = name->Buffer;
-    const WCHAR *end = ptr + name->Length / sizeof(WCHAR);
-    UINT ret = 0;
-
-    if (IS_INTRESOURCE(ptr)) return LOWORD(ptr);
-
-    if (*ptr++ != '#') return 0;
-    while (ptr < end)
-    {
-        if (*ptr < '0' || *ptr > '9') return 0;
-        ret = ret * 10 + *ptr++ - '0';
-        if (ret >= MAXINTATOM) return 0;
-    }
-    return ret;
-}
-
-
 /***********************************************************************
  *           is_comctl32_class
  */
@@ -120,12 +97,12 @@ static BOOL is_builtin_class( const WCHAR *name )
     return FALSE;
 }
 
-static void init_class_name_ansi( UNICODE_STRING *str, const char *name )
+void init_class_name_ansi( UNICODE_STRING *str, const char *name )
 {
     if (IS_INTRESOURCE( name ))
     {
-        str->Buffer = (WCHAR *)name;
-        str->Length = str->MaximumLength = 0;
+        UINT len = NtUserGetAtomName( (UINT_PTR)name, str );
+        str->Length = len * sizeof(WCHAR);
     }
     else
     {
@@ -138,8 +115,8 @@ void init_class_name( UNICODE_STRING *str, const WCHAR *name )
 {
     if (IS_INTRESOURCE( name ))
     {
-        str->Buffer = (WCHAR *)name;
-        str->Length = str->MaximumLength = 0;
+        UINT len = NtUserGetAtomName( (UINT_PTR)name, str );
+        str->Length = len * sizeof(WCHAR);
     }
     else
     {
@@ -221,11 +198,7 @@ void get_class_version( UNICODE_STRING *name, UNICODE_STRING *version, BOOL load
 
     if (IS_INTRESOURCE( name->Buffer ) || is_builtin_class( name->Buffer )) return;
 
-    if (is_comctl32_class( name->Buffer ))
-    {
-        if (load && !(hmod = GetModuleHandleW( L"comctl32" ))) hmod = LoadLibraryW( L"comctl32" );
-    }
-    else if (!RtlFindActivationContextSectionString( 0, NULL, ACTIVATION_CONTEXT_SECTION_WINDOW_CLASS_REDIRECTION, name, &data ))
+    if (!RtlFindActivationContextSectionString( 0, NULL, ACTIVATION_CONTEXT_SECTION_WINDOW_CLASS_REDIRECTION, name, &data ))
     {
         struct wndclass_redirect_data
         {
@@ -249,6 +222,12 @@ void get_class_version( UNICODE_STRING *name, UNICODE_STRING *version, BOOL load
         memcpy( name->Buffer, ptr, wndclass->name_len );
         name->Length = wndclass->name_len;
         name->Buffer[name->Length / sizeof(WCHAR)] = 0;
+    }
+    /* comctl32 v5 */
+    else if (load && is_comctl32_class( name->Buffer ))
+    {
+        hmod = GetModuleHandleW( L"C:\\windows\\system32\\comctl32.dll" );
+        if (!hmod) hmod = LoadLibraryW( L"C:\\windows\\system32\\comctl32.dll" );
     }
 
     if (load && hmod)

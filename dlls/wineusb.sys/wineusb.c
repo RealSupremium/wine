@@ -315,6 +315,9 @@ static NTSTATUS fdo_pnp(IRP *irp)
             return ret;
         }
 
+        case IRP_MN_QUERY_ID:
+            break;
+
         default:
             FIXME("Unhandled minor function %#x.\n", stack->MinorFunction);
     }
@@ -501,6 +504,10 @@ static NTSTATUS pdo_pnp(DEVICE_OBJECT *device_obj, IRP *irp)
 
             IoDeleteDevice(device->device_obj);
             ret = STATUS_SUCCESS;
+            break;
+
+        case IRP_MN_QUERY_DEVICE_TEXT:
+            WARN("Unhandled IRP_MN_QUERY_DEVICE_TEXT text type %u.\n", stack->Parameters.QueryDeviceText.DeviceTextType);
             break;
 
         default:

@@ -199,7 +199,7 @@ msgstr "&დაყენება"
 #: dlls/inetcpl.cpl/inetcpl.rc:81 dlls/localui/localui.rc:45
 #: dlls/localui/localui.rc:58 dlls/mpr/mpr.rc:50 dlls/msacm32/msacm32.rc:54
 #: dlls/mshtml/mshtml.rc:48 dlls/mshtml/mshtml.rc:58 dlls/msvfw32/msvfw32.rc:37
-#: dlls/oledlg/oledlg.rc:63 dlls/oledlg/oledlg.rc:95
+#: dlls/oledlg/oledlg.rc:63 dlls/oledlg/oledlg.rc:95 dlls/sane.ds/sane.rc:70
 #: dlls/serialui/serialui.rc:42 dlls/setupapi/setupapi.rc:42
 #: dlls/setupapi/setupapi.rc:60 dlls/shell32/shell32.rc:279
 #: dlls/shell32/shell32.rc:303 dlls/shell32/shell32.rc:314
@@ -712,7 +712,7 @@ msgid "Font St&yle:"
 msgstr "ფონტის &სტილი:"
 
 #: dlls/comdlg32/comdlg32.rc:260 dlls/comdlg32/comdlg32.rc:439
-#: programs/winecfg/winecfg.rc:300
+#: programs/winecfg/winecfg.rc:302
 msgid "&Size:"
 msgstr "&ზომა:"
 
@@ -728,7 +728,7 @@ msgstr "გამონა&თება"
 msgid "&Underline"
 msgstr "&ხაზგასმა"
 
-#: dlls/comdlg32/comdlg32.rc:270 programs/winecfg/winecfg.rc:298
+#: dlls/comdlg32/comdlg32.rc:270 programs/winecfg/winecfg.rc:300
 msgid "&Color:"
 msgstr "&ფერი:"
 
@@ -741,7 +741,7 @@ msgid "Scr&ipt:"
 msgstr "&სკრიპტი:"
 
 #: dlls/comdlg32/comdlg32.rc:283 dlls/comdlg32/comdlg32.rc:288
-#: dlls/compstui/compstui.rc:33
+#: dlls/compstui/compstui.rc:33 dlls/sane.ds/sane.rc:42
 msgid "Color"
 msgstr "ფერი"
 
@@ -905,7 +905,7 @@ msgstr "&ასლების რიცხვი:"
 msgid "C&ollate"
 msgstr "&დაშლა"
 
-#: dlls/comdlg32/comdlg32.rc:414 programs/winecfg/winecfg.rc:306
+#: dlls/comdlg32/comdlg32.rc:414 programs/winecfg/winecfg.rc:308
 msgid "Si&ze:"
 msgstr "&ზომა:"
 
@@ -1095,7 +1095,8 @@ msgstr "იისფერი"
 msgid "Teal"
 msgstr "მომწვანო ლურჯი"
 
-#: dlls/comdlg32/comdlg32.rc:129 programs/wordpad/wordpad.rc:132
+#: dlls/comdlg32/comdlg32.rc:129 dlls/sane.ds/sane.rc:41
+#: programs/wordpad/wordpad.rc:132
 msgid "Gray"
 msgstr "ნაცრისფერი"
 
@@ -2447,7 +2448,7 @@ msgid "&File name:"
 msgstr "&ფაილის სახელი:"
 
 #: dlls/cryptui/cryptui.rc:301 dlls/cryptui/cryptui.rc:323
-#: dlls/cryptui/cryptui.rc:437 programs/winecfg/winecfg.rc:319
+#: dlls/cryptui/cryptui.rc:437 programs/winecfg/winecfg.rc:321
 msgid "B&rowse..."
 msgstr "არჩე&ვა..."
 
@@ -3849,15 +3850,15 @@ msgstr "'hidraw'-ის გათიშვა"
 msgid "DInput"
 msgstr "DInput"
 
-#: dlls/joy.cpl/joy.rc:62
+#: dlls/joy.cpl/joy.rc:62 dlls/joy.cpl/joy.rc:111
 msgid "Axes"
 msgstr "ღერძები"
 
-#: dlls/joy.cpl/joy.rc:63
+#: dlls/joy.cpl/joy.rc:63 dlls/joy.cpl/joy.rc:112
 msgid "POVs"
 msgstr "POV-ები"
 
-#: dlls/joy.cpl/joy.rc:64
+#: dlls/joy.cpl/joy.rc:64 dlls/joy.cpl/joy.rc:113
 msgid "Buttons"
 msgstr "ღილაკები"
 
@@ -3866,8 +3867,12 @@ msgid "Force Feedback Effect"
 msgstr "უკუკავშირის ეფექტის დაძალება"
 
 #: dlls/joy.cpl/joy.rc:67
+#, fuzzy
+#| msgid ""
+#| "Press any button in the controller to activate the chosen effect. The "
+#| "effect direction can be changed with the controller axis."
 msgid ""
-"Press any button in the controller to activate the chosen effect. The effect "
+"Hold any button in the controller to play the chosen effect. The effect "
 "direction can be changed with the controller axis."
 msgstr ""
 "არჩეული ეფექტის გასააქტიურებლად კონტროლერზე ნებისმიერ ღილაკს დააწექით. "
@@ -3926,8 +3931,12 @@ msgstr ""
 "და რომ მას ჯოისტიკების ჩანართში DInput არ ფარავს."
 
 #: dlls/joy.cpl/joy.rc:98 dlls/joy.cpl/joy.rc:99 dlls/joy.cpl/joy.rc:100
-#: dlls/joy.cpl/joy.rc:101
+#: dlls/joy.cpl/joy.rc:101 dlls/joy.cpl/joy.rc:115
 msgid "Rumble"
+msgstr ""
+
+#: dlls/joy.cpl/joy.rc:106
+msgid "Windows.Gaming.Input"
 msgstr ""
 
 #: dlls/joy.cpl/joy.rc:31
@@ -4042,19 +4051,19 @@ msgstr "პირობითი აგება გამორთულია"
 msgid "Expected '@'"
 msgstr "მოველოდი '@'"
 
-#: dlls/jscript/jscript.rc:90
+#: dlls/jscript/jscript.rc:97
 msgid "Microsoft JScript compilation error"
 msgstr "Microsoft JScript აგების შეცდომა"
 
-#: dlls/jscript/jscript.rc:91
+#: dlls/jscript/jscript.rc:98
 msgid "Microsoft JScript runtime error"
 msgstr "Microsoft JScript გაშვების გარემოს შეცდომა"
 
-#: dlls/jscript/jscript.rc:92 dlls/vbscript/vbscript.rc:64
+#: dlls/jscript/jscript.rc:99 dlls/vbscript/vbscript.rc:64
 msgid "Unknown runtime error"
 msgstr "უცნობი გაშვების გარემოს შეცდომა"
 
-#: dlls/jscript/jscript.rc:56
+#: dlls/jscript/jscript.rc:57
 msgid "Number expected"
 msgstr "მოველოდი რიცხვს"
 
@@ -4063,137 +4072,175 @@ msgid "Function expected"
 msgstr "მოველოდი ფუნქციას"
 
 #: dlls/jscript/jscript.rc:55
+#, fuzzy
+#| msgid "'[object]' is not a date object"
+msgid "'[object]' is not a string object"
+msgstr "'[object]' თარიღის ობიექტი არაა"
+
+#: dlls/jscript/jscript.rc:56
 msgid "'[object]' is not a date object"
 msgstr "'[object]' თარიღის ობიექტი არაა"
 
-#: dlls/jscript/jscript.rc:57
+#: dlls/jscript/jscript.rc:58
 msgid "Object expected"
 msgstr "მოველოდი ობიექტს"
 
-#: dlls/jscript/jscript.rc:58
+#: dlls/jscript/jscript.rc:59
 msgid "Illegal assignment"
 msgstr "დაუშვებელი მინიჭება"
 
-#: dlls/jscript/jscript.rc:59
+#: dlls/jscript/jscript.rc:60
 msgid "'|' is undefined"
 msgstr "'|' აღწერილი არაა"
 
-#: dlls/jscript/jscript.rc:60
+#: dlls/jscript/jscript.rc:61
 msgid "Boolean object expected"
 msgstr "მოველოდი ლოგიკურ ობიექტს"
 
-#: dlls/jscript/jscript.rc:61
+#: dlls/jscript/jscript.rc:62
 msgid "Cannot delete '|'"
 msgstr "'|'-ის წაშლა შეუძლებელია"
 
-#: dlls/jscript/jscript.rc:62
+#: dlls/jscript/jscript.rc:63
 msgid "VBArray object expected"
 msgstr "მოველოდი VBArray ობიექტს"
 
-#: dlls/jscript/jscript.rc:63
+#: dlls/jscript/jscript.rc:64
 msgid "JScript object expected"
 msgstr "მოველოდი JScript ობიექტს"
 
-#: dlls/jscript/jscript.rc:64
+#: dlls/jscript/jscript.rc:65
 msgid "Enumerator object expected"
 msgstr "მოველოდი ჩამომთვლელ ობიექტს"
 
-#: dlls/jscript/jscript.rc:65
+#: dlls/jscript/jscript.rc:66
 msgid "Regular Expression object expected"
 msgstr "მოველოდი რეგულარული გამოსახულების ობიექტს"
 
-#: dlls/jscript/jscript.rc:66
+#: dlls/jscript/jscript.rc:67
 msgid "Syntax error in regular expression"
 msgstr "რეგულარული გამოსახულების სინტაქსი არასწორია"
 
-#: dlls/jscript/jscript.rc:67
+#: dlls/jscript/jscript.rc:68
 msgid "Unexpected quantifier"
 msgstr "ოველოდი იდენტიფიკატორს"
 
-#: dlls/jscript/jscript.rc:68
+#: dlls/jscript/jscript.rc:69
 msgid "Exception thrown and not caught"
 msgstr "გამონაკლისი გამოტანილია, მაგრამ არა ჩაჭერილი"
 
-#: dlls/jscript/jscript.rc:70
+#: dlls/jscript/jscript.rc:71
 msgid "URI to be encoded contains invalid characters"
 msgstr "დასაშიფრი URI არასწორ სიმბოლოებს შეიცავს"
 
-#: dlls/jscript/jscript.rc:69
+#: dlls/jscript/jscript.rc:70
 msgid "URI to be decoded is incorrect"
 msgstr "გასაშიფრი URI არასწორია"
 
-#: dlls/jscript/jscript.rc:71
+#: dlls/jscript/jscript.rc:72
 msgid "Number of fraction digits is out of range"
 msgstr "მძიმის შემდეგ ციფრების რაოდენობა დასაშვებ დიაპაზონს გარეთაა"
 
-#: dlls/jscript/jscript.rc:72
+#: dlls/jscript/jscript.rc:73
 msgid "Precision is out of range"
 msgstr "სიზუსტე დიაპაზონს გარეთაა"
 
-#: dlls/jscript/jscript.rc:73
-msgid "Array length must be a finite positive integer"
-msgstr "მასივის სიგრძე სასრული დადებითი მთელი რიცხვი უნდა იყოს"
-
 #: dlls/jscript/jscript.rc:74
-msgid "Array object expected"
+#, fuzzy
+#| msgid "Array object expected"
+msgid "Array or arguments object expected"
 msgstr "მოველოდი მასივის ობიექტს"
 
 #: dlls/jscript/jscript.rc:75
+msgid "Array length must be a finite positive integer"
+msgstr "მასივის სიგრძე სასრული დადებითი მთელი რიცხვი უნდა იყოს"
+
+#: dlls/jscript/jscript.rc:76
+msgid "Array object expected"
+msgstr "მოველოდი მასივის ობიექტს"
+
+#: dlls/jscript/jscript.rc:77
 msgid ""
 "'writable' attribute on the property descriptor cannot be set to 'true' on "
 "this object"
 msgstr ""
 "ამ ობიექტზე თვისების აღმწერის ატრიბუტს 'ჩაწერადი' ჭეშმარიტზე ვერ დააყენებთ"
 
-#: dlls/jscript/jscript.rc:76
+#: dlls/jscript/jscript.rc:78
 msgid "Cyclic __proto__ value"
 msgstr "ჩაციკლული __proto__ -ის მნიშვნელობა"
 
-#: dlls/jscript/jscript.rc:77
+#: dlls/jscript/jscript.rc:79
 msgid "Cannot create property for a non-extensible object"
 msgstr "არაგაფართოებადი ობიექტის თვისების შექმნა შეუძლებელია"
 
-#: dlls/jscript/jscript.rc:78
+#: dlls/jscript/jscript.rc:80
 msgid "Cannot define property '|': object is not extensible"
 msgstr "თვისებას \"|\" ვერ აღწერთ: ობიექტი გაფართოებადი არაა"
 
-#: dlls/jscript/jscript.rc:79
+#: dlls/jscript/jscript.rc:81
 msgid "Cannot redefine non-configurable property '|'"
 msgstr "არამორგებადი თვისების '|' თავიდან აღწერა შეუძლებელია"
 
-#: dlls/jscript/jscript.rc:80
+#: dlls/jscript/jscript.rc:82
 msgid "Cannot modify non-writable property '|'"
 msgstr "არაჩაწერადი თვისების '|' შეცვლა შეუძლებელია"
 
-#: dlls/jscript/jscript.rc:81
+#: dlls/jscript/jscript.rc:84
+#, fuzzy
+#| msgid "DataView constructor argument offset is invalid"
+msgid "Typed array constructor argument is invalid"
+msgstr "DataView კონსტრუქტორის არგუმენტის წანაცვლება არასწორია"
+
+#: dlls/jscript/jscript.rc:83
+#, fuzzy
+#| msgid "'this' is not a | object"
+msgid "'this' is not a typed array object"
+msgstr "'this'-ი | ტიპის ობიექტი არაა"
+
+#: dlls/jscript/jscript.rc:85
+msgid "Invalid offset/length when creating typed array"
+msgstr ""
+
+#: dlls/jscript/jscript.rc:86
+msgid "Invalid begin/end value in typed array subarray method"
+msgstr ""
+
+#: dlls/jscript/jscript.rc:87
+#, fuzzy
+#| msgid "Invalid module type for %1.\n"
+msgid "Invalid source in typed array set"
+msgstr "%1-ის მოდულის არასწორი ტიპი.\n"
+
+#: dlls/jscript/jscript.rc:88
 msgid "'this' is not a DataView object"
 msgstr "'this'-ი DataView ტიპის ობიექტი არაა"
 
-#: dlls/jscript/jscript.rc:82
+#: dlls/jscript/jscript.rc:89
 msgid "Required argument offset or value in DataView method is not specified"
 msgstr ""
 
-#: dlls/jscript/jscript.rc:83
+#: dlls/jscript/jscript.rc:90
 msgid "DataView operation access beyond specified buffer length"
 msgstr "DataView ოპერაციის წვდომა მითითებული ბუფერის სიგრძის მიღმა"
 
-#: dlls/jscript/jscript.rc:84
+#: dlls/jscript/jscript.rc:91
 msgid "DataView constructor argument offset is invalid"
 msgstr "DataView კონსტრუქტორის არგუმენტის წანაცვლება არასწორია"
 
-#: dlls/jscript/jscript.rc:85
+#: dlls/jscript/jscript.rc:92
 msgid "'this' is not a | object"
 msgstr "'this'-ი | ტიპის ობიექტი არაა"
 
-#: dlls/jscript/jscript.rc:86
+#: dlls/jscript/jscript.rc:93
 msgid "'key' is not an object"
 msgstr "'key' ობიექტი არაა"
 
-#: dlls/jscript/jscript.rc:87
+#: dlls/jscript/jscript.rc:94
 msgid "ArrayBuffer object expected"
 msgstr "მოველოდი ArrayBuffer ტიპის ობიექტს"
 
-#: dlls/jscript/jscript.rc:88
+#: dlls/jscript/jscript.rc:95
 msgid "Property cannot have both accessors and a value"
 msgstr ""
 
@@ -9564,11 +9611,39 @@ msgstr "უცნობი წყარო"
 msgid "the program which created it"
 msgstr "პროგრამა, რომელმაც ის შექმნა"
 
-#: dlls/sane.ds/sane.rc:41
+#: dlls/sane.ds/sane.rc:55 dlls/sane.ds/sane.rc:45
 msgid "Scanning"
 msgstr "სკანირება"
 
-#: dlls/sane.ds/sane.rc:44
+#: dlls/sane.ds/sane.rc:58
+#, fuzzy
+#| msgid "feature from:"
+msgid "Manufacturer:"
+msgstr "თვისების წყარო:"
+
+#: dlls/sane.ds/sane.rc:60
+#, fuzzy
+#| msgid "Product Updates:"
+msgid "Product family:"
+msgstr "პროდუქტის განახლებები:"
+
+#: dlls/sane.ds/sane.rc:62
+#, fuzzy
+#| msgid "Product Updates:"
+msgid "Product name:"
+msgstr "პროდუქტის განახლებები:"
+
+#: dlls/sane.ds/sane.rc:64
+#, fuzzy
+#| msgid "Screen resolution"
+msgid "Resolution:"
+msgstr "ეკრანის გარჩევადობა"
+
+#: dlls/sane.ds/sane.rc:66 programs/wordpad/wordpad.rc:181
+msgid "Page"
+msgstr "გვერდი"
+
+#: dlls/sane.ds/sane.rc:68
 msgid "SCANNING... Please Wait"
 msgstr "სკანირება.. გთხოვთ მოითმინოთ"
 
@@ -9597,6 +9672,35 @@ msgstr "%"
 msgctxt "unit: microseconds"
 msgid "us"
 msgstr "us"
+
+#: dlls/sane.ds/sane.rc:43
+msgid "LineArt"
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:44 dlls/setupapi/setupapi.rc:32
+#: programs/ipconfig/ipconfig.rc:34
+msgid "Unknown"
+msgstr "უცნობი"
+
+#: dlls/sane.ds/sane.rc:46
+msgid ""
+"The Automatic Document Feeder (ADF) is empty. Please insert the sheets to be "
+"scanned."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:47
+msgid ""
+"The scanner reports a paper jam. Check for additional information on device "
+"display."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:48
+msgid "The scanner cover is open. Please close the scanner."
+msgstr ""
+
+#: dlls/sane.ds/sane.rc:49
+msgid "The scanner is busy. Try again later."
+msgstr ""
 
 #: dlls/serialui/serialui.rc:28
 msgid "Settings for %s"
@@ -9648,10 +9752,6 @@ msgstr "დააკოპირეთ მწარმოებლის ფა�
 #: dlls/setupapi/setupapi.rc:31
 msgid "The file '%1' on %2 is needed"
 msgstr "საჭიროა ფაილი '%1' '%2'-ზე"
-
-#: dlls/setupapi/setupapi.rc:32 programs/ipconfig/ipconfig.rc:34
-msgid "Unknown"
-msgstr "უცნობი"
 
 #: dlls/setupapi/setupapi.rc:33
 msgid "Copy files from:"
@@ -13723,7 +13823,7 @@ msgid "Digi&tal"
 msgstr "&ციფრული"
 
 #: programs/clock/clock.rc:35 programs/notepad/notepad.rc:59
-#: programs/winecfg/winecfg.rc:313 programs/winefile/winefile.rc:63
+#: programs/winecfg/winecfg.rc:315 programs/winefile/winefile.rc:63
 #: programs/wordpad/wordpad.rc:84
 msgid "&Font..."
 msgstr "ფონტი..."
@@ -14356,6 +14456,12 @@ msgstr "ფაილის ბოლო"
 #| msgid "%1!d! file(s) copied\n"
 msgid "%t%1!u! file(s) copied\n"
 msgstr "%1!d! ფაილი დაკოპირდა\n"
+
+#: programs/cmd/cmd.rc:411 programs/xcopy/xcopy.rc:83
+#, fuzzy
+#| msgid "The file cannot be accessed.\n"
+msgid "File cannot be copied onto itself.\n"
+msgstr "ფაილთან წვდომა აკრძალულია.\n"
 
 #: programs/conhost/conhost.rc:54
 msgid "Cursor size"
@@ -18037,74 +18143,80 @@ msgid "Driver diagnostics"
 msgstr "დრაივერის დიაგნოსტიკა"
 
 #: programs/winecfg/winecfg.rc:271
-msgid "Defaults"
-msgstr "ნაგულისხმევი მნიშვნელობები"
-
-#: programs/winecfg/winecfg.rc:272
-msgid "Output device:"
-msgstr "გამოტანის მოწყობილობა:"
-
-#: programs/winecfg/winecfg.rc:273
-msgid "Voice output device:"
-msgstr "ხმის გამოტანის მოწყობილობა:"
-
-#: programs/winecfg/winecfg.rc:274
-msgid "Input device:"
-msgstr "შეყვანის მოწყობილობა:"
-
-#: programs/winecfg/winecfg.rc:275
-msgid "Voice input device:"
-msgstr "ხმის შეყვანის მოწყობილობა:"
-
-#: programs/winecfg/winecfg.rc:280
 msgid "&Test Sound"
 msgstr "&ხმის ტესტი"
 
-#: programs/winecfg/winecfg.rc:281 programs/winecfg/winecfg.rc:89
+#: programs/winecfg/winecfg.rc:272
+msgid "Defaults"
+msgstr "ნაგულისხმევი მნიშვნელობები"
+
+#: programs/winecfg/winecfg.rc:273
+msgid "Output device:"
+msgstr "გამოტანის მოწყობილობა:"
+
+#: programs/winecfg/winecfg.rc:274
+msgid "Voice output device:"
+msgstr "ხმის გამოტანის მოწყობილობა:"
+
+#: programs/winecfg/winecfg.rc:275
+msgid "Input device:"
+msgstr "შეყვანის მოწყობილობა:"
+
+#: programs/winecfg/winecfg.rc:276
+msgid "Voice input device:"
+msgstr "ხმის შეყვანის მოწყობილობა:"
+
+#: programs/winecfg/winecfg.rc:277
+#, fuzzy
+#| msgid "Output device:"
+msgid "MIDI output device:"
+msgstr "გამოტანის მოწყობილობა:"
+
+#: programs/winecfg/winecfg.rc:283 programs/winecfg/winecfg.rc:89
 msgid "Speaker configuration"
 msgstr "დინამიკის მორგება"
 
-#: programs/winecfg/winecfg.rc:284
+#: programs/winecfg/winecfg.rc:286
 msgid "Speakers:"
 msgstr "დინამიკები:"
 
-#: programs/winecfg/winecfg.rc:292
+#: programs/winecfg/winecfg.rc:294
 msgid "Appearance"
 msgstr "გარემოს იერსახე"
 
-#: programs/winecfg/winecfg.rc:293
+#: programs/winecfg/winecfg.rc:295
 msgid "&Theme:"
 msgstr "&თემა:"
 
-#: programs/winecfg/winecfg.rc:295
+#: programs/winecfg/winecfg.rc:297
 msgid "&WinRT theme:"
 msgstr "&WinRT თემა:"
 
-#: programs/winecfg/winecfg.rc:297
+#: programs/winecfg/winecfg.rc:299
 msgid "&Install theme..."
 msgstr "&თემის დაყენება..."
 
-#: programs/winecfg/winecfg.rc:302
+#: programs/winecfg/winecfg.rc:304
 msgid "It&em:"
 msgstr "&ელემენტი:"
 
-#: programs/winecfg/winecfg.rc:304
+#: programs/winecfg/winecfg.rc:306
 msgid "C&olor:"
 msgstr "&ფერი:"
 
-#: programs/winecfg/winecfg.rc:310
+#: programs/winecfg/winecfg.rc:312
 msgid "MIME types"
 msgstr "MIME ტიპები"
 
-#: programs/winecfg/winecfg.rc:311
+#: programs/winecfg/winecfg.rc:313
 msgid "Manage file and protocol &associations"
 msgstr "ფაილის და პროტოკოლის &ასოციაციების მართვა"
 
-#: programs/winecfg/winecfg.rc:314
+#: programs/winecfg/winecfg.rc:316
 msgid "Folders"
 msgstr "საქაღალდეები"
 
-#: programs/winecfg/winecfg.rc:317
+#: programs/winecfg/winecfg.rc:319
 msgid "&Link to:"
 msgstr "&მიბმის სამიზნე:"
 
@@ -18901,6 +19013,10 @@ msgstr "შეცდომა: PATH-ის სინტაქსი არას
 msgid "Supply a command\n"
 msgstr "მიუთითეთ ბრძანება\n"
 
+#: programs/wmic/wmic.rc:33
+msgid "Example usage: wmic ALIAS get PROPERTY[,PROPERTY2,...]\n"
+msgstr ""
+
 #: programs/wordpad/wordpad.rc:31
 msgid "&New...\tCtrl+N"
 msgstr "&ახალი...\tCtrl+N"
@@ -19199,10 +19315,6 @@ msgstr "გადიდება"
 #: programs/wordpad/wordpad.rc:179
 msgid "Zoom out"
 msgstr "და_პატარავება"
-
-#: programs/wordpad/wordpad.rc:181
-msgid "Page"
-msgstr "გვერდი"
 
 #: programs/wordpad/wordpad.rc:182
 msgid "Pages"

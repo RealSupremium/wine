@@ -306,12 +306,12 @@ static LRESULT MDISetMenu( HWND hwnd, HMENU hmenuFrame,
 
             ci->hWindowMenu = hmenuWindow;
 
-            /* Add items to the new Window menu */
             ci->nActiveChildren = nActiveChildren_old;
-            MDI_RefreshMenu(ci);
         }
         else
             ci->hWindowMenu = hmenuWindow;
+
+        MDI_RefreshMenu(ci);
     }
 
     if (hmenuFrame)
@@ -1357,6 +1357,7 @@ LRESULT WINAPI DefMDIChildProcA( HWND hwnd, UINT message,
 	DefWindowProcA(hwnd, message, wParam, lParam);
 	if( ci->hwndChildMaximized == hwnd )
 	    MDI_UpdateFrameText( GetParent(client), client, TRUE, NULL );
+        MDI_RefreshMenu( ci );
         return 1; /* success. FIXME: check text length */
 
     case WM_GETMINMAXINFO:
@@ -1397,6 +1398,7 @@ LRESULT WINAPI DefMDIChildProcW( HWND hwnd, UINT message,
         DefWindowProcW(hwnd, message, wParam, lParam);
         if( ci->hwndChildMaximized == hwnd )
             MDI_UpdateFrameText( GetParent(client), client, TRUE, NULL );
+        MDI_RefreshMenu( ci );
         return 1; /* success. FIXME: check text length */
 
     case WM_GETMINMAXINFO:
@@ -1787,56 +1789,6 @@ void WINAPI ScrollChildren(HWND hWnd, UINT uMsg, WPARAM wParam,
                               SW_INVALIDATE | SW_ERASE | SW_SCROLLCHILDREN );
 done:
     SetThreadDpiAwarenessContext( context );
-}
-
-
-/******************************************************************************
- *		CascadeWindows (USER32.@) Cascades MDI child windows
- *
- * RETURNS
- *    Success: Number of cascaded windows.
- *    Failure: 0
- */
-WORD WINAPI
-CascadeWindows (HWND hwndParent, UINT wFlags, const RECT *lpRect,
-		UINT cKids, const HWND *lpKids)
-{
-    FIXME("(%p,0x%08x,...,%u,...): stub\n", hwndParent, wFlags, cKids);
-    return 0;
-}
-
-
-/***********************************************************************
- *		CascadeChildWindows (USER32.@)
- */
-WORD WINAPI CascadeChildWindows( HWND parent, UINT flags )
-{
-    return CascadeWindows( parent, flags, NULL, 0, NULL );
-}
-
-
-/******************************************************************************
- *		TileWindows (USER32.@) Tiles MDI child windows
- *
- * RETURNS
- *    Success: Number of tiled windows.
- *    Failure: 0
- */
-WORD WINAPI
-TileWindows (HWND hwndParent, UINT wFlags, const RECT *lpRect,
-	     UINT cKids, const HWND *lpKids)
-{
-    FIXME("(%p,0x%08x,...,%u,...): stub\n", hwndParent, wFlags, cKids);
-    return 0;
-}
-
-
-/***********************************************************************
- *		TileChildWindows (USER32.@)
- */
-WORD WINAPI TileChildWindows( HWND parent, UINT flags )
-{
-    return TileWindows( parent, flags, NULL, 0, NULL );
 }
 
 

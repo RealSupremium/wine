@@ -42,7 +42,6 @@
 #define MIN_HASH_SIZE 4
 #define MAX_HASH_SIZE 0x200
 
-#define MAX_ATOM_LEN  (255 * sizeof(WCHAR))
 #define MIN_STR_ATOM  0xc000
 #define MAX_ATOMS     0x4000
 
@@ -248,6 +247,22 @@ static void atom_table_destroy( struct object *obj )
     for (i = 0; i < table->count; i++) free( table->atoms[i] );
 }
 
+static atom_t get_int_atom_value( const struct unicode_str *name )
+{
+    const WCHAR *ptr = name->str;
+    const WCHAR *end = ptr + name->len / sizeof(WCHAR);
+    unsigned int ret = 0;
+
+    if (*ptr++ != '#') return 0;
+    while (ptr < end)
+    {
+        if (*ptr < '0' || *ptr > '9') return 0;
+        ret = ret * 10 + *ptr++ - '0';
+        if (ret >= MAXINTATOM) return 0;
+    }
+    return ret;
+}
+
 /* find an atom entry in its hash list */
 static struct atom_entry *find_atom_entry( struct atom_table *table, const struct unicode_str *str,
                                            unsigned short hash )
@@ -273,11 +288,12 @@ atom_t add_atom( struct atom_table *table, const struct unicode_str *str )
         set_error( STATUS_OBJECT_NAME_INVALID );
         return 0;
     }
-    if (str->len > MAX_ATOM_LEN)
+    if (str->len > MAX_ATOM_LEN * sizeof(WCHAR))
     {
         set_error( STATUS_INVALID_PARAMETER );
         return 0;
     }
+    if ((atom = get_int_atom_value( str ))) return atom;
 
     hash = hash_strW( str->str, str->len, ARRAY_SIZE(table->entries) );
     if ((entry = find_atom_entry( table, str, hash )))  /* exists already */
@@ -328,17 +344,19 @@ atom_t find_atom( struct atom_table *table, const struct unicode_str *str )
 {
     struct atom_entry *entry;
     unsigned short hash;
+    atom_t atom;
 
     if (!str->len)
     {
         set_error( STATUS_OBJECT_NAME_INVALID );
         return 0;
     }
-    if (str->len > MAX_ATOM_LEN)
+    if (str->len > MAX_ATOM_LEN * sizeof(WCHAR))
     {
         set_error( STATUS_INVALID_PARAMETER );
         return 0;
     }
+    if ((atom = get_int_atom_value( str ))) return atom;
 
     hash = hash_strW( str->str, str->len, ARRAY_SIZE(table->entries) );
     if (!(entry = find_atom_entry( table, str, hash )))
@@ -350,15 +368,15 @@ atom_t find_atom( struct atom_table *table, const struct unicode_str *str )
 }
 
 /* increment the ref count of a global atom; used for window properties */
-int grab_atom( struct atom_table *table, atom_t atom )
+atom_t grab_atom( struct atom_table *table, atom_t atom )
 {
     if (atom >= MIN_STR_ATOM)
     {
         struct atom_entry *entry = get_atom_entry( table, atom );
-        if (entry) entry->count++;
-        return (entry != NULL);
+        if (!entry) return 0;
+        entry->count++;
     }
-    else return 1;
+    return atom;
 }
 
 /* decrement the ref count of a global atom; used for window properties */

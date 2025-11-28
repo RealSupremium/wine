@@ -768,7 +768,6 @@ static void test_edit_control_1(void)
     MSG msMessage;
     int i;
     LONG r;
-    DWORD idx;
 
     msMessage.message = WM_KEYDOWN;
 
@@ -776,9 +775,6 @@ static void test_edit_control_1(void)
     hwEdit = create_editcontrol(ES_AUTOHSCROLL | ES_AUTOVSCROLL, 0);
     r = get_edit_style(hwEdit);
     ok(r == (ES_AUTOVSCROLL | ES_AUTOHSCROLL), "Wrong style expected 0xc0 got: 0x%lx\n", r);
-
-    idx = SendMessageA(hwEdit, WM_GETOBJECT, 0, OBJID_QUERYCLASSNAMEIDX);
-    ok(idx == 0x10004, "Got index 0x%08lx\n", idx);
 
     for (i = 0; i < 65535; i++)
     {
@@ -3897,6 +3893,50 @@ static void test_format_rect(void)
     }
 }
 
+static void test_PASSWORDCHAR(void)
+{
+    HWND hwEdit;
+    LONG r;
+    CHAR passwdChar = '#';
+
+    hwEdit = create_editcontrol(ES_AUTOHSCROLL | ES_AUTOVSCROLL, 0);
+
+    r = SendMessageA(hwEdit, EM_SETPASSWORDCHAR, passwdChar, 0);
+    ok(r == 1, "Expected: 1, got: %ld\n", r);
+
+    r = get_edit_style(hwEdit);
+    ok(r & ES_PASSWORD, "Wrong style expected ES_PASSWORD got: 0x%lx\n", r);
+
+    r = SendMessageA(hwEdit, EM_GETPASSWORDCHAR, 0, 0);
+    ok(r == passwdChar, "Expected: 0, got: %ld\n", r);
+
+    DestroyWindow (hwEdit);
+
+    hwEdit = create_editcontrol(ES_MULTILINE, 0);
+    r = get_edit_style(hwEdit);
+    ok(r == ES_MULTILINE, "Wrong style expected ES_PASSWORD got: 0x%lx\n", r);
+
+    r = SendMessageA(hwEdit, EM_SETPASSWORDCHAR, passwdChar, 0);
+    ok(r == 1, "Expected: 1, got: %ld\n", r);
+
+    r = get_edit_style(hwEdit);
+    ok(r == (ES_MULTILINE | ES_PASSWORD), "Wrong style expected ES_MULTILINE|ES_PASSWORD got: 0x%lx\n", r);
+
+    r = SendMessageA(hwEdit, EM_GETPASSWORDCHAR, 0, 0);
+    ok(r == passwdChar, "Expected: 0, got: %ld\n", r);
+
+    r = SendMessageA(hwEdit, EM_SETPASSWORDCHAR, 0, 0);
+    ok(r == 1, "Expected: 1, got: %ld\n", r);
+
+    r = get_edit_style(hwEdit);
+    ok(r == ES_MULTILINE, "Wrong style expected ES_PASSWORD got: 0x%lx\n", r);
+
+    r = SendMessageA(hwEdit, EM_GETPASSWORDCHAR, 0, 0);
+    ok(r == 0, "Expected: 0, got: %ld\n", r);
+
+    DestroyWindow (hwEdit);
+}
+
 START_TEST(edit)
 {
     ULONG_PTR ctx_cookie;
@@ -3947,6 +3987,7 @@ START_TEST(edit)
     test_cue_banner();
     test_ime();
     test_format_rect();
+    test_PASSWORDCHAR();
 
     UnregisterWindowClasses();
 

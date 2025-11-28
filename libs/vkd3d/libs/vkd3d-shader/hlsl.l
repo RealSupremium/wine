@@ -83,7 +83,6 @@ ComputeShader           {return KW_COMPUTESHADER;       }
 compile                 {return KW_COMPILE;             }
 CompileShader           {return KW_COMPILESHADER;       }
 const                   {return KW_CONST;               }
-ConstructGSWithSO       {return KW_CONSTRUCTGSWITHSO;   }
 continue                {return KW_CONTINUE;            }
 DepthStencilState       {return KW_DEPTHSTENCILSTATE;   }
 DepthStencilView        {return KW_DEPTHSTENCILVIEW;    }
@@ -158,6 +157,7 @@ static                  {return KW_STATIC;              }
 string                  {return KW_STRING;              }
 String                  {return KW_STRING;              }
 struct                  {return KW_STRUCT;              }
+StructuredBuffer        {return KW_STRUCTUREDBUFFER;    }
 switch                  {return KW_SWITCH;              }
 tbuffer                 {return KW_TBUFFER;             }
 (?i:technique)          {return KW_TECHNIQUE;           }
@@ -345,7 +345,7 @@ while                   {return KW_WHILE;               }
 <pp>{ANY}               {}
 
 {ANY}                   {
-                            return yytext[0];
+                            return (unsigned char)yytext[0];
                         }
 
 %%

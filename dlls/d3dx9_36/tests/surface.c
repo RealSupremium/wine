@@ -133,46 +133,6 @@ static HRESULT create_file(const char *filename, const unsigned char *data, cons
     return D3DERR_INVALIDCALL;
 }
 
-static IDirect3DDevice9 *create_device(HWND *window)
-{
-    D3DPRESENT_PARAMETERS present_parameters = { 0 };
-    IDirect3DDevice9 *device;
-    IDirect3D9 *d3d;
-    HRESULT hr;
-    HWND wnd;
-
-    *window = NULL;
-
-    if (!(wnd = CreateWindowA("static", "d3dx9_test", WS_OVERLAPPEDWINDOW, 0, 0,
-            640, 480, NULL, NULL, NULL, NULL)))
-    {
-        skip("Couldn't create application window.\n");
-        return NULL;
-    }
-
-    if (!(d3d = Direct3DCreate9(D3D_SDK_VERSION)))
-    {
-        skip("Couldn't create IDirect3D9 object.\n");
-        DestroyWindow(wnd);
-        return NULL;
-    }
-
-    present_parameters.Windowed = TRUE;
-    present_parameters.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    hr = IDirect3D9_CreateDevice(d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, wnd, D3DCREATE_HARDWARE_VERTEXPROCESSING,
-            &present_parameters, &device);
-    IDirect3D9_Release(d3d);
-    if (FAILED(hr))
-    {
-        skip("Failed to create IDirect3DDevice9 object %#lx.\n", hr);
-        DestroyWindow(wnd);
-        return NULL;
-    }
-
-    *window = wnd;
-    return device;
-}
-
 /* fills dds_header with reasonable default values */
 static void fill_dds_header(struct dds_header *header)
 {
@@ -194,12 +154,10 @@ static void fill_dds_header(struct dds_header *header)
     header->caps = DDSCAPS_TEXTURE;
 }
 
-#define check_dds_pixel_format(flags, fourcc, bpp, rmask, gmask, bmask, amask, format) \
-        check_dds_pixel_format_(__LINE__, flags, fourcc, bpp, rmask, gmask, bmask, amask, format)
-static void check_dds_pixel_format_(unsigned int line,
+static void check_dds_pixel_format_image_info(unsigned int line,
                                     DWORD flags, DWORD fourcc, DWORD bpp,
                                     DWORD rmask, DWORD gmask, DWORD bmask, DWORD amask,
-                                    D3DFORMAT expected_format)
+                                    HRESULT expected_hr, D3DFORMAT expected_format)
 {
     HRESULT hr;
     D3DXIMAGE_INFO info;
@@ -223,9 +181,9 @@ static void check_dds_pixel_format_(unsigned int line,
     memset(dds.data, 0, sizeof(dds.data));
 
     hr = D3DXGetImageInfoFromFileInMemory(&dds, sizeof(dds), &info);
-    ok_(__FILE__, line)(hr == D3D_OK, "D3DXGetImageInfoFromFileInMemory returned %#lx for pixel format %#x, expected %#lx\n",
-            hr, expected_format, D3D_OK);
-    if (SUCCEEDED(hr))
+    ok_(__FILE__, line)(hr == expected_hr, "D3DXGetImageInfoFromFileInMemory returned %#lx for pixel format %#x, expected %#lx\n",
+            hr, expected_format, expected_hr);
+    if (SUCCEEDED(hr) && hr == expected_hr)
     {
         ok_(__FILE__, line)(info.Format == expected_format, "D3DXGetImageInfoFromFileInMemory returned format %#x, expected %#x\n",
                 info.Format, expected_format);
@@ -233,7 +191,7 @@ static void check_dds_pixel_format_(unsigned int line,
 
     /* Test again with unused fields set. */
     if (flags & DDS_PF_FOURCC)
-        rmask = gmask = bmask = amask = bpp = ~0u;
+        rmask = gmask = bmask = amask = bpp = flags = ~0u;
     else if ((flags & (DDS_PF_INDEXED | DDS_PF_ALPHA)) == (DDS_PF_INDEXED | DDS_PF_ALPHA))
         rmask = gmask = bmask = fourcc = ~0u;
     else if (flags & DDS_PF_INDEXED)
@@ -253,6 +211,7 @@ static void check_dds_pixel_format_(unsigned int line,
     else if (flags & DDS_PF_BUMPLUMINANCE)
         fourcc = amask = ~0u;
 
+    dds.header.pixel_format.flags = flags;
     dds.header.pixel_format.fourcc = fourcc;
     dds.header.pixel_format.bpp = bpp;
     dds.header.pixel_format.rmask = rmask;
@@ -260,10 +219,17 @@ static void check_dds_pixel_format_(unsigned int line,
     dds.header.pixel_format.bmask = bmask;
     dds.header.pixel_format.amask = amask;
     hr = D3DXGetImageInfoFromFileInMemory(&dds, sizeof(dds), &info);
-    ok_(__FILE__, line)(hr == D3D_OK, "Unexpected hr %#lx.\n", hr);
-    if (SUCCEEDED(hr))
+    ok_(__FILE__, line)(hr == expected_hr, "Unexpected hr %#lx.\n", hr);
+    if (SUCCEEDED(hr) && hr == expected_hr)
         ok_(__FILE__, line)(info.Format == expected_format, "Unexpected format %#x.\n", info.Format);
 }
+
+#define check_dds_pixel_format(flags, fourcc, bpp, rmask, gmask, bmask, amask, format) \
+        check_dds_pixel_format_image_info(__LINE__, flags, fourcc, bpp, rmask, gmask, bmask, amask, D3D_OK, format)
+
+#define check_dds_pixel_format_unsupported(flags, fourcc, bpp, rmask, gmask, bmask, amask, expected_hr) \
+        check_dds_pixel_format_image_info(__LINE__, flags, fourcc, bpp, rmask, gmask, bmask, amask, expected_hr, \
+                D3DFMT_UNKNOWN)
 
 static void test_dds_header_handling(void)
 {
@@ -1001,6 +967,7 @@ static void test_D3DXGetImageInfo(void)
     check_dds_pixel_format(DDS_PF_FOURCC, D3DFMT_R32F, 0, 0, 0, 0, 0, D3DFMT_R32F);
     check_dds_pixel_format(DDS_PF_FOURCC, D3DFMT_G32R32F, 0, 0, 0, 0, 0, D3DFMT_G32R32F);
     check_dds_pixel_format(DDS_PF_FOURCC, D3DFMT_A32B32G32R32F, 0, 0, 0, 0, 0, D3DFMT_A32B32G32R32F);
+    check_dds_pixel_format(DDS_PF_FOURCC, D3DFMT_CxV8U8, 0, 0, 0, 0, 0, D3DFMT_CxV8U8);
     check_dds_pixel_format(DDS_PF_RGB, 0, 16, 0xf800, 0x07e0, 0x001f, 0, D3DFMT_R5G6B5);
     check_dds_pixel_format(DDS_PF_RGB | DDS_PF_ALPHA, 0, 16, 0x7c00, 0x03e0, 0x001f, 0x8000, D3DFMT_A1R5G5B5);
     check_dds_pixel_format(DDS_PF_RGB | DDS_PF_ALPHA, 0, 16, 0x0f00, 0x00f0, 0x000f, 0xf000, D3DFMT_A4R4G4B4);
@@ -1030,6 +997,13 @@ static void test_D3DXGetImageInfo(void)
     todo_wine check_dds_pixel_format(DDS_PF_BUMPLUMINANCE, 0, 16, 0x001f, 0x03e0, 0xfc00, 0, D3DFMT_L6V5U5);
     check_dds_pixel_format(DDS_PF_INDEXED, 0, 8, 0, 0, 0, 0, D3DFMT_P8);
     check_dds_pixel_format(DDS_PF_INDEXED | DDS_PF_ALPHA, 0, 16, 0, 0, 0, 0xff00, D3DFMT_A8P8);
+
+    /*
+     * ATI{1,2} are unsupported, but some games (Secret World Legends) attempt
+     * to use them on d3dx9.
+     */
+    check_dds_pixel_format_unsupported(DDS_PF_FOURCC, MAKEFOURCC('A','T','I','1'), 0, 0, 0, 0, 0, D3DXERR_INVALIDDATA);
+    check_dds_pixel_format_unsupported(DDS_PF_FOURCC, MAKEFOURCC('A','T','I','2'), 0, 0, 0, 0, 0, D3DXERR_INVALIDDATA);
 
     test_dds_header_handling();
     test_tga_header_handling();
@@ -1178,50 +1152,6 @@ static const uint8_t a8p8_2_2_expected[] =
 {
     0x00,0x00,0x00,0x10,0x00,0x00,0x40,0x20,0x00,0x00,0x80,0x30,0xff,0xff,0xff,0x40,
 };
-
-static uint32_t get_bpp_for_d3dformat(D3DFORMAT format)
-{
-    switch (format)
-    {
-    case D3DFMT_A32B32G32R32F:
-        return 16;
-
-    case D3DFMT_A16B16G16R16:
-    case D3DFMT_Q16W16V16U16:
-        return 8;
-
-    case D3DFMT_Q8W8V8U8:
-    case D3DFMT_A8B8G8R8:
-    case D3DFMT_A8R8G8B8:
-    case D3DFMT_V16U16:
-    case D3DFMT_G16R16:
-    case D3DFMT_R32F:
-        return 4;
-
-    case D3DFMT_R8G8B8:
-        return 3;
-
-    case D3DFMT_A4R4G4B4:
-    case D3DFMT_X1R5G5B5:
-    case D3DFMT_A1R5G5B5:
-    case D3DFMT_R5G6B5:
-    case D3DFMT_V8U8:
-    case D3DFMT_A8P8:
-        return 2;
-
-    case D3DFMT_R3G3B2:
-    case D3DFMT_DXT5:
-    case D3DFMT_DXT4:
-    case D3DFMT_A4L4:
-    case D3DFMT_L8:
-    case D3DFMT_P8:
-        return 1;
-
-    default:
-        assert(0 && "Need to add format to get_bpp_for_d3dformat().");
-        return 0;
-    }
-}
 
 static void test_format_conversion(IDirect3DDevice9 *device)
 {
@@ -2207,22 +2137,6 @@ static const uint8_t q8w8v8u8_4_4_expected[] =
     0xac,0x9c,0x8c,0xbc,0xec,0xdc,0xcc,0xfc,0x2b,0x1b,0x0b,0x3b,0x6b,0x5b,0x4b,0x7b,
 };
 
-static const uint8_t a8r8g8b8_4_4[] =
-{
-    0x00,0xff,0x00,0x80,0x00,0xff,0x00,0x80,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,
-    0x80,0x00,0x00,0xff,0xff,0x00,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,
-    0x00,0x00,0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0xff,0xff,0xff,0x00,0xff,
-    0x00,0x00,0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0xff,0xff,0xff,0x00,0xff,
-};
-
-static const uint8_t a8r8g8b8_4_4_expected[] =
-{
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,
-    0x80,0x00,0x00,0xff,0xff,0x00,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,
-    0x00,0x00,0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0xff,0xff,0xff,0x00,0xff,
-    0x00,0x00,0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0xff,0xff,0xff,0x00,0xff,
-};
-
 static const uint8_t a4r4g4b4_4_4[] =
 {
     0xff,0x00,0x0f,0x00,0x00,0xf0,0x00,0x0f,0xf0,0x00,0xf0,0x00,0xf0,0x00,0xf0,0x00,
@@ -2310,6 +2224,21 @@ static const uint8_t r3g3b2_4_4_expected[] =
 static BOOL is_dxt_d3dformat(D3DFORMAT fmt);
 static void test_color_key(void)
 {
+    static const uint8_t a8r8g8b8_4_4[] =
+    {
+        0x00,0xff,0x00,0x80,0x00,0xff,0x00,0x80,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,
+        0x80,0x00,0x00,0xff,0xff,0x00,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,
+        0x00,0x00,0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0xff,0xff,0xff,0x00,0xff,
+        0x00,0x00,0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0xff,0xff,0xff,0x00,0xff,
+    };
+    static const uint8_t a8r8g8b8_4_4_expected[] =
+    {
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,
+        0x80,0x00,0x00,0xff,0xff,0x00,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,0x00,0xff,
+        0x00,0x00,0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0xff,0xff,0xff,0x00,0xff,
+        0x00,0x00,0xff,0xff,0x00,0x00,0xff,0xff,0xff,0xff,0x00,0xff,0xff,0xff,0x00,0xff,
+    };
+
     static const struct
     {
         D3DFORMAT src_format;
@@ -2518,6 +2447,7 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
     static const uint32_t pixdata_q8w8v8u8[] = { 0x30201000, 0x7f605040, 0xb0a08180, 0xffe0d0c0 };
     static const float pixdata_a32b32g32r32f[] = {  0.0f,  0.1f,  NAN,  INFINITY,  1.0f,  1.1f,  1.2f,  1.3f,
                                                    -0.1f, -0.2f, -NAN, -INFINITY, -1.0f, -1.1f, -1.2f, -1.3f };
+    static const uint16_t pixdata_cxv8u8[] = { 0x7f7f, 0x8181, 0x0000, 0x006d };
     static const uint16_t pixdata_v8u8[] = { 0x3000, 0x7f40, 0x8180, 0xffc0 };
     BYTE buffer[4 * 8 * 4];
     D3DXIMAGE_INFO info;
@@ -2950,6 +2880,19 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
         check_pixel_4bpp(&lockrect, 1, 0, 0xffc0d0e0);
         check_pixel_4bpp(&lockrect, 0, 1, 0x2f00001f);
         check_pixel_4bpp(&lockrect, 1, 1, 0x7e3f4f5f);
+        hr = IDirect3DSurface9_UnlockRect(surf);
+        ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
+
+        /* D3DFMT_CxV8U8. */
+        hr = D3DXLoadSurfaceFromMemory(surf, NULL, NULL, pixdata_cxv8u8, D3DFMT_CxV8U8, 4, NULL, &rect,
+                D3DX_FILTER_NONE, 0);
+        ok(hr == D3D_OK, "Got unexpected hr %#lx.\n", hr);
+        hr = IDirect3DSurface9_LockRect(surf, &lockrect, NULL, D3DLOCK_READONLY);
+        ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
+        check_pixel_4bpp(&lockrect, 0, 0, 0xffffff80);
+        check_pixel_4bpp(&lockrect, 1, 0, 0xff000080);
+        check_pixel_4bpp(&lockrect, 0, 1, 0xff8080ff);
+        check_pixel_4bpp(&lockrect, 1, 1, 0xffed80c1);
         hr = IDirect3DSurface9_UnlockRect(surf);
         ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
 
@@ -3557,6 +3500,21 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
         hr = IDirect3DSurface9_UnlockRect(surf);
         ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
 
+        /* D3DFMT_CxV8U8. */
+        hr = D3DXLoadSurfaceFromMemory(surf, NULL, NULL, pixdata_cxv8u8, D3DFMT_CxV8U8, 4, NULL, &rect,
+                D3DX_FILTER_NONE, 0);
+        ok(hr == D3D_OK, "Got unexpected hr %#lx.\n", hr);
+
+        /* The calculated Cx value goes into the blue channel. */
+        hr = IDirect3DSurface9_LockRect(surf, &lockrect, NULL, D3DLOCK_READONLY);
+        ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
+        check_pixel_float4(&lockrect, 0, 0,  1.0f,             1.0f, 0.0f,            1.0f, 0, FALSE);
+        check_pixel_float4(&lockrect, 1, 0, -1.0f,            -1.0f, 0.0f,            1.0f, 0, FALSE);
+        check_pixel_float4(&lockrect, 0, 1,  0.0f,             0.0f, 1.0f,            1.0f, 0, FALSE);
+        check_pixel_float4(&lockrect, 1, 1,  8.58267725e-001,  0.0f, 5.13202250e-001, 1.0f, 0, FALSE);
+        hr = IDirect3DSurface9_UnlockRect(surf);
+        ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
+
         check_release((IUnknown*)surf, 0);
     }
 
@@ -3669,6 +3627,20 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
         check_pixel_4bpp(&lockrect, 1, 0, 0x00ff5040);
         check_pixel_4bpp(&lockrect, 0, 1, 0x002f8282);
         check_pixel_4bpp(&lockrect, 1, 1, 0x007ed1c1);
+        hr = IDirect3DSurface9_UnlockRect(surf);
+        ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
+
+        /* D3DFMT_CxV8U8. */
+        hr = D3DXLoadSurfaceFromMemory(surf, NULL, NULL, pixdata_cxv8u8, D3DFMT_CxV8U8, 4, NULL, &rect,
+                D3DX_FILTER_NONE, 0);
+        ok(hr == D3D_OK, "Got unexpected hr %#lx.\n", hr);
+
+        hr = IDirect3DSurface9_LockRect(surf, &lockrect, NULL, D3DLOCK_READONLY);
+        ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
+        check_pixel_4bpp(&lockrect, 0, 0, 0x00ff7f7f);
+        check_pixel_4bpp(&lockrect, 1, 0, 0x00ff8282);
+        check_pixel_4bpp(&lockrect, 0, 1, 0x00ff0000);
+        check_pixel_4bpp(&lockrect, 1, 1, 0x00ff006d);
         hr = IDirect3DSurface9_UnlockRect(surf);
         ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
 
@@ -4097,6 +4069,12 @@ static void test_save_surface_to_dds(IDirect3DDevice9 *device)
         /* 40. */
         { D3DFMT_YUY2, 4, 4, NULL,
           { D3D_OK, { 32, DDS_PF_FOURCC, D3DFMT_YUY2, 0, 0, 0, 0, 0 },
+            DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT, 4, 4, 0, 0, 0, DDSCAPS_TEXTURE, 0,
+            DDS_FILE_HEADER_SIZE + (4 * 2 * 4)
+          }
+        },
+        { D3DFMT_CxV8U8, 4, 4, NULL,
+          { D3D_OK, { 32, DDS_PF_FOURCC, D3DFMT_CxV8U8, 0, 0, 0, 0, 0 },
             DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT, 4, 4, 0, 0, 0, DDSCAPS_TEXTURE, 0,
             DDS_FILE_HEADER_SIZE + (4 * 2 * 4)
           }
@@ -4771,6 +4749,17 @@ static void test_save_surface_iffs(IDirect3DDevice9 *device)
             { D3D_OK, D3DFMT_A32B32G32R32F, .todo_hr = TRUE },
           },
         },
+        { D3DFMT_CxV8U8, NULL, 0x00,
+          { { D3DERR_INVALIDCALL },
+            { D3DERR_INVALIDCALL },
+            { D3DERR_INVALIDCALL },
+            { D3DERR_INVALIDCALL },
+            { D3DERR_INVALIDCALL, .todo_hr = TRUE },
+            { D3DERR_INVALIDCALL },
+            { D3DERR_INVALIDCALL, .todo_hr = TRUE },
+            { D3DERR_INVALIDCALL, .todo_hr = TRUE },
+          },
+        },
     };
     IDirect3DSurface9 *surface;
     ID3DXBuffer *buffer;
@@ -5145,6 +5134,160 @@ static void test_D3DXSaveSurfaceToFile(IDirect3DDevice9 *device)
     IDirect3DSurface9_Release(surface);
 }
 
+static void test_image_filters(void)
+{
+    static const struct
+    {
+        DWORD filter;
+        const char *name;
+    }
+    test_filters[] =
+    {
+        { D3DX_FILTER_POINT, "D3DX_FILTER_POINT" },
+        { D3DX_FILTER_LINEAR, "D3DX_FILTER_LINEAR" },
+        { D3DX_FILTER_TRIANGLE, "D3DX_FILTER_TRIANGLE" },
+        { D3DX_FILTER_BOX, "D3DX_FILTER_BOX" },
+    };
+    static const struct
+    {
+        const RECT src_rect;
+        const void *src_data;
+        D3DFORMAT format;
+
+        unsigned int dst_width;
+        unsigned int dst_height;
+        struct
+        {
+            const void *expected_dst_data;
+            const void *expected_dst_data_32;
+            BOOL todo;
+        }
+        filter_expected[4];
+    } tests[] =
+    {
+        {
+            { 0, 0, 16, 16 }, a8r8g8b8_16_16, D3DFMT_A8R8G8B8, 8, 8,
+            {
+                { a8r8g8b8_16_16_point_filter_8_8 },
+                { a8r8g8b8_16_16_linear_filter_8_8, .todo = TRUE },
+                { a8r8g8b8_16_16_triangle_filter_8_8, a8r8g8b8_16_16_triangle_filter_8_8_32bit, .todo = TRUE },
+                /* Linear and box filters match. */
+                { a8r8g8b8_16_16_linear_filter_8_8 },
+            },
+        },
+        {
+            { 0, 0, 16, 16 }, a8r8g8b8_16_16, D3DFMT_A8R8G8B8, 7, 7,
+            {
+                { a8r8g8b8_16_16_point_filter_7_7, 0, },
+                { a8r8g8b8_16_16_linear_filter_7_7, .todo = TRUE },
+                { a8r8g8b8_16_16_triangle_filter_7_7, .todo = TRUE },
+                /*
+                 * If scaling down to a size that isn't a power of two, the
+                 * box filter is replaced with the triangle filter.
+                 */
+                { a8r8g8b8_16_16_triangle_filter_7_7, .todo = TRUE },
+            },
+        },
+        {
+            { 0, 0, 6, 6 }, a8r8g8b8_6_6, D3DFMT_A8R8G8B8, 3, 3,
+            {
+                { a8r8g8b8_6_6_point_filter_3_3, 0, },
+                { a8r8g8b8_6_6_linear_filter_3_3, .todo = TRUE },
+                { a8r8g8b8_6_6_triangle_filter_3_3, .todo = TRUE },
+                /*
+                 * If scaling down to a size that is half but isn't a power of
+                 * two, the box filter is replaced with the linear filter.
+                 */
+                { a8r8g8b8_6_6_linear_filter_3_3, .todo = TRUE },
+            },
+        },
+        {
+            { 0, 0, 6, 6 }, a8r8g8b8_6_6, D3DFMT_A8R8G8B8, 4, 4,
+            {
+                { a8r8g8b8_6_6_point_filter_4_4, 0, },
+                { a8r8g8b8_6_6_linear_filter_4_4, .todo = TRUE },
+                { a8r8g8b8_6_6_triangle_filter_4_4, .todo = TRUE },
+                /*
+                 * If scaling down to a size that is not half and isn't a power of
+                 * two, the box filter is replaced with the triangle filter.
+                 */
+                { a8r8g8b8_6_6_triangle_filter_4_4, .todo = TRUE },
+            },
+        },
+        {
+            { 0, 0, 4, 4 }, a8r8g8b8_4_4, D3DFMT_A8R8G8B8, 12, 12,
+            {
+                { a8r8g8b8_4_4_point_filter_12_12, .todo = TRUE },
+                { a8r8g8b8_4_4_linear_filter_12_12, .todo = TRUE },
+                { a8r8g8b8_4_4_triangle_filter_12_12, .todo = TRUE },
+                { a8r8g8b8_4_4_triangle_filter_12_12, .todo = TRUE },
+            },
+        },
+        {
+            { 0, 0, 4, 4 }, a8r8g8b8_4_4, D3DFMT_A8R8G8B8, 8, 8,
+            {
+                { a8r8g8b8_4_4_point_filter_8_8 },
+                /*
+                 * When scaling up by 2, linear and triangle filters behave
+                 * the same.
+                 */
+                { a8r8g8b8_4_4_linear_filter_8_8, .todo = TRUE },
+                { a8r8g8b8_4_4_linear_filter_8_8, .todo = TRUE },
+                { a8r8g8b8_4_4_linear_filter_8_8, .todo = TRUE },
+            },
+        },
+    };
+    const uint8_t *expected_dst;
+    IDirect3DDevice9 *device;
+    D3DLOCKED_RECT lock_rect;
+    IDirect3DSurface9 *surf;
+    uint32_t src_pitch;
+    unsigned int i, j;
+    HRESULT hr;
+    HWND hwnd;
+
+    if (!(device = create_device(&hwnd)))
+        return;
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        const unsigned int fmt_bpp = get_bpp_for_d3dformat(tests[i].format);
+
+        winetest_push_context("Test %u", i);
+
+        hr = IDirect3DDevice9_CreateOffscreenPlainSurface(device, tests[i].dst_width, tests[i].dst_height,
+                tests[i].format, D3DPOOL_SCRATCH, &surf, NULL);
+        ok(hr == D3D_OK, "Unexpected hr %#lx.\n", hr);
+
+        src_pitch = fmt_bpp * (tests[i].src_rect.right - tests[i].src_rect.left);
+        for (j = 0; j < ARRAY_SIZE(test_filters); ++j)
+        {
+            winetest_push_context("Filter %s", test_filters[j].name);
+
+            hr = D3DXLoadSurfaceFromMemory(surf, NULL, NULL, tests[i].src_data, tests[i].format,
+                    src_pitch, NULL, &tests[i].src_rect, test_filters[j].filter, 0);
+            ok(hr == D3D_OK, "Unexpected hr %#lx.\n", hr);
+            if (sizeof(void *) == 4 && tests[i].filter_expected[j].expected_dst_data_32)
+                expected_dst = tests[i].filter_expected[j].expected_dst_data_32;
+            else
+                expected_dst = tests[i].filter_expected[j].expected_dst_data;
+
+            IDirect3DSurface9_LockRect(surf, &lock_rect, NULL, D3DLOCK_READONLY);
+            todo_wine_if(tests[i].filter_expected[j].todo) check_test_readback(lock_rect.pBits, lock_rect.Pitch, 0,
+                    expected_dst, tests[i].dst_width, tests[i].dst_height, 1, tests[i].format, 0);
+            IDirect3DSurface9_UnlockRect(surf);
+
+            winetest_pop_context();
+        }
+
+        check_release((IUnknown *)surf, 0);
+        winetest_pop_context();
+    }
+
+    check_release((IUnknown *)device, 0);
+    DestroyWindow(hwnd);
+}
+
 START_TEST(surface)
 {
     HWND wnd;
@@ -5187,4 +5330,5 @@ START_TEST(surface)
     DestroyWindow(wnd);
 
     test_color_key();
+    test_image_filters();
 }

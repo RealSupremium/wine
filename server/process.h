@@ -36,7 +36,7 @@ enum startup_state { STARTUP_IN_PROGRESS, STARTUP_DONE, STARTUP_ABORTED };
 struct process
 {
     struct object        obj;             /* object header */
-    struct event_sync   *sync;            /* sync object for wait/signal */
+    struct object       *sync;            /* sync object for wait/signal */
     struct list          entry;           /* entry in system-wide process list */
     process_id_t         parent_id;       /* parent process id (at the time of creation) */
     struct list          thread_list;     /* thread list */
@@ -58,10 +58,12 @@ struct process
     affinity_t           affinity;        /* process affinity mask */
     int                  priority;        /* priority class */
     int                  base_priority;   /* base priority to calculate thread priority */
+    int                  disable_boost;   /* disable priority boost */
     int                  suspend;         /* global process suspend count */
     unsigned int         is_system:1;     /* is it a system process? */
     unsigned int         debug_children:1;/* also debug all child processes */
     unsigned int         is_terminating:1;/* is process terminating? */
+    unsigned int         set_foreground:1;/* has process called set_foreground_window */
     data_size_t          imagelen;        /* length of image path in bytes */
     WCHAR               *image;           /* main exe image full path */
     struct job          *job;             /* job object associated with this process */
@@ -78,7 +80,6 @@ struct process
     struct token        *token;           /* security token associated with this process */
     struct list          views;           /* list of memory views */
     client_ptr_t         peb;             /* PEB address in client address space */
-    client_ptr_t         ldt_copy;        /* pointer to LDT copy in client addr space */
     struct dir_cache    *dir_cache;       /* map of client-side directory cache */
     unsigned int         trace_data;      /* opaque data used by the process tracing mechanism */
     struct rawinput_device *rawinput_devices;     /* list of registered rawinput devices */
@@ -136,13 +137,19 @@ extern void init_tracing_mechanism(void);
 extern void init_process_tracing( struct process *process );
 extern void finish_process_tracing( struct process *process );
 extern int read_process_memory( struct process *process, client_ptr_t ptr, data_size_t size, char *dest );
-extern int write_process_memory( struct process *process, client_ptr_t ptr, data_size_t size, const char *src );
+extern int write_process_memory( struct process *process, client_ptr_t ptr, data_size_t size, const char *src,
+                                 data_size_t *written );
 
 static inline process_id_t get_process_id( struct process *process ) { return process->id; }
 
 static inline int is_process_init_done( struct process *process )
 {
     return process->startup_state == STARTUP_DONE;
+}
+
+static inline int is_wow64_process( struct process *process )
+{
+    return is_machine_64bit( native_machine ) && !is_machine_64bit( process->machine );
 }
 
 static const unsigned int default_session_id = 1;

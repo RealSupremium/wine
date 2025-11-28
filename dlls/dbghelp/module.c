@@ -31,7 +31,6 @@
 #include "psapi.h"
 #include "winternl.h"
 #include "wine/debug.h"
-#include "wine/heap.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dbghelp);
 
@@ -339,7 +338,7 @@ BOOL module_load_debug(struct module* module)
             idslW64.hFile = INVALID_HANDLE_VALUE;
 
             pcs_callback(module->process, CBA_DEFERRED_SYMBOL_LOAD_START, &idslW64);
-            ret = pe_load_debug_info(module->process, module);
+            ret = pe_load_debug_info(module);
             pcs_callback(module->process,
                          ret ? CBA_DEFERRED_SYMBOL_LOAD_COMPLETE : CBA_DEFERRED_SYMBOL_LOAD_FAILURE,
                          &idslW64);
@@ -446,7 +445,7 @@ static BOOL image_check_debug_link_crc(const WCHAR* file, struct image_file_map*
 
     path = get_dos_file_name(file);
     handle = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-    heap_free(path);
+    HeapFree(GetProcessHeap(), 0, path);
     if (handle == INVALID_HANDLE_VALUE) return FALSE;
 
     crc = calc_crc32(handle);
@@ -478,7 +477,7 @@ static BOOL image_check_debug_link_gnu_id(const WCHAR* file, struct image_file_m
 
     path = get_dos_file_name(file);
     handle = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-    heap_free(path);
+    HeapFree(GetProcessHeap(), 0, path);
     if (handle == INVALID_HANDLE_VALUE) return FALSE;
 
     TRACE("Located debug information file at %s\n", debugstr_w(file));
@@ -1280,6 +1279,7 @@ BOOL  WINAPI EnumerateLoadedModulesW64(HANDLE process,
                                        PENUMLOADED_MODULES_CALLBACKW64 enum_cb,
                                        PVOID user)
 {
+    OBJECT_BASIC_INFORMATION obi;
     HMODULE*            hmods;
     unsigned            alloc = 256, count, count32, i;
     USHORT              pcs_machine, native_machine;
@@ -1289,6 +1289,15 @@ BOOL  WINAPI EnumerateLoadedModulesW64(HANDLE process,
     WCHAR*              sysdir = NULL;
     WCHAR*              wowdir = NULL;
     size_t              sysdir_len = 0, wowdir_len = 0;
+
+    if (process != GetCurrentProcess() &&
+        RtlIsCurrentProcess( process ) &&
+        !NtQueryObject(process, ObjectBasicInformation, &obi, sizeof(obi), NULL) &&
+        obi.GrantedAccess & PROCESS_VM_READ)
+    {
+        TRACE("same process.\n");
+        process = GetCurrentProcess();
+    }
 
     /* process might not be a handle to a live process */
     if (!IsWow64Process2(process, &pcs_machine, &native_machine))

@@ -21,6 +21,15 @@
 #include "rtlsupportapi.h"
 #include "wine/asm.h"
 
+#define CLASS_IS_SIMPLE_TYPE          1
+#define CLASS_HAS_VIRTUAL_BASE_CLASS  4
+#define CLASS_IS_WINRT                8
+
+#define TYPE_FLAG_CONST      1
+#define TYPE_FLAG_VOLATILE   2
+#define TYPE_FLAG_REFERENCE  8
+#define TYPE_FLAG_WINRT     16
+
 #ifdef __i386__
 #undef CXX_USE_RVA
 #else
@@ -79,6 +88,7 @@ const rtti_object_locator name ## _rtti = \
 #elif defined __WINE_PE_BUILD
 
 #define DEFINE_RTTI_DATA2(name, off, mangled_name, ...) \
+extern const rtti_object_locator name##_rtti; \
 type_info name ## _type_info = { &type_info_vtable, NULL, mangled_name }; \
 extern const rtti_base_descriptor name ## _rtti_base_descriptor[1]; \
 void __asm_dummy_ ## name ## _rtti(void) \

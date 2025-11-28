@@ -269,6 +269,14 @@ static RETURN_CODE WCMD_list_directory (DIRECTORY_STACK *inputparms, int level, 
   parms = inputparms;
   fd = xalloc(sizeof(WIN32_FIND_DATAW));
   while (parms && lstrcmpW(inputparms->dirName, parms->dirName) == 0) {
+
+    if ((lstrlenW(parms->dirName) + lstrlenW(parms->fileName) + 1) > ARRAY_SIZE(real_path)) {
+      WINE_TRACE("Path gets too long: %s %s\n", wine_dbgstr_w(parms->dirName), wine_dbgstr_w(parms->fileName));
+      /* Move to next parm */
+      parms = parms->next;
+      continue;
+    }
+
     concurrentDirs++;
 
     /* Work out the full path + filename */
@@ -769,7 +777,13 @@ RETURN_CODE WCMD_directory(WCHAR *args)
                 goto exit;
               }
               break;
-    case 'O': p = p + 1;
+    case 'O': /* Reset order state for each occurrence of /O, i.e. if DIRCMD contains /O and user
+                 also specified /O on the command line. */
+              dirOrder = Unspecified;
+              orderGroupDirs = FALSE;
+              orderReverse = FALSE;
+              orderGroupDirsReverse = FALSE;
+              p = p + 1;
               if (*p==':') p++;  /* Skip optional : */
               while (*p && *p != '/') {
                 WINE_TRACE("Processing subparm '%c' (in %s)\n", *p, wine_dbgstr_w(quals));
@@ -916,7 +930,7 @@ RETURN_CODE WCMD_directory(WCHAR *args)
       } else {
         /* Special case wildcard search with no extension (ie parameters ending in '.') as
            GetFullPathName strips off the additional '.'                                  */
-        if (fullname[lstrlenW(fullname)-1] == '.') lstrcatW(path, L".");
+        if (fullname[0] && fullname[lstrlenW(fullname)-1] == '.') lstrcatW(path, L".");
       }
 
       WINE_TRACE("Using path '%s'\n", wine_dbgstr_w(path));

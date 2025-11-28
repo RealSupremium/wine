@@ -88,13 +88,32 @@ word
 @tab@word
 
 @pwd@>echo @tab@ on @space@@space@
+
+@todo_wine@@pwd@>echo a 1>nul@space@
+
+@pwd@>if 1 == 2 then @echo a@space@
+
+@todo_wine@@pwd@>IF 1 == 2 ThEn @EchO a@space@
+
+@pwd@>echo 1@space@
+1
+
+@pwd@>echo 2@space@
+2
+---
+AA@\x08@BB
 --- @ with chains and brackets
 
 @todo_wine@@pwd@>(echo the @ character chains until  && )  && echo and can hide brackets  || ()  ||@space@
-@todo_wine@the @ character chains until
-@todo_wine@we leave the current depth
-@todo_wine@and can hide brackets
+the @ character chains until
+we leave the current depth
+and can hide brackets
 @todo_wine@---
+foo1
+
+@todo_wine@@pwd@>echo a  1>nul  &&@space@
+foo2
+---
 noecho1
 noecho2
 echo3
@@ -127,6 +146,7 @@ word
 @tab@word
 @space@@tab@word
 @tab@word
+3
 ------------ Testing mixed echo modes ------------
 @echo on
 if 1==1 echo foo
@@ -135,10 +155,10 @@ if 1==1 @echo bar
 if 1==1 echo foo2
 if 1==1 @echo bar2
 
-@todo_wine@@pwd@>if 1 == 1 echo foo@space@
+@pwd@>if 1 == 1 echo foo@space@
 foo
 
-@todo_wine@@pwd@>if 1 == 1@space@
+@pwd@>if 1 == 1@space@
 bar
 foo2
 bar2
@@ -149,6 +169,8 @@ ECHO_IS_ON
 ECHO_IS_OFF
 ECHO_IS_ON
 ECHO_IS_OFF
+
+@pwd@>rem itsme@space@@space@
 ------------ Testing parameterization ------------
 'a', 'b', 'c'
 '"a b c"', '', ''
@@ -435,7 +457,7 @@ h1 else echo h2
 ---
 i1 else echo i2
 i3
-@todo_wine@j2@space@
+j2@space@
 ---
 k1
 k2
@@ -461,6 +483,42 @@ p2
 ---
 q2
 q3
+------------- Testing for variables expansion in pipes
+a@space@@space@
+b@space@@space@
+
+---
+a-c@space@@space@
+a-d@space@@space@
+b-c@space@@space@
+b-d@space@@space@
+
+---
+a same a@space@
+a diff b@space@
+b diff a@space@
+b same b@space@
+
+---
+foo
+foo
+---
+yy!WINE_VAR!yy
+yy!WINE_VAR!yy@space@
+
+yyfooyy
+yyfooyy@space@
+
+yy!WINE_VAR!yy@space@
+
+yy!WINE_VAR!yy@space@
+
+
+---
+bar1bar@space@
+
+bar2bar@space@
+
 ------------- Testing internal commands return codes
 --- success/failure for basics
 SUCCESS 0
@@ -538,6 +596,12 @@ SUCCESS 0
 FAILURE 1
 FAILURE 1
 FAILURE 1
+FAILURE 1
+SUCCESS 0
+a@space@
+b@space@
+SUCCESS 0
+a@space@
 --- success/failure for MOVE command
 FAILURE 1
 SUCCESS 0
@@ -555,6 +619,7 @@ FAILURE 1
 SUCCESS 0
 FAILURE 1
 FAILURE 1
+SUCCESS 0
 --- success/failure for change drive command
 SUCCESS 666
 FAILURE 1
@@ -685,14 +750,49 @@ FAILURE 2
 FAILURE 1
 --- success/failure for MORE command
 SUCCESS 0
-SUCCESS 0
 foo@space@
 
 SUCCESS 0
---- success/failure for PAUSE command
+@todo_wine@SUCCESS 0
+@todo_wine@--- success/failure for PAUSE command
 FAILURE 1
 ---
------------- Testing 'set' ------------
+--------- success/failure when invoking cmd /c --------------
+a
+SUCCESS 0
+FAILURE 1
+FAILURE 1
+FAILURE 457
+SUCCESS 0
+FAILURE 459
+FAILURE 460
+FAILURE 461
+FAILURE 267
+FAILURE 1
+FAILURE 1
+--------- success/failure when invoking cmd /k --------------
+a
+ERRORLEVEL 0
+SUCCESS 0
+ERRORLEVEL 1
+SUCCESS 0
+ERRORLEVEL 1
+SUCCESS 0
+FAILURE 457
+ERRORLEVEL 458
+SUCCESS 0
+ERRORLEVEL 459
+SUCCESS 0
+ERRORLEVEL 460
+SUCCESS 0
+ERRORLEVEL 461
+SUCCESS 0
+ERRORLEVEL 0
+SUCCESS 0
+ERRORLEVEL 9009
+SUCCESS 0
+@todo_wine@FAILURE 1
+@todo_wine@------------ Testing 'set' ------------
 1
 0
 WINE_FOOBAR not defined
@@ -892,6 +992,9 @@ gotitright
 foo
 !WINE_FOO!
 not empty
+--- nested expansion
+foo
+foo
 --- using /V cmd flag
 foo
 foo@or_broken@!WINE_FOO!
@@ -955,6 +1058,10 @@ foobay
 
 
 ---7
+---8
+passed
+---9
+passed
 ------------ Testing NUL ------------
 bar
 bar
@@ -994,6 +1101,7 @@ with closing bracket
 255 two lines
 before both blocks
 255 nested
+0 unmatched
 --- case sensitivity with and without /i option
 if seems to default to case sensitivity
 if /i seems to work
@@ -1813,6 +1921,12 @@ a1.ab
 a1.ac
 a2.aa
 a1.aa
+---
+a2.ac
+a1.ab
+a2.aa
+a1.ac
+a1.aa
 ------------ Testing attrib ------------
 A@spaces@@drive@@path@foobar\foo@or_broken@A       I@spaces@@drive@@path@foobar\foo
 A@spaces@@drive@@path@foobar\foo@or_broken@A       I@spaces@@drive@@path@foobar\foo
@@ -1886,7 +2000,7 @@ Should expand foobaz
 batfile
 robinfile
 0
-@todo_wine@1
+1
 1
 1
 non-builtin dir
@@ -2122,8 +2236,13 @@ goto with a following space worked
 goto with following amphersands worked
 goto with redirections worked
 Ignoring double colons worked
+dest7 1
+dest8 1
 label with mixed whitespace and no echo worked
 Correctly ignored trailing information
+desteof1 666
+desteof2 666
+---
 Begin:
 ..First sub
 ..First sub

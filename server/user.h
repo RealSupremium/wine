@@ -119,7 +119,6 @@ extern void add_queue_hook_count( struct thread *thread, unsigned int index, int
 extern void inc_queue_paint_count( struct thread *thread, int incr );
 extern void queue_cleanup_window( struct thread *thread, user_handle_t win );
 extern int init_thread_queue( struct thread *thread );
-extern void check_thread_queue_idle( struct thread *thread );
 extern int attach_thread_input( struct thread *thread_from, struct thread *thread_to );
 extern void detach_thread_input( struct thread *thread_from );
 extern void set_clip_rectangle( struct desktop *desktop, const struct rectangle *rect,
@@ -188,11 +187,11 @@ extern struct window_class *get_window_class( user_handle_t window );
 /* window class functions */
 
 extern void destroy_process_classes( struct process *process );
-extern struct window_class *grab_class( struct process *process, atom_t atom,
-                                        mod_handle_t instance, int *extra_bytes );
+extern struct window_class *grab_class( struct process *process, atom_t atom, mod_handle_t instance,
+                                        int *extra_bytes, struct obj_locator *locator );
 extern void release_class( struct window_class *class );
 extern int is_desktop_class( struct window_class *class );
-extern int is_hwnd_message_class( struct window_class *class );
+extern int is_message_class( struct window_class *class );
 extern int get_class_style( struct window_class *class );
 extern atom_t get_class_atom( struct window_class *class );
 extern client_ptr_t get_class_client_ptr( struct window_class *class );

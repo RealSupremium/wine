@@ -308,7 +308,7 @@ static struct desktop *create_desktop( const struct unicode_str *name, unsigned 
             list_init( &desktop->hotkeys );
             list_init( &desktop->pointers );
 
-            if (!(desktop->shared = alloc_shared_object()))
+            if (!(desktop->shared = alloc_shared_object( sizeof(*desktop->shared) )))
             {
                 release_object( desktop );
                 return NULL;
@@ -325,6 +325,7 @@ static struct desktop *create_desktop( const struct unicode_str *name, unsigned 
                 shared->cursor.clip.right = 0;
                 shared->cursor.clip.bottom = 0;
                 memset( (void *)shared->keystate, 0, sizeof(shared->keystate) );
+                shared->keystate_serial = 1;
                 shared->monitor_serial = winstation->monitor_serial;
             }
             SHARED_WRITE_END;
@@ -863,6 +864,7 @@ DECL_HANDLER(set_thread_desktop)
         {
             if (old_desktop) remove_desktop_thread( old_desktop, current );
             add_desktop_thread( new_desktop, current );
+            current->process->set_foreground = 0;
         }
         reply->locator = get_shared_object_locator( new_desktop->shared );
     }

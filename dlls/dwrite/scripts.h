@@ -1,5 +1,5 @@
 /* Unicode Script IDs */
-/* generated from https://www.unicode.org/Public/16.0.0/ucd/UCD.zip:Scripts.txt */
+/* generated from https://www.unicode.org/Public/17.0.0/ucd/UCD.zip:Scripts.txt */
 /* DO NOT EDIT!! */
 
 enum unicode_script_id {
@@ -167,5 +167,12 @@ enum unicode_script_id {
     Script_Tangsa = 161,
     Script_Toto = 162,
     Script_Vithkuqi = 163,
-    Script_LastId = 163
+    Script_Garay = 164,
+    Script_Gurung_Khema = 165,
+    Script_Kirat_Rai = 166,
+    Script_Ol_Onal = 167,
+    Script_Sunuwar = 168,
+    Script_Todhri = 169,
+    Script_Tulu_Tigalari = 170,
+    Script_LastId = 170
 };
