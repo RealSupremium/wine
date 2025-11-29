@@ -1262,10 +1262,12 @@ static const struct
     { ".h",   parse_c_file },
     { ".inl", parse_c_file },
     { ".l",   parse_c_file },
+    { ".ll",  parse_cxx_file },
     { ".m",   parse_c_file },
     { ".rh",  parse_c_file },
     { ".x",   parse_c_file },
     { ".y",   parse_c_file },
+    { ".yy",  parse_cxx_file },
     { ".idl", parse_idl_file },
     { ".cpp", parse_cxx_file },
     { ".hpp", parse_cxx_file },
@@ -1547,6 +1549,7 @@ static struct file *open_include_file( const struct makefile *make, struct incl_
 
     /* check for generated files */
     if ((file = open_local_generated_file( make, source, ".tab.h", ".y" ))) return file;
+    if ((file = open_local_generated_file( make, source, ".h", ".yy" ))) return file;
     if ((file = open_local_generated_file( make, source, ".h", ".idl" ))) return file;
     if (fontforge && (file = open_local_generated_file( make, source, ".ttf", ".sfd" ))) return file;
     if (convert && rsvg && icotool)
@@ -1618,6 +1621,7 @@ static struct file *open_include_file( const struct makefile *make, struct incl_
 
     /* try in src file directory */
     if ((file = open_same_dir_generated_file( make, source->included_by, source, ".tab.h", ".y" ))) return file;
+    if ((file = open_same_dir_generated_file( make, source->included_by, source, ".h", ".yy" ))) return file;
     if ((file = open_same_dir_generated_file( make, source->included_by, source, ".h", ".idl" ))) return file;
     if ((file = open_file_same_dir( source->included_by, source->name, &source->filename ))) return file;
 
@@ -2037,9 +2041,25 @@ static void add_generated_sources( struct makefile *make )
             file->files = source->files;
             source->files = empty_array;
         }
+        else if (strendswith( source->name, ".yy" ))
+        {
+            file = add_generated_source( make, replace_extension( source->name, ".yy", ".cpp" ), NULL, 0 );
+            file->file->flags |= FLAG_C_CXX;
+            /* steal the includes list from the source file */
+            file->files = source->files;
+            source->files = empty_array;
+        }
         else if (strendswith( source->name, ".l" ))
         {
             file = add_generated_source( make, replace_extension( source->name, ".l", ".yy.c" ), NULL, 0 );
+            /* steal the includes list from the source file */
+            file->files = source->files;
+            source->files = empty_array;
+        }
+        else if (strendswith( source->name, ".ll" ))
+        {
+            file = add_generated_source( make, replace_extension( source->name, ".ll", ".cpp" ), NULL, 0 );
+            file->file->flags |= FLAG_C_CXX;
             /* steal the includes list from the source file */
             file->files = source->files;
             source->files = empty_array;
@@ -3003,26 +3023,38 @@ static void output_po_files( struct makefile *make )
     strarray_add( &make->maintainerclean_files, strmake( "%s/wine.pot", po_dir ));
 }
 
+static void output_source_bison( struct makefile *make, struct incl_file *source, const char *obj,
+                                 const char *c_ext, const char *h_ext )
+{
+    char *header = strmake( "%s%s", obj, h_ext );
+
+    if (find_include_file( make, header ))
+    {
+        output( "%s: %s\n", obj_dir_path( make, header ), source->filename );
+        output( "\t%s%s -o %s.$$$$%s --defines=$@ %s && rm -f %s.$$$$%s\n",
+                cmd_prefix( "BISON" ), bison, obj_dir_path( make, obj ), c_ext,
+                source->filename, obj_dir_path( make, obj ), c_ext );
+        strarray_add( &make->clean_files, header );
+    }
+    output( "%s%s: %s\n", obj_dir_path( make, obj ), c_ext, source->filename );
+    output( "\t%s%s -o $@ %s\n", cmd_prefix( "BISON" ), bison, source->filename );
+}
 
 /*******************************************************************
  *         output_source_y
  */
 static void output_source_y( struct makefile *make, struct incl_file *source, const char *obj )
 {
-    char *header = strmake( "%s.tab.h", obj );
-
-    if (find_include_file( make, header ))
-    {
-        output( "%s: %s\n", obj_dir_path( make, header ), source->filename );
-        output( "\t%s%s -o %s.tab.$$$$.c --defines=$@ %s && rm -f %s.tab.$$$$.c\n",
-                cmd_prefix( "BISON" ), bison, obj_dir_path( make, obj ),
-                source->filename, obj_dir_path( make, obj ));
-        strarray_add( &make->clean_files, header );
-    }
-    output( "%s.tab.c: %s\n", obj_dir_path( make, obj ), source->filename );
-    output( "\t%s%s -o $@ %s\n", cmd_prefix( "BISON" ), bison, source->filename );
+    output_source_bison( make, source, obj, ".tab.c", ".tab.h" );
 }
 
+/*******************************************************************
+ *         output_source_yy
+ */
+static void output_source_yy( struct makefile *make, struct incl_file *source, const char *obj )
+{
+    output_source_bison( make, source, obj, ".cpp", ".h" );
+}
 
 /*******************************************************************
  *         output_source_l
@@ -3033,6 +3065,14 @@ static void output_source_l( struct makefile *make, struct incl_file *source, co
     output( "\t%s%s -o$@ %s\n", cmd_prefix( "FLEX" ), flex, source->filename );
 }
 
+/*******************************************************************
+ *         output_source_ll
+ */
+static void output_source_ll( struct makefile *make, struct incl_file *source, const char *obj )
+{
+    output( "%s.cpp: %s\n", obj_dir_path( make, obj ), source->filename );
+    output( "\t%s%s -o $@ %s\n", cmd_prefix( "FLEX" ), flex, source->filename );
+}
 
 /*******************************************************************
  *         output_source_h
@@ -3745,7 +3785,9 @@ static const struct
 } output_source_funcs[] =
 {
     { "y", output_source_y },
+    { "yy", output_source_yy },
     { "l", output_source_l },
+    { "ll", output_source_ll },
     { "h", output_source_h },
     { "rh", output_source_h },
     { "inl", output_source_h },
