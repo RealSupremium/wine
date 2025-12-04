@@ -79,6 +79,100 @@ static void VideoRenderer_AutoShowWindow(struct video_renderer *This)
         ShowWindow(This->window.hwnd, SW_SHOW);
 }
 
+static DWORD yuv2rgb(int Y, int U, int V)
+{
+    int C = Y - 16;
+    int D = U - 128;
+    int E = V - 128;
+
+    int R = (298 * C + 409 * E + 128) >> 8;
+    int G = (298 * C - 100 * D - 208 * E + 128) >> 8;
+    int B = (298 * C + 516 * D + 128) >> 8;
+
+    if (R < 0) R = 0; else if (R > 255) R = 255;
+    if (G < 0) G = 0; else if (G > 255) G = 255;
+    if (B < 0) B = 0; else if (B > 255) B = 255;
+
+    return (B << 16) | (G << 8) | R; /* BGR order for DIB */
+}
+
+static HRESULT convert_yuy2_to_rgb_and_create_bmi(struct video_renderer *filter,
+                                                 const BYTE *yuy2_data,
+                                                 LONG data_size,
+                                                 BYTE **rgb_buffer,
+                                                 BITMAPINFO **rgb_bmi)
+{
+    AM_MEDIA_TYPE *mt = &filter->renderer.sink.pin.mt;
+    VIDEOINFOHEADER *vih = (VIDEOINFOHEADER *)mt->pbFormat;
+    int src_width = vih->bmiHeader.biWidth;
+    int src_height = abs(vih->bmiHeader.biHeight);
+    DWORD rgb_size = src_width * src_height * 3;
+    int y, x, idx, out_idx0, out_idx1;
+    BYTE Y0, U, Y1, V;
+    DWORD rgb0, rgb1;
+
+    *rgb_buffer = HeapAlloc(GetProcessHeap(), 0, rgb_size);
+    if (!*rgb_buffer)
+    {
+        ERR("Failed to allocate RGB buffer!\n");
+        return E_OUTOFMEMORY;
+    }
+
+    for (y = 0; y < src_height; y++)
+    {
+        for (x = 0; x < src_width; x += 2)
+        {
+            idx = (y * src_width + x) * 2;
+            if (idx + 3 >= data_size)
+                break;
+
+            Y0 = yuy2_data[idx];
+            U  = yuy2_data[idx + 1];
+            Y1 = yuy2_data[idx + 2];
+            V  = yuy2_data[idx + 3];
+
+            rgb0 = yuv2rgb(Y0, U, V);
+            rgb1 = yuv2rgb(Y1, U, V);
+
+            out_idx0 = (y * src_width + x) * 3;
+            out_idx1 = out_idx0 + 3;
+
+            if (out_idx1 + 2 < (int)rgb_size)
+            {
+                (*rgb_buffer)[out_idx0 + 0] = (rgb0 >> 16) & 0xFF; /* B */
+                (*rgb_buffer)[out_idx0 + 1] = (rgb0 >> 8)  & 0xFF; /* G */
+                (*rgb_buffer)[out_idx0 + 2] = (rgb0 >> 0)  & 0xFF; /* R */
+
+                if (x + 1 < src_width)
+                {
+                    (*rgb_buffer)[out_idx1 + 0] = (rgb1 >> 16) & 0xFF; /* B */
+                    (*rgb_buffer)[out_idx1 + 1] = (rgb1 >> 8)  & 0xFF; /* G */
+                    (*rgb_buffer)[out_idx1 + 2] = (rgb1 >> 0)  & 0xFF; /* R */
+                }
+            }
+        }
+    }
+
+    *rgb_bmi = (BITMAPINFO*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+                                    sizeof(BITMAPINFO));
+    if (!*rgb_bmi)
+    {
+        HeapFree(GetProcessHeap(), 0, *rgb_buffer);
+        *rgb_buffer = NULL;
+        return E_OUTOFMEMORY;
+    }
+
+    (*rgb_bmi)->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    (*rgb_bmi)->bmiHeader.biWidth = src_width;
+    (*rgb_bmi)->bmiHeader.biHeight = src_height; /* top-down */
+    (*rgb_bmi)->bmiHeader.biPlanes = 1;
+    (*rgb_bmi)->bmiHeader.biBitCount = 24;
+    (*rgb_bmi)->bmiHeader.biCompression = BI_RGB;
+    (*rgb_bmi)->bmiHeader.biSizeImage = 0;
+
+    return S_OK;
+}
+
 static HRESULT video_renderer_render(struct strmbase_renderer *iface, IMediaSample *pSample)
 {
     struct video_renderer *filter = impl_from_strmbase_renderer(iface);
@@ -86,8 +180,11 @@ static HRESULT video_renderer_render(struct strmbase_renderer *iface, IMediaSamp
     LPBYTE pbSrcStream = NULL;
     HRESULT hr;
     HDC dc;
-
-    TRACE("filter %p, sample %p.\n", filter, pSample);
+    AM_MEDIA_TYPE *mt = &filter->renderer.sink.pin.mt;
+    LONG size;
+    BOOL is_yuy2;
+    LPBYTE rgb_buffer = NULL;
+    BITMAPINFO *rgb_bmi = NULL;
 
     hr = IMediaSample_GetPointer(pSample, &pbSrcStream);
     if (FAILED(hr))
@@ -96,11 +193,45 @@ static HRESULT video_renderer_render(struct strmbase_renderer *iface, IMediaSamp
         return hr;
     }
 
+    is_yuy2 = IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_YUY2);
+
+    if (is_yuy2)
+    {
+        size = IMediaSample_GetActualDataLength(pSample);
+        hr = convert_yuy2_to_rgb_and_create_bmi(filter, pbSrcStream, size,
+                                              &rgb_buffer, &rgb_bmi);
+        if (FAILED(hr))
+            return hr;
+    }
+
     dc = GetDC(filter->window.hwnd);
-    StretchDIBits(dc, dst.left, dst.top, dst.right - dst.left, dst.bottom - dst.top,
-            src.left, src.top, src.right - src.left, src.bottom - src.top, pbSrcStream,
-            (BITMAPINFO *)get_bitmap_header(&filter->renderer.sink.pin.mt), DIB_RGB_COLORS, SRCCOPY);
-    ReleaseDC(filter->window.hwnd, dc);
+    if (dc)
+    {
+        if (is_yuy2 && rgb_buffer && rgb_bmi)
+        {
+            StretchDIBits(dc,
+                dst.left, dst.top, dst.right - dst.left, dst.bottom - dst.top,
+                src.left, src.top, src.right - src.left, src.bottom - src.top,
+                rgb_buffer,
+                rgb_bmi,
+                DIB_RGB_COLORS, SRCCOPY);
+        }
+        else
+        {
+            StretchDIBits(dc,
+                dst.left, dst.top, dst.right - dst.left, dst.bottom - dst.top,
+                src.left, src.top, src.right - src.left, src.bottom - src.top,
+                pbSrcStream,
+                (BITMAPINFO *)get_bitmap_header(mt),
+                DIB_RGB_COLORS, SRCCOPY);
+        }
+        ReleaseDC(filter->window.hwnd, dc);
+    }
+
+    if (rgb_buffer)
+        HeapFree(GetProcessHeap(), 0, rgb_buffer);
+    if (rgb_bmi)
+        HeapFree(GetProcessHeap(), 0, rgb_bmi);
 
     return S_OK;
 }
@@ -113,7 +244,8 @@ static HRESULT video_renderer_query_accept(struct strmbase_renderer *iface, cons
     if (!IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_RGB32)
             && !IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_RGB24)
             && !IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_RGB565)
-            && !IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_RGB8))
+            && !IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_RGB8)
+            && !IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_YUY2))
         return S_FALSE;
 
     if (!IsEqualGUID(&mt->formattype, &FORMAT_VideoInfo)

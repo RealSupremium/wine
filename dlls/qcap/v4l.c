@@ -368,32 +368,44 @@ static NTSTATUS v4l_device_read_frame( void *args )
     return TRUE;
 }
 
-static void fill_caps(__u32 pixelformat, __u32 width, __u32 height,
+static void fill_caps(__u32 pixelformat, const GUID *subtype, __u32 width, __u32 height,
         __u32 max_fps, __u32 min_fps, struct caps *caps)
 {
-    LONG depth = 24;
+    LONG depth;
+    DWORD compression;
+
+    if (pixelformat == V4L2_PIX_FMT_YUYV)
+    {
+        depth = 16;
+        compression = mmioFOURCC('Y','U','Y','2');
+    }
+    else
+    {
+        depth = 24;
+        compression = BI_RGB;
+    }
 
     memset(caps, 0, sizeof(*caps));
-    caps->video_info.dwBitRate = width * height * depth * max_fps;
-    caps->video_info.bmiHeader.biSize = sizeof(caps->video_info.bmiHeader);
+    caps->video_info.AvgTimePerFrame = (REFERENCE_TIME)(10000000ULL / (max_fps ? max_fps : 1));
+    caps->video_info.dwBitRate = (width * height * (depth)) * max_fps;
+    caps->video_info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     caps->video_info.bmiHeader.biWidth = width;
     caps->video_info.bmiHeader.biHeight = height;
     caps->video_info.bmiHeader.biPlanes = 1;
     caps->video_info.bmiHeader.biBitCount = depth;
-    caps->video_info.bmiHeader.biCompression = BI_RGB;
-    caps->video_info.bmiHeader.biSizeImage = width * height * depth / 8;
+    caps->video_info.bmiHeader.biCompression = compression;
+    caps->video_info.bmiHeader.biSizeImage = width * height * ((depth + 7) / 8);
+
     caps->media_type.majortype = MEDIATYPE_Video;
-    caps->media_type.subtype = MEDIASUBTYPE_RGB24;
+    caps->media_type.subtype = *subtype;
     caps->media_type.bFixedSizeSamples = TRUE;
     caps->media_type.bTemporalCompression = FALSE;
-    caps->media_type.lSampleSize = width * height * depth / 8;
+    caps->media_type.lSampleSize = caps->video_info.bmiHeader.biSizeImage;
     caps->media_type.formattype = FORMAT_VideoInfo;
     caps->media_type.pUnk = NULL;
     caps->media_type.cbFormat = sizeof(VIDEOINFOHEADER);
-    /* We reallocate the caps array, so pbFormat has to be set after all caps
-     * have been enumerated. */
-    caps->config.MaxFrameInterval = 10000000 / max_fps;
-    caps->config.MinFrameInterval = 10000000 / min_fps;
+    caps->config.MaxFrameInterval = 10000000 / min_fps;
+    caps->config.MinFrameInterval = 10000000 / max_fps;
     caps->config.MaxOutputSize.cx = width;
     caps->config.MaxOutputSize.cy = height;
     caps->config.MinOutputSize.cx = width;
@@ -427,14 +439,19 @@ static NTSTATUS v4l_device_get_caps_count( void *args )
 static NTSTATUS v4l_device_create( void *args )
 {
     const struct create_params *params = args;
-    struct v4l2_frmsizeenum frmsize = {0};
     struct video_capture_device *device;
     struct v4l2_capability caps = {{0}};
-    struct v4l2_format format = {0};
+    struct caps *new_caps;
+    struct v4l2_fmtdesc fmt_desc = {0};
+    struct v4l2_frmsizeenum frmsize = {0};
+    struct v4l2_frmivalenum frmival = {0};
     BOOL have_libv4l2;
     char path[20];
-    HRESULT hr;
     int fd, i;
+    HRESULT hr;
+    __u32 max_fps = 30, min_fps = 30;
+    GUID subtype;
+    __u32 width, height;
 
     have_libv4l2 = video_init();
 
@@ -442,7 +459,7 @@ static NTSTATUS v4l_device_create( void *args )
         return E_OUTOFMEMORY;
 
     sprintf(path, "/dev/video%i", params->index);
-    TRACE("Opening device %s.\n", path);
+    FIXME("Opening device %s.\n", path);
 #ifdef O_CLOEXEC
     if ((fd = video_open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC)) == -1 && errno == EINVAL)
 #endif
@@ -452,7 +469,7 @@ static NTSTATUS v4l_device_create( void *args )
         WARN("Failed to open video device: %s\n", strerror(errno));
         goto error;
     }
-    fcntl(fd, F_SETFD, FD_CLOEXEC);  /* in case O_CLOEXEC isn't supported */
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
     device->fd = fd;
 
     if (xioctl(fd, VIDIOC_QUERYCAP, &caps) == -1)
@@ -484,77 +501,103 @@ static NTSTATUS v4l_device_create( void *args )
         goto error;
     }
 
-    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (xioctl(fd, VIDIOC_G_FMT, &format) == -1)
-    {
-        ERR("Failed to get device format: %s\n", strerror(errno));
-        goto error;
-    }
+    /* Enumerate supported pixel formats */
+    fmt_desc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
-    format.fmt.pix.pixelformat = V4L2_PIX_FMT_BGR24;
-    if (xioctl(fd, VIDIOC_TRY_FMT, &format) == -1
-            || format.fmt.pix.pixelformat != V4L2_PIX_FMT_BGR24)
+    while (xioctl(fd, VIDIOC_ENUM_FMT, &fmt_desc) == 0)
     {
-        ERR("This device doesn't support V4L2_PIX_FMT_BGR24 format.\n");
-        goto error;
-    }
+        TRACE("Device supports format: %.4s (0x%08x)\n", (char*)&fmt_desc.pixelformat, fmt_desc.pixelformat);
 
-    frmsize.pixel_format = V4L2_PIX_FMT_BGR24;
-    while (xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) != -1)
-    {
-        struct v4l2_frmivalenum frmival = {0};
-        __u32 max_fps = 30, min_fps = 30;
-        struct caps *new_caps;
-
-        frmival.pixel_format = format.fmt.pix.pixelformat;
-        if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE)
+        if (fmt_desc.pixelformat != V4L2_PIX_FMT_BGR24 &&
+            fmt_desc.pixelformat != V4L2_PIX_FMT_YUYV)
         {
-            frmival.width = frmsize.discrete.width;
-            frmival.height = frmsize.discrete.height;
-        }
-        else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE)
-        {
-            frmival.width = frmsize.stepwise.max_width;
-            frmival.height = frmsize.stepwise.min_height;
-        }
-        else
-        {
-            FIXME("Unhandled frame size type: %d.\n", frmsize.type);
+            fmt_desc.index++;
             continue;
         }
 
-        if (xioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &frmival) != -1)
+        frmsize.pixel_format = fmt_desc.pixelformat;
+        frmsize.index = 0;
+
+        while (xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) != -1)
         {
-            if (frmival.type == V4L2_FRMIVAL_TYPE_DISCRETE)
+            if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE)
             {
-                max_fps = frmival.discrete.denominator / frmival.discrete.numerator;
-                min_fps = max_fps;
+                width = frmsize.discrete.width;
+                height = frmsize.discrete.height;
             }
-            else if (frmival.type == V4L2_FRMIVAL_TYPE_STEPWISE
-                    || frmival.type == V4L2_FRMIVAL_TYPE_CONTINUOUS)
+            else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE)
             {
-                min_fps = frmival.stepwise.max.denominator / frmival.stepwise.max.numerator;
-                max_fps = frmival.stepwise.min.denominator / frmival.stepwise.min.numerator;
+                /* For simplicity, just use min resolution in stepwise case */
+                width = frmsize.stepwise.min_width;
+                height = frmsize.stepwise.min_height;
             }
+            else
+            {
+                FIXME("Unhandled frame size type: %d.\n", frmsize.type);
+                frmsize.index++;
+                continue;
+            }
+
+            /* Get frame intervals (FPS) */
+            frmival.pixel_format = frmsize.pixel_format;
+            frmival.width = width;
+            frmival.height = height;
+            frmival.index = 0;
+
+            if (xioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &frmival) == 0)
+            {
+                if (frmival.type == V4L2_FRMIVAL_TYPE_DISCRETE)
+                {
+                    max_fps = min_fps = frmival.discrete.denominator / frmival.discrete.numerator;
+                }
+                else if (frmival.type == V4L2_FRMIVAL_TYPE_STEPWISE ||
+                         frmival.type == V4L2_FRMIVAL_TYPE_CONTINUOUS)
+                {
+                    /* Note: min interval => max fps */
+                    min_fps = frmival.stepwise.max.denominator / frmival.stepwise.max.numerator;
+                    max_fps = frmival.stepwise.min.denominator / frmival.stepwise.min.numerator;
+                    if (min_fps > max_fps) min_fps = max_fps;
+                }
+            }
+            else
+            {
+                WARN("Failed to enumerate frame intervals for %dx%d fmt=0x%x: %s\n",
+                     width, height, frmsize.pixel_format, strerror(errno));
+                /* Use defaults */
+            }
+
+            /* Create caps entry */
+            new_caps = realloc(device->caps, (device->caps_count + 1) * sizeof(*device->caps));
+            if (!new_caps)
+                goto error;
+            device->caps = new_caps;
+
+            if (fmt_desc.pixelformat == V4L2_PIX_FMT_YUYV)
+                subtype = MEDIASUBTYPE_YUY2;
+            else
+                subtype = MEDIASUBTYPE_RGB24;
+
+            fill_caps(frmsize.pixel_format, &subtype, width, height, max_fps, min_fps,
+                      &device->caps[device->caps_count]);
+            device->caps_count++;
+
+            frmsize.index++;
         }
-        else
-            ERR("Failed to get fps: %s.\n", strerror(errno));
 
-        new_caps = realloc(device->caps, (device->caps_count + 1) * sizeof(*device->caps));
-        if (!new_caps)
-            goto error;
-        device->caps = new_caps;
-        fill_caps(format.fmt.pix.pixelformat, frmsize.discrete.width, frmsize.discrete.height,
-                max_fps, min_fps, &device->caps[device->caps_count]);
-        device->caps_count++;
-
-        frmsize.index++;
+        fmt_desc.index++;
     }
 
-    /* We reallocate the caps array, so we have to delay setting pbFormat. */
+    if (device->caps_count == 0)
+    {
+        WARN("No supported formats found (need BGR24 or YUYV).\n");
+        goto error;
+    }
+
+    /* Set pbFormat after all caps are allocated */
     for (i = 0; i < device->caps_count; ++i)
         device->caps[i].media_type.pbFormat = (BYTE *)&device->caps[i].video_info;
 
+    /* Try to set the first format (for validation and image buffer allocation) */
     if (FAILED(hr = set_caps(device, &device->caps[0], TRUE)))
     {
         if (hr == VFW_E_TYPE_NOT_ACCEPTED && !have_libv4l2)
@@ -562,9 +605,11 @@ static NTSTATUS v4l_device_create( void *args )
         goto error;
     }
 
-    TRACE("Format: %d bpp - %dx%d.\n", device->current_caps->video_info.bmiHeader.biBitCount,
-            (int)device->current_caps->video_info.bmiHeader.biWidth,
-            (int)device->current_caps->video_info.bmiHeader.biHeight);
+    TRACE("Initialized with format: %.4s (%dx%d, %d bpp)\n",
+          (char*)&device->current_caps->pixelformat,
+          (int)device->current_caps->video_info.bmiHeader.biWidth,
+          (int)device->current_caps->video_info.bmiHeader.biHeight,
+          (int)device->current_caps->video_info.bmiHeader.biBitCount);
 
     *params->device = (ULONG_PTR)device;
     return S_OK;
