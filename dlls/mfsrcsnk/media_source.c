@@ -220,6 +220,7 @@ struct media_stream
 
     BOOL active;
     BOOL eos;
+    BOOL thin;
 };
 
 struct media_source
@@ -240,6 +241,8 @@ struct media_source
     IMFByteStream *stream;
     WCHAR *url;
     float rate;
+    BOOL thin;
+    BOOL prev_thin;
 
     struct winedmo_demuxer winedmo_demuxer;
     struct winedmo_stream winedmo_stream;
@@ -289,28 +292,6 @@ static struct media_stream *media_stream_from_index(struct media_source *source,
     return NULL;
 }
 
-static HRESULT media_source_send_sample(struct media_source *source, UINT index, IMFSample *sample)
-{
-    struct media_stream *stream;
-    IUnknown *token;
-    HRESULT hr;
-
-    if (!(stream = media_stream_from_index(source, index)) || !stream->active)
-        return S_FALSE;
-
-    if (SUCCEEDED(hr = object_queue_pop(&stream->tokens, &token)))
-    {
-        media_stream_send_sample(stream, sample, token);
-        if (token) IUnknown_Release(token);
-        return S_OK;
-    }
-
-    if (FAILED(hr = object_queue_push(&stream->samples, (IUnknown *)sample)))
-        return hr;
-
-    return S_FALSE;
-}
-
 static void queue_media_event_object(IMFMediaEventQueue *queue, MediaEventType type, IUnknown *object)
 {
     HRESULT hr;
@@ -332,6 +313,37 @@ static void queue_media_source_read(struct media_source *source)
     if (FAILED(hr = MFPutWorkItem(MFASYNC_CALLBACK_QUEUE_STANDARD, &source->async_read_iface, NULL)))
         ERR("Failed to queue async read for source %p, hr %#lx\n", source, hr);
     source->pending_reads++;
+}
+
+static HRESULT media_source_send_sample(struct media_source *source, UINT index, IMFSample *sample, BOOL update_thin_mode)
+{
+    struct media_stream *stream;
+    IUnknown *token;
+    HRESULT hr;
+    PROPVARIANT param;
+
+    if (!(stream = media_stream_from_index(source, index)) || !stream->active)
+        return S_FALSE;
+
+    if (SUCCEEDED(hr = object_queue_pop(&stream->tokens, &token)))
+    {
+        if (update_thin_mode && stream->thin != source->thin)
+        {
+            param.vt = VT_INT;
+            param.iVal = source->thin;
+            queue_media_event_value(stream->queue, MEStreamThinMode, &param);
+            stream->thin = source->thin;
+        }
+
+        media_stream_send_sample(stream, sample, token);
+        if (token) IUnknown_Release(token);
+        return S_OK;
+    }
+
+    if (FAILED(hr = object_queue_push(&stream->samples, (IUnknown *)sample)))
+        return hr;
+
+    return S_FALSE;
 }
 
 static void media_stream_start(struct media_stream *stream, UINT index, const PROPVARIANT *position)
@@ -364,7 +376,7 @@ static void media_stream_start(struct media_stream *stream, UINT index, const PR
         list_move_head(&samples, &stream->samples);
         while (object_queue_pop(&samples, (IUnknown **)&sample) != E_PENDING)
         {
-            media_source_send_sample(source, index, sample);
+            media_source_send_sample(source, index, sample, FALSE);
             IMFSample_Release(sample);
         }
 
@@ -631,14 +643,24 @@ static HRESULT media_source_read(struct media_source *source)
     IMFSample *sample;
     UINT i, index;
     HRESULT hr;
+    BOOL thin = source->thin;
 
     if (source->state != SOURCE_RUNNING)
         return S_OK;
 
-    if (FAILED(hr = demuxer_read_sample(source->winedmo_demuxer, &index, &sample)) && hr != MF_E_END_OF_STREAM)
+    /* emulate latency */
+    if (thin != source->prev_thin)
     {
-        WARN("Failed to read stream %u data, hr %#lx\n", index, hr);
-        return hr;
+        source->prev_thin = thin;
+        thin = TRUE;
+    }
+
+    while (SUCCEEDED(hr = demuxer_read_sample(source->winedmo_demuxer, &index, &sample)) && thin)
+    {
+        UINT32 keyframe;
+        if (SUCCEEDED(IMFSample_GetUINT32( sample, &MFSampleExtension_CleanPoint, &keyframe )) && keyframe)
+            break;
+        IMFSample_Release(sample);
     }
 
     if (hr == MF_E_END_OF_STREAM)
@@ -647,8 +669,13 @@ static HRESULT media_source_read(struct media_source *source)
             media_source_send_eos(source, source->streams[i]);
         return S_OK;
     }
+    else if (FAILED(hr))
+    {
+        WARN("Failed to read stream %u data, hr %#lx\n", index, hr);
+        return hr;
+    }
 
-    if ((hr = media_source_send_sample(source, index, sample)) == S_FALSE)
+    if ((hr = media_source_send_sample(source, index, sample, TRUE)) == S_FALSE)
         queue_media_source_read(source);
     IMFSample_Release(sample);
 
@@ -1047,14 +1074,13 @@ static HRESULT WINAPI media_source_IMFRateControl_SetRate(IMFRateControl *iface,
 
     if (rate < 0.0f)
         return MF_E_REVERSE_UNSUPPORTED;
-    if (thin)
-        return MF_E_THINNING_UNSUPPORTED;
 
     if (FAILED(hr = IMFRateSupport_IsRateSupported(&source->IMFRateSupport_iface, thin, rate, NULL)))
         return hr;
 
     EnterCriticalSection(&source->cs);
     source->rate = rate;
+    source->thin = thin;
     LeaveCriticalSection(&source->cs);
 
     return IMFMediaEventQueue_QueueEventParamVar(source->queue, MESourceRateChanged, &GUID_NULL, S_OK, NULL);
@@ -1066,11 +1092,10 @@ static HRESULT WINAPI media_source_IMFRateControl_GetRate(IMFRateControl *iface,
 
     TRACE("source %p, thin %p, rate %p\n", source, thin, rate);
 
-    if (thin)
-        *thin = FALSE;
-
     EnterCriticalSection(&source->cs);
     *rate = source->rate;
+    if (thin)
+        *thin = source->thin;
     LeaveCriticalSection(&source->cs);
 
     return S_OK;

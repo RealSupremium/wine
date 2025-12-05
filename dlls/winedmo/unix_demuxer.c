@@ -38,6 +38,7 @@ struct stream
 {
     AVBSFContext *filter;
     BOOL eos;
+    int64_t next_pts;
 };
 
 struct demuxer
@@ -234,7 +235,16 @@ static NTSTATUS demuxer_filter_packet( struct demuxer *demuxer, AVPacket **packe
         if (!(stream = demuxer->last_stream)) ret = 0;
         else
         {
-            if (!(ret = av_bsf_receive_packet( stream->filter, *packet ))) return STATUS_SUCCESS;
+            if (!(ret = av_bsf_receive_packet( stream->filter, *packet ))) {
+                if ((*packet)->pts == AV_NOPTS_VALUE)
+                    (*packet)->pts = stream->next_pts;
+                if ((*packet)->pts != AV_NOPTS_VALUE && (*packet)->duration != 0)
+                    stream->next_pts = (*packet)->pts + (*packet)->duration;
+                else
+                    stream->next_pts = AV_NOPTS_VALUE;
+
+                return STATUS_SUCCESS;
+            }
             if (ret == AVERROR_EOF) stream->eos = TRUE;
             if (!ret || ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) ret = 0;
             else WARN( "Failed to read packet from filter, error %s.\n", debugstr_averr( ret ) );
@@ -322,6 +332,7 @@ NTSTATUS demuxer_seek( void *arg )
     {
         av_bsf_flush( demuxer->streams[i].filter );
         demuxer->streams[i].eos = FALSE;
+        demuxer->streams[i].next_pts = timestamp;
     }
     av_packet_free( &demuxer->last_packet );
     demuxer->last_stream = NULL;
