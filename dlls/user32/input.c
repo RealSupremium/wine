@@ -671,6 +671,15 @@ BOOL WINAPI IsTouchWindow( HWND hwnd, ULONG *flags )
 }
 
 /*****************************************************************************
+ * SkipPointerFrameMessages (USER32.@)
+ */
+BOOL WINAPI SkipPointerFrameMessages( UINT32 id )
+{
+    FIXME( "id %u stub!\n", id );
+    return TRUE;
+}
+
+/*****************************************************************************
  * RegisterTouchWindow (USER32.@)
  */
 BOOL WINAPI RegisterTouchWindow( HWND hwnd, ULONG flags )
