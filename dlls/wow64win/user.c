@@ -2862,6 +2862,14 @@ NTSTATUS WINAPI wow64_NtUserGetPointerType( UINT *args )
     return NtUserGetPointerType( id, type );
 }
 
+NTSTATUS WINAPI wow64_NtUserGetPointerTouchInfo( UINT *args )
+{
+    UINT32 id = get_ulong( &args );
+    POINTER_TOUCH_INFO *info = get_ptr( &args );
+
+    return NtUserGetPointerTouchInfo( id, info );
+}
+
 NTSTATUS WINAPI wow64_NtUserGetPriorityClipboardFormat( UINT *args )
 {
     UINT *list = get_ptr( &args );

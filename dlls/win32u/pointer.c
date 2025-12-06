@@ -175,6 +175,99 @@ BOOL get_pointer_type( UINT32 id, POINTER_INPUT_TYPE *type )
     return ret;
 }
 
+static void cleanup_expired_pointers( void )
+{
+    DWORD current_time = NtGetTickCount();
+
+    for (int i = 0; i < MAX_ACTIVE_POINTERS; i++)
+    {
+        struct pointer_info_entry *entry = &pointer_cache[i];
+
+        if (entry->active && entry->releaseTime > 0)
+        {
+            /* Clean up pointers released more than 500ms ago */
+            if ((current_time - entry->releaseTime) > 500)
+            {
+                TRACE( "Pointer %u expired, cleaning up\n", entry->pointerId );
+                entry->active = FALSE;
+                entry->releaseTime = 0;
+            }
+        }
+    }
+}
+
+BOOL get_pointer_touch_info( UINT32 id, POINTER_TOUCH_INFO *info )
+{
+    struct pointer_info_entry *entry;
+    BOOL ret = FALSE;
+
+    pthread_mutex_lock( &pointer_cache_mutex );
+    cleanup_expired_pointers();
+    entry = find_pointer_entry( id );
+    if (entry && entry->active)
+    {
+        RECT virtual = NtUserGetVirtualScreenRect( MDT_RAW_DPI );
+        int screen_width = virtual.right - virtual.left;
+        int screen_height = virtual.bottom - virtual.top;
+
+        memset( info, 0, sizeof(*info) );
+
+        /* Fill POINTER_INFO */
+        info->pointerInfo.pointerType = entry->pointerType;
+        info->pointerInfo.pointerId = entry->pointerId;
+        info->pointerInfo.frameId = 0;
+        info->pointerInfo.pointerFlags = entry->pointerFlags;
+        info->pointerInfo.sourceDevice = NULL;
+        info->pointerInfo.hwndTarget = entry->hwndTarget;
+
+        /* Convert normalized position (0-65535) to screen pixels */
+        info->pointerInfo.ptPixelLocation.x = (entry->ptPixelLocation.x * screen_width) / 65536;
+        info->pointerInfo.ptPixelLocation.y = (entry->ptPixelLocation.y * screen_height) / 65536;
+
+        info->pointerInfo.ptHimetricLocation.x = 0;
+        info->pointerInfo.ptHimetricLocation.y = 0;
+        info->pointerInfo.ptPixelLocationRaw = info->pointerInfo.ptPixelLocation;
+        info->pointerInfo.ptHimetricLocationRaw.x = 0;
+        info->pointerInfo.ptHimetricLocationRaw.y = 0;
+        info->pointerInfo.dwTime = entry->dwTime;
+        info->pointerInfo.historyCount = 0;
+        info->pointerInfo.InputData = 0;
+        info->pointerInfo.dwKeyStates = 0;
+        info->pointerInfo.PerformanceCount = 0;
+        info->pointerInfo.ButtonChangeType = POINTER_CHANGE_NONE;
+
+        /* Fill touch-specific info */
+        info->touchFlags = TOUCH_FLAG_NONE;
+        info->touchMask = TOUCH_MASK_CONTACTAREA | TOUCH_MASK_ORIENTATION | TOUCH_MASK_PRESSURE;
+
+        /* Contact area - small rectangle around touch point */
+        info->rcContact.left = info->pointerInfo.ptPixelLocation.x - 5;
+        info->rcContact.top = info->pointerInfo.ptPixelLocation.y - 5;
+        info->rcContact.right = info->pointerInfo.ptPixelLocation.x + 5;
+        info->rcContact.bottom = info->pointerInfo.ptPixelLocation.y + 5;
+        info->rcContactRaw = info->rcContact;
+
+        info->orientation = 0;
+        info->pressure = 1024;
+
+        TRACE( "Retrieved pointer %u: type=%d, pos=(%d,%d), flags=%u\n",
+               id, entry->pointerType,
+               info->pointerInfo.ptPixelLocation.x,
+               info->pointerInfo.ptPixelLocation.y,
+               entry->pointerFlags );
+
+        ret = TRUE;
+    }
+    else
+    {
+        WARN( "Pointer %u not found or inactive\n", id );
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+    }
+
+    pthread_mutex_unlock( &pointer_cache_mutex );
+    return ret;
+}
+
 /**********************************************************************
  * NtUserGetPointerType (win32u.@)
  */
@@ -188,4 +281,20 @@ BOOL WINAPI NtUserGetPointerType( UINT32 id, POINTER_INPUT_TYPE *type )
     }
 
     return get_pointer_type( id, type );
+}
+
+/**********************************************************************
+ * NtUserGetPointerTouchInfo (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerTouchInfo( UINT32 id, POINTER_TOUCH_INFO *info )
+{
+    TRACE( "id %u, info %p\n", id, info );
+
+    if (!info)
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+
+    return get_pointer_touch_info( id, info );
 }

@@ -1073,6 +1073,7 @@
 @ stub -syscall NtUserGetPointerInputTransform
 @ stub -syscall NtUserGetPointerProprietaryId
 @ stdcall -syscall NtUserGetPointerType(long ptr)
+@ stdcall -syscall NtUserGetPointerTouchInfo(long ptr)
 @ stub -syscall NtUserGetPrecisionTouchPadConfiguration
 @ stdcall -syscall NtUserGetPriorityClipboardFormat(ptr long)
 @ stdcall -syscall NtUserGetProcessDefaultLayout(ptr)
