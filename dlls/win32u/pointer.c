@@ -143,3 +143,49 @@ void store_pointer_info( HWND hwnd, const INPUT *input, LPARAM lparam )
 
     pthread_mutex_unlock( &pointer_cache_mutex );
 }
+
+BOOL get_pointer_type( UINT32 id, POINTER_INPUT_TYPE *type )
+{
+    struct pointer_info_entry *entry;
+    BOOL ret = FALSE;
+
+    if (id == 1)
+    {
+        *type = PT_MOUSE;
+        TRACE( "Pointer 1 is mouse\n" );
+        return TRUE;
+    }
+
+    pthread_mutex_lock( &pointer_cache_mutex );
+
+    entry = find_pointer_entry( id );
+    if (entry && entry->active)
+    {
+        *type = entry->pointerType;
+        TRACE( "Pointer %u type: %d\n", id, *type );
+        ret = TRUE;
+    }
+    else
+    {
+        WARN( "Pointer %u not found\n", id );
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+    }
+
+    pthread_mutex_unlock( &pointer_cache_mutex );
+    return ret;
+}
+
+/**********************************************************************
+ * NtUserGetPointerType (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerType( UINT32 id, POINTER_INPUT_TYPE *type )
+{
+    TRACE( "id %u, type %p\n", id, type );
+    if (!type)
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+
+    return get_pointer_type( id, type );
+}
