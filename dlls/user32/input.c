@@ -782,6 +782,14 @@ BOOL WINAPI GetPointerTouchInfo( UINT32 id, POINTER_TOUCH_INFO *info )
     return NtUserGetPointerTouchInfo( id, info );
 }
 
+/***********************************************************************
+ * GetPointerFrameTouchInfo (USER32.@)
+ */
+BOOL WINAPI GetPointerFrameTouchInfo( UINT32 id, UINT32 *count, POINTER_TOUCH_INFO *info )
+{
+    return NtUserGetPointerFrameTouchInfo( id, count, info );
+}
+
 BOOL WINAPI GetRawPointerDeviceData( UINT32 id, UINT32 hist_count, UINT32 prop_count,
                                      POINTER_DEVICE_PROPERTY *properties, LONG *values )
 {
