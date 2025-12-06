@@ -638,7 +638,7 @@
 # @ stub GetPointerFramePenInfoHistory
 # @ stub GetPointerFrameTimes
 # @ stub GetPointerFrameTouchInfo
-# @ stub GetPointerFrameTouchInfoHistory
+@ stdcall GetPointerFrameTouchInfoHistory(long ptr ptr ptr)
 @ stdcall GetPointerInfo(long ptr)
 # @ stub GetPointerInfoHistory
 # @ stub GetPointerInputTransform

@@ -797,6 +797,15 @@ BOOL WINAPI GetPointerTouchInfoHistory( UINT32 id, UINT32 *count, POINTER_TOUCH_
     return FALSE;
 }
 
+BOOL WINAPI GetPointerFrameTouchInfoHistory( UINT32 id, UINT32 *entriesCount, UINT32 *pointerCount, POINTER_TOUCH_INFO *info )
+{
+    FIXME( "id %u, entriesCount %p, pointerCount %p, info %p stub!\n",
+          id, entriesCount, pointerCount, info );
+    if (entriesCount) *entriesCount = 0;
+    if (pointerCount) *pointerCount = 0;
+    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
 
 /*******************************************************************
  *           GetActiveWindow  (USER32.@)
