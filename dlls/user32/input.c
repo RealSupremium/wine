@@ -774,11 +774,12 @@ BOOL WINAPI GetPointerPenInfo( UINT32 id, POINTER_PEN_INFO *info )
     return FALSE;
 }
 
+/***********************************************************************
+ * GetPointerTouchInfo (USER32.@)
+ */
 BOOL WINAPI GetPointerTouchInfo( UINT32 id, POINTER_TOUCH_INFO *info )
 {
-    FIXME( "id %u, info %p stub!\n", id, info );
-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
+    return NtUserGetPointerTouchInfo( id, info );
 }
 
 BOOL WINAPI GetRawPointerDeviceData( UINT32 id, UINT32 hist_count, UINT32 prop_count,
