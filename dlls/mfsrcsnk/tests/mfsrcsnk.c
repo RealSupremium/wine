@@ -892,7 +892,6 @@ static HRESULT WINAPI teststream_GetCurrentPosition(IMFByteStream *iface, QWORD 
 
 static HRESULT WINAPI teststream_SetCurrentPosition(IMFByteStream *iface, QWORD position)
 {
-    todo_wine_if(!(position % 0x40000 == 0))
     ok(position % 0x40000 == 0, "IMFByteStream::SetCurrentPosition pos=%lld should be aligned on 0x40000 boundary.\n", position);
     return IMFByteStream_SetCurrentPosition(impl_from_IMFByteStream(iface)->inner, position);
 }
@@ -907,9 +906,7 @@ static HRESULT WINAPI teststream_Read(IMFByteStream *iface, BYTE *buffer, ULONG 
     QWORD pos = 0;
     HRESULT hr = IMFByteStream_GetCurrentPosition(impl_from_IMFByteStream(iface)->inner, &pos);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    todo_wine_if(!(pos % 0x40000 == 0))
     ok(pos % 0x40000 == 0, "IMFByteStream::Read pos=%lld should be aligned on 0x40000 boundary.\n", pos);
-    todo_wine_if(!(size <= 0x40000))
     ok(size <= 0x40000, "IMFByteStream::BeginRead size=%lu should not be larger than 0x40000.\n", size);
     return IMFByteStream_Read(impl_from_IMFByteStream(iface)->inner, buffer, size, read_len);
 }
@@ -920,9 +917,7 @@ static HRESULT WINAPI teststream_BeginRead(IMFByteStream *iface, BYTE *data, ULO
     QWORD pos = 0;
     HRESULT hr = IMFByteStream_GetCurrentPosition(impl_from_IMFByteStream(iface)->inner, &pos);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    todo_wine_if(!(pos % 0x40000 == 0))
     ok(pos % 0x40000 == 0, "IMFByteStream::BeginRead pos=%lld should be aligned on 0x40000 boundary.\n", pos);
-    todo_wine_if(!(size <= 0x40000))
     ok(size <= 0x40000, "IMFByteStream::BeginRead size=%lu should not be larger than 0x40000.\n", size);
     return IMFByteStream_BeginRead(impl_from_IMFByteStream(iface)->inner, data, size, callback, state);
 }
@@ -956,7 +951,6 @@ static HRESULT WINAPI teststream_Seek(IMFByteStream *iface, MFBYTESTREAM_SEEK_OR
     QWORD pos = 0;
     HRESULT hr = IMFByteStream_GetCurrentPosition(impl_from_IMFByteStream(iface)->inner, &pos);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    todo_wine_if(!(pos % 0x40000 == 0))
     ok(pos % 0x40000 == 0, "IMFByteStream::Seek pos=%lld should be aligned on 0x40000 boundary.\n", pos);
 
     return ret_hr;
