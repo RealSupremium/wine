@@ -1069,6 +1069,7 @@
 @ stub -syscall NtUserGetPointerDeviceRects
 @ stub -syscall NtUserGetPointerDevices
 @ stub -syscall NtUserGetPointerFrameTimes
+@ stdcall -syscall NtUserGetPointerFrameTouchInfo(long ptr ptr)
 @ stdcall -syscall NtUserGetPointerInfoList(long long long long long ptr ptr ptr)
 @ stub -syscall NtUserGetPointerInputTransform
 @ stub -syscall NtUserGetPointerProprietaryId

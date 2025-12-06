@@ -2870,6 +2870,15 @@ NTSTATUS WINAPI wow64_NtUserGetPointerTouchInfo( UINT *args )
     return NtUserGetPointerTouchInfo( id, info );
 }
 
+NTSTATUS WINAPI wow64_NtUserGetPointerFrameTouchInfo( UINT *args )
+{
+    UINT32 id = get_ulong( &args );
+    UINT32 *count = get_ptr( &args );
+    POINTER_TOUCH_INFO *info = get_ptr( &args );
+
+    return NtUserGetPointerFrameTouchInfo( id, count, info );
+}
+
 NTSTATUS WINAPI wow64_NtUserGetPriorityClipboardFormat( UINT *args )
 {
     UINT *list = get_ptr( &args );

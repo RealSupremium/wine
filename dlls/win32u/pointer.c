@@ -268,6 +268,148 @@ BOOL get_pointer_touch_info( UINT32 id, POINTER_TOUCH_INFO *info )
     return ret;
 }
 
+BOOL get_pointer_frame_touch_info( UINT32 id, UINT32 *count, POINTER_TOUCH_INFO *info )
+{
+    struct pointer_info_entry *entry;
+    UINT32 found_count = 0;
+    UINT32 msg_flags;
+    BOOL ret = FALSE;
+    int i;
+
+    pthread_mutex_lock( &pointer_cache_mutex );
+    cleanup_expired_pointers();
+
+    /* First, check if the requested pointer exists */
+    entry = find_pointer_entry( id );
+    if (!entry || !entry->active)
+    {
+        WARN( "Pointer %u not found or inactive\n", id );
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        pthread_mutex_unlock( &pointer_cache_mutex );
+        return FALSE;
+    }
+
+    /* Count active touch pointers (DOWN, UPDATE, OR UP) - exclude already-processed UP events */
+    for (i = 0; i < MAX_ACTIVE_POINTERS; i++)
+    {
+        if (pointer_cache[i].active &&
+            pointer_cache[i].pointerType == PT_TOUCH &&
+            (pointer_cache[i].pointerFlags & (POINTER_FLAG_DOWN | POINTER_FLAG_UPDATE | POINTER_FLAG_UP)))
+        {
+            found_count++;
+        }
+    }
+
+    /* If info is NULL, caller just wants the count */
+    if (!info)
+    {
+        *count = found_count;
+        ret = TRUE;
+    }
+    else
+    {
+        /* Fill in touch info for all active pointers (DOWN, UPDATE, OR UP) */
+        UINT32 idx = 0;
+        for (i = 0; i < MAX_ACTIVE_POINTERS && idx < *count; i++)
+        {
+            if (pointer_cache[i].active &&
+                pointer_cache[i].pointerType == PT_TOUCH &&
+                (pointer_cache[i].pointerFlags & (POINTER_FLAG_DOWN | POINTER_FLAG_UPDATE | POINTER_FLAG_UP)))
+            {
+                /* Reuse get_pointer_touch_info logic */
+                RECT virtual = NtUserGetVirtualScreenRect( MDT_RAW_DPI );
+                int screen_width = virtual.right - virtual.left;
+                int screen_height = virtual.bottom - virtual.top;
+                struct pointer_info_entry *e = &pointer_cache[i];
+
+                memset( &info[idx], 0, sizeof(info[idx]) );
+
+                /* Fill POINTER_INFO */
+                info[idx].pointerInfo.pointerType = e->pointerType;
+                info[idx].pointerInfo.pointerId = e->pointerId;
+                info[idx].pointerInfo.frameId = 0;
+
+                /* Keep the state flags (DOWN/UPDATE/UP) */
+                msg_flags = e->pointerFlags & (POINTER_FLAG_DOWN | POINTER_FLAG_UPDATE | POINTER_FLAG_UP);
+
+                /* Add the message flags based on state */
+                if (e->pointerFlags & POINTER_FLAG_DOWN)
+                {
+                    msg_flags |= POINTER_MESSAGE_FLAG_NEW | POINTER_MESSAGE_FLAG_INRANGE | POINTER_MESSAGE_FLAG_INCONTACT;
+                    msg_flags |= POINTER_MESSAGE_FLAG_FIRSTBUTTON;
+                }
+                else if (e->pointerFlags & POINTER_FLAG_UPDATE)
+                {
+                    msg_flags |= POINTER_MESSAGE_FLAG_INRANGE | POINTER_MESSAGE_FLAG_INCONTACT;
+                    msg_flags |= POINTER_MESSAGE_FLAG_FIRSTBUTTON;
+                }
+                else if (e->pointerFlags & POINTER_FLAG_UP)
+                {
+                    msg_flags |= POINTER_MESSAGE_FLAG_INRANGE;
+                }
+
+                /* First pointer in frame is PRIMARY - use POINTER_FLAG_PRIMARY not MESSAGE version */
+                if (idx == 0)
+                    msg_flags |= POINTER_FLAG_PRIMARY;
+
+                msg_flags |= POINTER_FLAG_CONFIDENCE;
+
+                info[idx].pointerInfo.pointerFlags = msg_flags;
+                info[idx].pointerInfo.sourceDevice = NULL;
+                info[idx].pointerInfo.hwndTarget = e->hwndTarget;
+
+                /* Convert normalized position to screen pixels */
+                info[idx].pointerInfo.ptPixelLocation.x = (e->ptPixelLocation.x * screen_width) / 65536;
+                info[idx].pointerInfo.ptPixelLocation.y = (e->ptPixelLocation.y * screen_height) / 65536;
+
+                info[idx].pointerInfo.ptHimetricLocation.x = 0;
+                info[idx].pointerInfo.ptHimetricLocation.y = 0;
+                info[idx].pointerInfo.ptPixelLocationRaw = info[idx].pointerInfo.ptPixelLocation;
+                info[idx].pointerInfo.ptHimetricLocationRaw.x = 0;
+                info[idx].pointerInfo.ptHimetricLocationRaw.y = 0;
+                info[idx].pointerInfo.dwTime = e->dwTime;
+                info[idx].pointerInfo.historyCount = 0;
+                info[idx].pointerInfo.InputData = 0;
+                info[idx].pointerInfo.dwKeyStates = 0;
+                info[idx].pointerInfo.PerformanceCount = 0;
+                info[idx].pointerInfo.ButtonChangeType = POINTER_CHANGE_NONE;
+
+                /* Fill touch-specific info */
+                info[idx].touchFlags = TOUCH_FLAG_NONE;
+                info[idx].touchMask = TOUCH_MASK_CONTACTAREA | TOUCH_MASK_ORIENTATION | TOUCH_MASK_PRESSURE;
+
+                info[idx].rcContact.left = info[idx].pointerInfo.ptPixelLocation.x - 5;
+                info[idx].rcContact.top = info[idx].pointerInfo.ptPixelLocation.y - 5;
+                info[idx].rcContact.right = info[idx].pointerInfo.ptPixelLocation.x + 5;
+                info[idx].rcContact.bottom = info[idx].pointerInfo.ptPixelLocation.y + 5;
+                info[idx].rcContactRaw = info[idx].rcContact;
+
+                info[idx].orientation = 0;
+                info[idx].pressure = (e->pointerFlags & POINTER_FLAG_UP) ? 0 : 1024;
+
+                TRACE("[%u] id=%u flags=%u (DOWN=%d UPDATE=%d UP=%d) pos=(%d,%d) rcContact=(%dx%d) pressure=%u\n",
+                      idx, e->pointerId, msg_flags,
+                      !!(e->pointerFlags & POINTER_FLAG_DOWN),
+                      !!(e->pointerFlags & POINTER_FLAG_UPDATE),
+                      !!(e->pointerFlags & POINTER_FLAG_UP),
+                      info[idx].pointerInfo.ptPixelLocation.x,
+                      info[idx].pointerInfo.ptPixelLocation.y,
+                      info[idx].rcContact.right - info[idx].rcContact.left,
+                      info[idx].rcContact.bottom - info[idx].rcContact.top,
+                      info[idx].pressure);
+
+                idx++;
+            }
+        }
+
+        *count = idx;
+        ret = TRUE;
+    }
+
+    pthread_mutex_unlock( &pointer_cache_mutex );
+    return ret;
+}
+
 /**********************************************************************
  * NtUserGetPointerType (win32u.@)
  */
@@ -297,4 +439,19 @@ BOOL WINAPI NtUserGetPointerTouchInfo( UINT32 id, POINTER_TOUCH_INFO *info )
     }
 
     return get_pointer_touch_info( id, info );
+}
+
+/**********************************************************************
+ * NtUserGetPointerFrameTouchInfo (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerFrameTouchInfo( UINT32 id, UINT32 *count, POINTER_TOUCH_INFO *info )
+{
+    TRACE( "id %u, count %p, info %p\n", id, count, info );
+    if (!count)
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+
+    return get_pointer_frame_touch_info( id, count, info );
 }
