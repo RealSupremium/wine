@@ -260,13 +260,13 @@ static void test_SxsLookupClrGuid(void)
 
 START_TEST(sxs)
 {
-    char **argv;
-    int argc = winetest_get_mainargs(&argv);
-    if (argc > 2)
-    {
+    // char **argv;
+    // int argc = winetest_get_mainargs(&argv);
+    // if (argc > 2)
+    // {
         prepare_and_run_test();
         return;
-    }
+    // }
 
     test_SxsLookupClrGuid();
 }
