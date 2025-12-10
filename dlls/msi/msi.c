@@ -4291,6 +4291,9 @@ UINT WINAPI MsiProvideComponentW( const WCHAR *product, const WCHAR *feature, co
         MsiUseFeatureW( product, feature );
         return ERROR_SUCCESS;
 
+    case INSTALLSTATE_ABSENT:
+        return ERROR_FILE_NOT_FOUND;
+
     default:
         TRACE("MsiGetComponentPathW returned %d\n", state);
         return ERROR_INSTALL_FAILURE;
