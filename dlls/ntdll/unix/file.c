@@ -156,6 +156,10 @@ typedef struct
 /* Case-insensitivity attribute */
 #define EXT4_CASEFOLD_FL 0x40000000
 
+#ifndef BTRFS_SUPER_MAGIC
+#define BTRFS_SUPER_MAGIC 0x9123683e
+#endif
+
 #ifndef O_DIRECTORY
 # define O_DIRECTORY 0200000 /* must be directory */
 #endif
@@ -7465,8 +7469,10 @@ NTSTATUS WINAPI NtQueryVolumeInformationFile( HANDLE handle, IO_STATUS_BLOCK *io
         static const WCHAR udfW[] = {'U','D','F'};
 
         FILE_FS_ATTRIBUTE_INFORMATION *info = buffer;
+        struct statfs stfs;
         struct mountmgr_unix_drive drive;
         enum mountmgr_fs_type fs_type = MOUNTMGR_FS_TYPE_NTFS;
+        BOOL supports_block_refcounting = FALSE;
 
         if (length < sizeof(FILE_FS_ATTRIBUTE_INFORMATION))
         {
@@ -7474,11 +7480,32 @@ NTSTATUS WINAPI NtQueryVolumeInformationFile( HANDLE handle, IO_STATUS_BLOCK *io
             break;
         }
 
+#if defined(linux) && defined(HAVE_FSTATFS)
+        if (!fstatfs( fd, &stfs ) && stfs.f_type == BTRFS_SUPER_MAGIC)
+            supports_block_refcounting = TRUE;
+#endif
+
+#ifdef FICLONERANGE
+        if (!supports_block_refcounting)
+        {
+            struct file_clone_range range =
+            {
+                .src_fd = fd,
+                .src_offset = 0,
+                .src_length = 0,
+                .dest_offset = 0,
+            };
+
+            if (!ioctl( fd, FICLONERANGE, &range ))
+                supports_block_refcounting = TRUE;
+            else if (errno != EOPNOTSUPP && errno != ENOTTY)
+                supports_block_refcounting = TRUE;
+        }
+#endif
+
         if (!get_mountmgr_fs_info( handle, fd, &drive, sizeof(drive) )) fs_type = drive.fs_type;
         else
         {
-            struct statfs stfs;
-
             if (!fstatfs( fd, &stfs ))
             {
 #if defined(linux) && defined(HAVE_FSTATFS)
@@ -7540,6 +7567,9 @@ NTSTATUS WINAPI NtQueryVolumeInformationFile( HANDLE handle, IO_STATUS_BLOCK *io
             memcpy(info->FileSystemName, ntfsW, info->FileSystemNameLength);
             break;
         }
+
+        if (supports_block_refcounting)
+            info->FileSystemAttributes |= FILE_SUPPORTS_BLOCK_REFCOUNTING;
 
         io->Information = offsetof( FILE_FS_ATTRIBUTE_INFORMATION, FileSystemName ) + info->FileSystemNameLength;
         status = STATUS_SUCCESS;
