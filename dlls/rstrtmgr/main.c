@@ -122,8 +122,8 @@ DWORD WINAPI RmRemoveFilter(DWORD handle, LPCWSTR moduleName, RM_UNIQUE_PROCESS 
  * RmJoinSession (rstrtmgr.@)
  *
  */
-DWORD WINAPI RmJoinSession(DWORD *sessionhandle, WCHAR *sessionkey)
+DWORD WINAPI RmJoinSession(DWORD *sessionhandle, const WCHAR *sessionkey)
 {
-    FIXME("stub! sessionhandle:%lx, sessionkey:%s\n", *sessionhandle, debugstr_w(sessionkey));
+    FIXME("stub! sessionhandle:%p, sessionkey:%p\n", sessionhandle, sessionkey);
     return ERROR_SUCCESS;
 }
