@@ -7473,6 +7473,7 @@ NTSTATUS WINAPI NtQueryVolumeInformationFile( HANDLE handle, IO_STATUS_BLOCK *io
         struct mountmgr_unix_drive drive;
         enum mountmgr_fs_type fs_type = MOUNTMGR_FS_TYPE_NTFS;
         BOOL supports_block_refcounting = FALSE;
+        BOOL have_stfs = FALSE;
 
         if (length < sizeof(FILE_FS_ATTRIBUTE_INFORMATION))
         {
@@ -7480,8 +7481,12 @@ NTSTATUS WINAPI NtQueryVolumeInformationFile( HANDLE handle, IO_STATUS_BLOCK *io
             break;
         }
 
+#ifdef HAVE_FSTATFS
+        have_stfs = !fstatfs( fd, &stfs );
+#endif
+
 #if defined(linux) && defined(HAVE_FSTATFS)
-        if (!fstatfs( fd, &stfs ) && stfs.f_type == BTRFS_SUPER_MAGIC)
+        if (have_stfs && stfs.f_type == BTRFS_SUPER_MAGIC)
             supports_block_refcounting = TRUE;
 #endif
 
@@ -7506,7 +7511,7 @@ NTSTATUS WINAPI NtQueryVolumeInformationFile( HANDLE handle, IO_STATUS_BLOCK *io
         if (!get_mountmgr_fs_info( handle, fd, &drive, sizeof(drive) )) fs_type = drive.fs_type;
         else
         {
-            if (!fstatfs( fd, &stfs ))
+            if (have_stfs)
             {
 #if defined(linux) && defined(HAVE_FSTATFS)
                 switch (stfs.f_type)
