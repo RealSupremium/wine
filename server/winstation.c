@@ -501,12 +501,19 @@ void set_process_default_desktop( struct process *process, struct desktop *deskt
 void connect_process_winstation( struct process *process, struct unicode_str *desktop_path,
                                  struct thread *parent_thread, struct process *parent_process )
 {
-    struct unicode_str desktop_name = *desktop_path, winstation_name = {0};
+    struct unicode_str desktop_name = *desktop_path, winstation_name = {0}, root_name = {0}, full_winstation_name = {0};
     const int attributes = OBJ_CASE_INSENSITIVE | OBJ_OPENIF;
     struct winstation *winstation = NULL;
     struct desktop *desktop = NULL;
     const WCHAR *wch, *end;
     obj_handle_t handle;
+    char ascii_root[50]; /* len of root path + len(str(2**32)) + 4 (to be safe) */
+    static const WCHAR service_winstationW[] = {'_','_','w','i','n','e','s','e','r','v','i','c','e','_','w','i','n','s','t','a','t','i','o','n'};
+    static const WCHAR console_winstationW[] = { 'W','i','n','S','t','a','0'};
+    static const WCHAR default_desktopW[] = {'D','e','f','a','u','l','t'};
+    static const struct unicode_str service_winstation_str = {service_winstationW, sizeof(service_winstationW)};
+    static const struct unicode_str console_winstation_str = {console_winstationW, sizeof(console_winstationW)};
+    static const struct unicode_str default_desktop_str = {default_desktopW, sizeof(default_desktopW)};
 
     for (wch = desktop_name.str, end = wch + desktop_name.len / sizeof(WCHAR); wch != end; wch++)
     {
@@ -520,14 +527,41 @@ void connect_process_winstation( struct process *process, struct unicode_str *de
         }
     }
 
+    if(process->session_id != parent_thread->process->session_id)
+    {
+        /* Someone used CreateProcessAsUserW; reset the winstation to the default values. */
+        switch(process->session_id) {
+            case 0:
+                memcpy(&winstation_name, &service_winstation_str, sizeof(winstation_name));
+                break;
+            default: /* fall through */
+            case 1:
+                memcpy(&winstation_name, &console_winstation_str, sizeof(winstation_name));
+                break;
+        }
+
+        memcpy(&desktop_name, &default_desktop_str, sizeof(desktop_name));
+    }
+
     /* check for an inherited winstation handle (don't ask...) */
     if ((handle = find_inherited_handle( process, &winstation_ops )))
     {
         winstation = (struct winstation *)get_handle_obj( process, handle, 0, &winstation_ops );
     }
-    else if (winstation_name.len && (winstation = open_named_object( NULL, &winstation_ops, &winstation_name, attributes )))
+    else if (winstation_name.len)
     {
-        handle = alloc_handle( process, winstation, STANDARD_RIGHTS_REQUIRED | WINSTA_ALL_ACCESS, 0 );
+        snprintf(ascii_root, sizeof(ascii_root), "\\Sessions\\%u\\Windows\\WindowStations\\", process->session_id);
+        ascii_to_unicode_str(ascii_root, &root_name);
+
+        full_winstation_name.len = root_name.len + winstation_name.len;
+        full_winstation_name.str = malloc(full_winstation_name.len + 2);
+        memcpy((void*)full_winstation_name.str, root_name.str, root_name.len);
+        memcpy((void*)(full_winstation_name.str + root_name.len / sizeof(WCHAR)), winstation_name.str, winstation_name.len);
+
+        if((winstation = open_named_object( NULL, &winstation_ops, &full_winstation_name, attributes )))
+        {
+            handle = alloc_handle( process, winstation, STANDARD_RIGHTS_REQUIRED | WINSTA_ALL_ACCESS, 0 );
+        }
     }
     else if (parent_process->winstation)
     {
@@ -563,6 +597,7 @@ void connect_process_winstation( struct process *process, struct unicode_str *de
         handle = duplicate_handle( parent_process, handle, process, 0, 0, DUPLICATE_SAME_ACCESS );
     }
     if (handle) set_process_default_desktop( process, desktop, handle );
+
 
 done:
     if (desktop) release_object( desktop );
