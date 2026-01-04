@@ -1296,7 +1296,8 @@ static NTSTATUS lnxev_device_create(struct udev_device *dev, int fd, const char 
     }
 
     if (is_xbox_gamepad(desc.vid, desc.pid)) desc.is_gamepad = TRUE;
-    else if (axis_count == 6 && button_count >= (impl->hat_count ? 10 : 14)) desc.is_gamepad = TRUE;
+    else if (test_bit(info.key, BTN_GAMEPAD) && axis_count == 6 && button_count >= (impl->hat_count ? 10 : 14))
+        desc.is_gamepad = TRUE;
 
     if ((impl->is_gamepad = desc.is_gamepad))
     {
