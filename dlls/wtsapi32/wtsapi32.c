@@ -354,6 +354,7 @@ BOOL WINAPI WTSEnumerateSessionsW(HANDLE server, DWORD reserved, DWORD version,
     size_t next_string_offset = 2 * sizeof(**session_info);
 
     FIXME("%p 0x%08lx 0x%08lx %p %p semi-stub.\n", server, reserved, version, session_info, count);
+    FIXME("Always returning default session id / name\n");
 
     if (!session_info || !count) return FALSE;
 
