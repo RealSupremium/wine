@@ -2107,6 +2107,9 @@ static NTSTATUS write_console( struct screen_buffer *screen_buffer, const WCHAR 
 {
     RECT update_rect;
     size_t i, j;
+    enum {
+        ST_START, ST_PARAM, ST_INTER, ST_FINAL
+    } state;
 
     TRACE( "%s\n", debugstr_wn(buffer, len) );
 
@@ -2142,6 +2145,59 @@ static NTSTATUS write_console( struct screen_buffer *screen_buffer, const WCHAR 
                 continue;
             case '\r':
                 screen_buffer->cursor_x = 0;
+                continue;
+            case '\e':
+                if ((screen_buffer->mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING))
+                {
+                    if (buffer[i+1] == '[')
+                    {
+                        FIXME( "CSI sequences not supported fully yet, only skipping control sequences!\n" );
+                        state = ST_PARAM;
+                        i+=2;
+                    }
+                    else
+                    {
+                        ERR("Invalid CSI start sequence\n");
+                        break;
+                    }
+                    /* intermediate bytes 0x30 - 0x3f (0-?) */
+                    for (; i<len && (state == ST_PARAM); i++)
+                    {
+                        if (buffer[i] >= 0x30 && buffer[i] <= 0x3b)
+                            continue;
+                        else if (buffer[i] >= 0x3c && buffer[i] <= 0x3f)
+                        {
+                            WARN( "This is a private -terminal manufacturer only- CSI sequence\n" );
+                            continue;
+                        }
+                        else
+                        {
+                            state = ST_INTER;
+                            break;
+                        }
+                    }
+                    /* intermediate bytes 0x20 - 0x2f*/
+                    for (; i<len && (state == ST_INTER || state == ST_PARAM); i++)
+                    {
+                        if (buffer[i] >= 0x20 && buffer[i] <= 0x2f)
+                            continue;
+                        else
+                        {
+                            state = ST_FINAL;
+                            break;
+                        }
+                    }
+                    if (state == ST_START || state == ST_FINAL)
+                    {
+                        if (buffer[i] >= 0x70 && buffer[i] <= 0x7e)
+                            WARN("This is a private -terminal manufacturer only- CSI sequence\n");
+                        else if (!(buffer[i] >= 0x40 && buffer[i] <= 0x6f))
+                            ERR("This was no valid CSI sequence\n");
+                    }
+                }
+                else
+                    WARN( "ENABLE_VIRTUAL_TERMINAL_PROCESSING is disabled\n" );
+
                 continue;
             }
         }

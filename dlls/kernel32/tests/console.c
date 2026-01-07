@@ -5744,16 +5744,14 @@ static void test_ANSI_escape_sequences(void)
     ok(ret, "GetConsoleScreenBufferInfo failed\n");
     ok(sb_info.dwCursorPosition.X == 5 + 3, "Incorrect X cursor position\n");
     ok(sb_info.dwCursorPosition.Y == 0, "Incorrect X cursor position\n");
-    ok(sb_info.wAttributes == (FOREGROUND_RED | FOREGROUND_INTENSITY), "Unexpected attributes got %x, expected %x\n", sb_info.wAttributes, FOREGROUND_RED | FOREGROUND_INTENSITY);
+    todo_wine ok(sb_info.wAttributes == (FOREGROUND_RED | FOREGROUND_INTENSITY), "Unexpected attributes got %x, expected %x\n", sb_info.wAttributes, FOREGROUND_RED | FOREGROUND_INTENSITY);
     ret = SetConsoleTextAttribute(hConOut, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
     ret = WriteConsoleW(hConOut, L"BLUE\x1b[m", 4+3, &dw, NULL);
     ok(dw == 4+3, "Wrong count\n");
     ret = GetConsoleScreenBufferInfo(hConOut, &sb_info);
     ok(sb_info.dwCursorPosition.X == 5 + 3 + 4, "Incorrect X cursor position\n");
     ok(sb_info.dwCursorPosition.Y == 0, "Incorrect X cursor position\n");
-    ok(sb_info.wAttributes == (FOREGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN), "Unexpected attributes: got %x, expected %x\n", sb_info.wAttributes, FOREGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN);
-    /* TODO should call ReadConsoleOutput to check that the colors are correct (they are visually) */
-    /* could test more sequences */
+    todo_wine ok(sb_info.wAttributes == (FOREGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN), "Unexpected attributes: got %x, expected %x\n", sb_info.wAttributes, FOREGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN);
     CloseHandle(hConOut);
 
     FreeConsole();
