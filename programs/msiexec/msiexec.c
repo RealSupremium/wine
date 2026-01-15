@@ -139,7 +139,7 @@ static LPWSTR build_properties(struct string_list *property_list)
 	struct string_list *list;
 	LPWSTR ret, p, value;
 	DWORD len;
-	BOOL needs_quote;
+	BOOL needs_quote, needs_move_first_quote;
 
 	if(!property_list)
 		return NULL;
@@ -160,13 +160,21 @@ static LPWSTR build_properties(struct string_list *property_list)
 			continue;
 		len = value - list->str;
 		*p++ = ' ';
-		memcpy(p, list->str, len * sizeof(WCHAR));
-		p += len;
+
+		/* In props like " \"INSTALLDIR=path\" ", move first quote after the '=' (with a result
+		   of " INSTALLDIR=\"path\" ") to save the quotes balance when MSI parser cuts off
+		   characters up to first '='. */
+		needs_move_first_quote = (*list->str == '"');
+
+		memcpy(p, list->str + needs_move_first_quote, (len - needs_move_first_quote) * sizeof(WCHAR));
+		p += len - needs_move_first_quote;
 		*p++ = '=';
+		if(needs_move_first_quote)
+			*p++ = '\"';
 
 		/* check if the value contains spaces and maybe quote it */
 		value++;
-		needs_quote = *value != '"' && wcschr(value, ' ');
+		needs_quote = (!needs_move_first_quote && *value != '"' && wcschr(value, ' '));
 		if(needs_quote)
 			*p++ = '"';
 		len = lstrlenW(value);
