@@ -95,6 +95,7 @@ struct wg_transform
     GstCaps *output_caps;
     GstCaps *input_caps;
 
+    pthread_mutex_t mutex;
     bool draining;
     INT64 ts_offset;
 };
@@ -485,6 +486,7 @@ NTSTATUS wg_transform_destroy(void *args)
     gst_caps_unref(transform->output_caps);
     gst_caps_unref(transform->input_caps);
     gst_atomic_queue_unref(transform->output_queue);
+    pthread_mutex_destroy(&transform->mutex);
     free(transform);
 
     return STATUS_SUCCESS;
@@ -755,6 +757,8 @@ NTSTATUS wg_transform_create(void *args)
     if (!(event = gst_event_new_segment(&transform->segment))
             || !push_event(transform->my_src, event))
         goto out;
+
+    pthread_mutex_init(&transform->mutex, NULL);
 
     GST_INFO("Created winegstreamer transform %p.", transform);
     params->transform = (wg_transform_t)(ULONG_PTR)transform;
@@ -1170,6 +1174,13 @@ error:
     return STATUS_UNSUCCESSFUL;
 }
 
+static NTSTATUS drain_transform(struct wg_transform *transform)
+{
+    GST_LOG("transform %p, draining %d buffers", transform, gst_atomic_queue_length(transform->input_queue));
+    transform->draining = true;
+    return complete_drain(transform);
+}
+
 static bool get_transform_output(struct wg_transform *transform, struct wg_sample *sample)
 {
     GstFlowReturn ret;
@@ -1312,12 +1323,13 @@ NTSTATUS wg_transform_get_status(void *args)
 NTSTATUS wg_transform_drain(void *args)
 {
     struct wg_transform *transform = get_transform(*(wg_transform_t *)args);
+    NTSTATUS status;
 
-    GST_LOG("transform %p, draining %d buffers", transform, gst_atomic_queue_length(transform->input_queue));
+    pthread_mutex_lock(&transform->mutex);
+    status = drain_transform(transform);
+    pthread_mutex_unlock(&transform->mutex);
 
-    transform->draining = true;
-
-    return complete_drain(transform);
+    return status;
 }
 
 NTSTATUS wg_transform_flush(void *args)
@@ -1328,6 +1340,7 @@ NTSTATUS wg_transform_flush(void *args)
     GstEvent *event;
     NTSTATUS status;
 
+    pthread_mutex_lock(&transform->mutex);
     GST_LOG("transform %p", transform);
 
     /* this ensures no messages are travelling through the pipeline whilst we flush */
@@ -1343,16 +1356,19 @@ NTSTATUS wg_transform_flush(void *args)
     event = gst_event_new_flush_stop(true);
     gst_pad_push_event(transform->my_src, event);
 
-    if ((status = wg_transform_drain(args)))
-        return status;
+    if ((status = drain_transform(transform)))
+        goto out;
 
     while ((sample = gst_atomic_queue_pop(transform->output_queue)))
         gst_sample_unref(sample);
     if ((sample = transform->output_sample))
         gst_sample_unref(sample);
     transform->output_sample = NULL;
+    status = STATUS_SUCCESS;
 
-    return STATUS_SUCCESS;
+out:
+    pthread_mutex_unlock(&transform->mutex);
+    return status;
 }
 
 NTSTATUS wg_transform_notify_qos(void *args)
