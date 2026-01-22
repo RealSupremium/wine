@@ -706,7 +706,7 @@ static void test_PathCombineA(void)
     lstrcpyA(dest, "control");
     str = PathCombineA(dest, "C:\\", "...xx");
     ok(str == dest, "Expected str == dest, got %p\n", str);
-    todo_wine ok(!lstrcmpA(str, "C:\\...xx"), "Expected C:\\...xx, got %s\n", str);
+    ok(!lstrcmpA(str, "C:\\...xx"), "Expected C:\\...xx, got %s\n", str);
     ok(GetLastError() == 0xdeadbeef, "Expected 0xdeadbeef, got %ld\n", GetLastError());
 
     /* try relative paths */
@@ -1102,7 +1102,7 @@ static void test_PathCanonicalizeA(void)
     res = PathCanonicalizeA(dest, "C:\\...x");
     ok(res, "Expected success\n");
     ok(GetLastError() == 0xdeadbeef, "Expected 0xdeadbeef, got %ld\n", GetLastError());
-    todo_wine ok(!lstrcmpA(dest, "C:\\...x"), "C:\\...x, got %s\n", dest);
+    ok(!lstrcmpA(dest, "C:\\...x"), "C:\\...x, got %s\n", dest);
 
     /* try C:\test\...x */
     memset(dest, 0, LONG_LEN + MAX_PATH);
@@ -1111,7 +1111,7 @@ static void test_PathCanonicalizeA(void)
     res = PathCanonicalizeA(dest, "C:\\test\\...x");
     ok(res, "Expected success\n");
     ok(GetLastError() == 0xdeadbeef, "Expected 0xdeadbeef, got %ld\n", GetLastError());
-    todo_wine ok(!lstrcmpA(dest, "C:\\test\\...x"), "C:\\test\\...x, got %s\n", dest);
+    ok(!lstrcmpA(dest, "C:\\test\\...x"), "C:\\test\\...x, got %s\n", dest);
 
     /* try C:\test\...\x */
     memset(dest, 0, LONG_LEN + MAX_PATH);
@@ -1120,7 +1120,7 @@ static void test_PathCanonicalizeA(void)
     res = PathCanonicalizeA(dest, "C:\\test\\...\\x");
     ok(res, "Expected success\n");
     ok(GetLastError() == 0xdeadbeef, "Expected 0xdeadbeef, got %ld\n", GetLastError());
-    todo_wine ok(!lstrcmpA(dest, "C:\\test\\...\\x"), "C:\\test\\...\\x, got %s\n", dest);
+    ok(!lstrcmpA(dest, "C:\\test\\...\\x"), "C:\\test\\...\\x, got %s\n", dest);
 
     /* try C:\test\...\x */
     memset(dest, 0, LONG_LEN + MAX_PATH);
@@ -1129,7 +1129,7 @@ static void test_PathCanonicalizeA(void)
     res = PathCanonicalizeA(dest, "C:\\test\\....\\x");
     ok(res, "Expected success\n");
     ok(GetLastError() == 0xdeadbeef, "Expected 0xdeadbeef, got %ld\n", GetLastError());
-    todo_wine ok(!lstrcmpA(dest, "C:\\test\\....\\x"), "C:\\test\\....\\x, got %s\n", dest);
+    ok(!lstrcmpA(dest, "C:\\test\\....\\x"), "C:\\test\\....\\x, got %s\n", dest);
 
     /* try C:\\..\\something */
     memset(dest, 0, LONG_LEN + MAX_PATH);

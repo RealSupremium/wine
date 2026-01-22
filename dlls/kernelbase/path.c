@@ -1280,14 +1280,14 @@ BOOL WINAPI PathCanonicalizeW(WCHAR *buffer, const WCHAR *path)
 
     TRACE("%p, %s\n", buffer, wine_dbgstr_w(path));
 
-    if (dst)
-        *dst = '\0';
-
     if (!dst || !path)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
+
+    if (dst)
+        *dst = '\0';
 
     if (!*path)
     {
@@ -1315,42 +1315,51 @@ BOOL WINAPI PathCanonicalizeW(WCHAR *buffer, const WCHAR *path)
     {
         if (*src == '.')
         {
+            /* Skip './' if at beginning of path and always ':./', '/./' */
             if (src[1] == '\\' && (src == path || src[-1] == '\\' || src[-1] == ':'))
             {
                 src += 2; /* Skip .\ */
             }
-            else if (src[1] == '.' && dst != buffer && dst[-1] == '\\')
+            else if ( src[1] == '.' && src[2] != '.' )
             {
-                /* \.. backs up a directory, over the root if it has no \ following X:.
-                 * .. is ignored if it would remove a UNC server name or initial \\
-                 */
-                if (dst != buffer)
+                if (dst != buffer && dst[-1] == '\\')
                 {
-                    *dst = '\0'; /* Allow PathIsUNCServerShareA test on lpszBuf */
-                    if (dst > buffer + 1 && dst[-1] == '\\' && (dst[-2] != '\\' || dst > buffer + 2))
+                    /* \.. backs up a directory, over the root if it has no \ following X:.
+                    * .. is ignored if it would remove a UNC server name or initial \\
+                    */
+                    if (dst != buffer)
                     {
-                        if (dst[-2] == ':' && (dst > buffer + 3 || dst[-3] == ':'))
+                        *dst = '\0'; /* Allow PathIsUNCServerShareA test on lpszBuf */
+                        if ((src[2] == '\\' || src[2] == ':'  || src[2] == '\0' ) && dst > buffer + 1 && dst[-1] == '\\' && (dst[-2] != '\\' || dst > buffer + 2))
                         {
-                            dst -= 2;
-                            while (dst > buffer && *dst != '\\')
-                                dst--;
-                            if (*dst == '\\')
-                                dst++; /* Reset to last '\' */
-                            else
-                                dst = buffer; /* Start path again from new root */
+                            if (dst[-2] == ':' && (dst > buffer + 3 || dst[-3] == ':'))
+                            {
+                                dst -= 2;
+                                while (dst > buffer && *dst != '\\')
+                                    dst--;
+                                if (*dst == '\\')
+                                    dst++; /* Reset to last '\' */
+                                else
+                                    dst = buffer; /* Start path again from new root */
+                            }
+                            else if (dst[-2] != ':' && !PathIsUNCServerShareW(buffer)) {
+                                dst -= 2;
+                            }
                         }
-                        else if (dst[-2] != ':' && !PathIsUNCServerShareW(buffer))
-                            dst -= 2;
+                        while (dst > buffer && *dst != '\\')
+                            dst--;
+                        if (dst == buffer)
+                        {
+                            *dst++ = '\\';
+                            src++;
+                        }
                     }
-                    while (dst > buffer && *dst != '\\')
-                        dst--;
-                    if (dst == buffer)
-                    {
+                    if (*dst != '\\') 
                         *dst++ = '\\';
-                        src++;
-                    }
+                    src += 2; /* Skip .. in src path */
                 }
-                src += 2; /* Skip .. in src path */
+                else
+                    *dst++ = *src++;
             }
             else
                 *dst++ = *src++;
