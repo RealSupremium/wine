@@ -191,6 +191,7 @@ static ULONG_PTR zero_bits;
 static const struct vulkan_funcs *vk_funcs;
 static VkInstance vk_instance;
 static PFN_vkDestroyInstance p_vkDestroyInstance;
+static BOOLEAN enabled_extensions[GL_EXTENSION_COUNT];
 
 static int vk_device_cmp( const void *key, const struct rb_entry *entry )
 {
@@ -1153,9 +1154,96 @@ static BOOL initialize_vk_device( TEB *teb, struct context *ctx )
     return FALSE;
 }
 
+struct extension_entry
+{
+    const char *name;
+    size_t len;
+    BOOLEAN exposed;
+};
+
+#define USE_GL_EXT(x, e) [x] = { .name = #x, .len = sizeof(#x) - 1, .exposed = e },
+static const struct extension_entry all_extensions[] = { ALL_GL_EXTS ALL_WGL_EXTS };
+#undef USE_GL_EXT
+
+static int extension_entry_cmp( const void *a, const void *b )
+{
+    const struct extension_entry *entry_a = a, *entry_b = b;
+    size_t len = max( entry_a->len, entry_b->len );
+    return strncmp( entry_a->name, entry_b->name, len );
+};
+
+static enum opengl_extension parse_extension( const char *ext, size_t len )
+{
+    const struct extension_entry entry = { .name = ext, .len = len }, *found;
+
+    if (!(found = bsearch( &entry, all_extensions, ARRAY_SIZE(all_extensions), sizeof(entry), extension_entry_cmp )))
+    {
+        WARN( "Extension %s unknown\n", debugstr_an(ext, len) );
+        return GL_EXTENSION_COUNT;
+    }
+    return found - all_extensions;
+}
+
+static void parse_extensions( enum opengl_extension extensions[GL_EXTENSION_COUNT], const char *name )
+{
+    const char *end;
+    for (end = name; *end; end++)
+    {
+        if (*end != ' ') continue;
+        if ((*extensions = parse_extension( name, end - name )) != GL_EXTENSION_COUNT) extensions++;
+        name = end + 1;
+    }
+    if (end > name && (*extensions = parse_extension( name, end - name )) != GL_EXTENSION_COUNT) extensions++;
+    *extensions++ = GL_EXTENSION_COUNT;
+}
+
+static void dump_extensions( const char *prefix, const BOOLEAN extensions[GL_EXTENSION_COUNT] )
+{
+    if (TRACE_ON(opengl))
+    {
+        TRACE( "%s extensions:\n", prefix );
+        for (UINT i = 0; i < ARRAY_SIZE(all_extensions); i++)
+        {
+            if (!extensions[i]) continue;
+            TRACE( "  - %s\n", all_extensions[i].name );
+        }
+    }
+}
+
+static void init_enabled_extensions(void)
+{
+    enum opengl_extension parsed_extensions[GL_EXTENSION_COUNT];
+    char *enabled, *disabled;
+
+    if ((enabled = query_opengl_option( "EnabledExtensions" )))
+    {
+        parse_extensions( parsed_extensions, enabled );
+        for (enum opengl_extension *ext = parsed_extensions; *ext != GL_EXTENSION_COUNT; ext++)
+            enabled_extensions[*ext] = TRUE;
+    }
+    else
+    {
+        memset( enabled_extensions, TRUE, sizeof(enabled_extensions) );
+    }
+
+    if ((disabled = query_opengl_option( "DisabledExtensions" )))
+    {
+        parse_extensions( parsed_extensions, enabled );
+        for (enum opengl_extension *ext = parsed_extensions; *ext != GL_EXTENSION_COUNT; ext++)
+            enabled_extensions[*ext] = FALSE;
+    }
+
+    if (enabled || disabled) dump_extensions( "Enabled", enabled_extensions );
+
+    free( enabled );
+    free( disabled );
+}
+
 static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HDC draw_hdc, HDC read_hdc,
                                   HGLRC client_context, struct context *ctx )
 {
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+
     DWORD tid = HandleToULong(teb->ClientId.UniqueThread);
     size_t size = ARRAYSIZE(legacy_extensions) - 1, count = 0;
     const char *version, *rest = "", **extensions;
@@ -1168,6 +1256,8 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
     teb->glReserved1[1] = read_hdc;
     teb->glTable = (void *)funcs;
     pop_default_fbo( teb );
+
+    pthread_once( &once, init_enabled_extensions );
 
     if (ctx->major_version) return; /* already synced */
 

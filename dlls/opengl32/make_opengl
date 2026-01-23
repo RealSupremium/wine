@@ -1489,7 +1489,7 @@ print HEADER "\n";
 print HEADER "#define ALL_WGL_EXTS";
 foreach (sort keys %wgl_extensions)
 {
-    printf HEADER " \\\n    USE_GL_EXT(\%s)", $_;
+    printf HEADER " \\\n    USE_GL_EXT(\%s, 1)", $_;
 }
 print HEADER "\n\n";
 print HEADER "#define ALL_WGL_FUNCS";
@@ -1508,7 +1508,7 @@ print HEADER "\n\n";
 print HEADER "#define ALL_EGL_EXTS";
 foreach (sort keys %egl_extensions)
 {
-    printf HEADER " \\\n    USE_GL_EXT(\%s)", $_;
+    printf HEADER " \\\n    USE_GL_EXT(\%s, 0)", $_;
 }
 print HEADER "\n\n";
 print HEADER "#define ALL_EGL_FUNCS";
@@ -1525,18 +1525,10 @@ foreach (sort keys %ext_functions)
     printf HEADER " \\\n    USE_GL_FUNC(\%s)", $_;
 }
 print HEADER "\n\n";
-print HEADER "#define ALL_GL_CLIENT_EXTS";
+print HEADER "#define ALL_GL_EXTS";
 foreach (sort keys %gl_extensions)
 {
-    next unless is_exposed_extension($_);
-    printf HEADER " \\\n    USE_GL_EXT(\%s)", $_;
-}
-print HEADER "\n\n";
-print HEADER "#define ALL_GL_EXTS ALL_GL_CLIENT_EXTS";
-foreach (sort keys %gl_extensions)
-{
-    next if is_exposed_extension($_);
-    printf HEADER " \\\n    USE_GL_EXT(\%s)", $_;
+    printf HEADER " \\\n    USE_GL_EXT(\%s, \%u)", $_, is_exposed_extension($_);
 }
 print HEADER "\n\n";
 print HEADER "#define ALL_GL_FUNCS";

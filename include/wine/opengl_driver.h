@@ -59,6 +59,15 @@ struct wgl_pixel_format
     int float_components;
 };
 
+enum opengl_extension
+{
+#define USE_GL_EXT(x, e) x,
+    ALL_GL_EXTS
+    ALL_WGL_EXTS
+#undef USE_GL_EXT
+    GL_EXTENSION_COUNT,
+};
+
 struct opengl_client_context
 {
     struct HGLRC__              obj;            /* client object header */
