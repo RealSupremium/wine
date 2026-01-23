@@ -30408,24 +30408,6 @@ static NTSTATUS ext_wglFreeMemoryNV( void *args )
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS ext_wglGetExtensionsStringARB( void *args )
-{
-    struct wglGetExtensionsStringARB_params *params = args;
-    const struct opengl_funcs *funcs = get_dc_funcs( params->hdc );
-    if (!funcs || !funcs->p_wglGetExtensionsStringARB) return STATUS_NOT_IMPLEMENTED;
-    params->ret = funcs->p_wglGetExtensionsStringARB( params->hdc );
-    return STATUS_SUCCESS;
-}
-
-static NTSTATUS ext_wglGetExtensionsStringEXT( void *args )
-{
-    struct wglGetExtensionsStringEXT_params *params = args;
-    const struct opengl_funcs *funcs = params->teb->glTable;
-    if (!funcs->p_wglGetExtensionsStringEXT) return STATUS_NOT_IMPLEMENTED;
-    params->ret = funcs->p_wglGetExtensionsStringEXT();
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS ext_wglGetPbufferDCARB( void *args )
 {
     struct wglGetPbufferDCARB_params *params = args;
@@ -33650,8 +33632,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     ext_wglCreatePbufferARB,
     ext_wglDestroyPbufferARB,
     ext_wglFreeMemoryNV,
-    ext_wglGetExtensionsStringARB,
-    ext_wglGetExtensionsStringEXT,
     ext_wglGetPbufferDCARB,
     ext_wglGetPixelFormatAttribfvARB,
     ext_wglGetPixelFormatAttribivARB,
@@ -86722,36 +86702,6 @@ static NTSTATUS wow64_ext_wglFreeMemoryNV( void *args )
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS wow64_ext_wglGetExtensionsStringARB( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        PTR32 hdc;
-        PTR32 ret;
-    } *params = args;
-    const char *ret;
-    const struct opengl_funcs *funcs = get_dc_funcs( ULongToPtr(params->hdc) );
-    if (!funcs || !funcs->p_wglGetExtensionsStringARB) return STATUS_NOT_IMPLEMENTED;
-    ret = funcs->p_wglGetExtensionsStringARB( ULongToPtr(params->hdc) );
-    return return_wow64_string( ret, &params->ret );
-}
-
-static NTSTATUS wow64_ext_wglGetExtensionsStringEXT( void *args )
-{
-    struct
-    {
-        PTR32 teb;
-        PTR32 ret;
-    } *params = args;
-    TEB *teb = get_teb64( params->teb );
-    const char *ret;
-    const struct opengl_funcs *funcs = teb->glTable;
-    if (!funcs->p_wglGetExtensionsStringEXT) return STATUS_NOT_IMPLEMENTED;
-    ret = funcs->p_wglGetExtensionsStringEXT();
-    return return_wow64_string( ret, &params->ret );
-}
-
 static NTSTATUS wow64_ext_wglGetPbufferDCARB( void *args )
 {
     struct
@@ -90082,8 +90032,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wow64_ext_wglCreatePbufferARB,
     wow64_ext_wglDestroyPbufferARB,
     wow64_ext_wglFreeMemoryNV,
-    wow64_ext_wglGetExtensionsStringARB,
-    wow64_ext_wglGetExtensionsStringEXT,
     wow64_ext_wglGetPbufferDCARB,
     wow64_ext_wglGetPixelFormatAttribfvARB,
     wow64_ext_wglGetPixelFormatAttribivARB,

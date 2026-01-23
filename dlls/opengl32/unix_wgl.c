@@ -1244,6 +1244,7 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
 {
     static pthread_once_t once = PTHREAD_ONCE_INIT;
 
+    struct opengl_client_context *client = opengl_client_context_from_client( ctx->base.client_context );
     DWORD tid = HandleToULong(teb->ClientId.UniqueThread);
     size_t size = ARRAYSIZE(legacy_extensions) - 1, count = 0;
     const char *version, *rest = "", **extensions;
@@ -1265,6 +1266,8 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
     if (version) rest = parse_gl_version( version, &ctx->major_version, &ctx->minor_version );
     if (!ctx->major_version) ctx->major_version = 1;
     TRACE( "context %p version %d.%d\n", ctx, ctx->major_version, ctx->minor_version );
+
+    funcs->p_init_extensions( ctx->base.extensions );
 
     if (funcs->p_glImportMemoryWin32HandleEXT) size++;
     if (funcs->p_glImportSemaphoreWin32HandleEXT) size++;
@@ -1308,6 +1311,13 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
             }
             ext++;
         }
+    }
+
+    for (UINT i = 0; i < ARRAY_SIZE(all_extensions); i++)
+    {
+        if (!enabled_extensions[i] || !all_extensions[i].exposed) client->extensions[i] = FALSE;
+        else if (ctx->base.extensions[i]) client->extensions[i] = TRUE;
+        /* keep any other extension that has been enabled on the PE side directly */
     }
 
     if (!disabled && !(disabled = query_opengl_option( "DisabledExtensions" ))) disabled = "";

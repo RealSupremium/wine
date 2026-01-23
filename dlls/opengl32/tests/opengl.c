@@ -66,6 +66,7 @@ static HGLRC (WINAPI *pwglCreateContextAttribsARB)(HDC hDC, HGLRC hShareContext,
 
 /* WGL_ARB_extensions_string */
 static const char* (WINAPI *pwglGetExtensionsStringARB)(HDC);
+static const char* (WINAPI *pwglGetExtensionsStringEXT)(void);
 
 /* WGL_ARB_make_current_read */
 static BOOL (WINAPI *pwglMakeContextCurrentARB)(HDC hdraw, HDC hread, HGLRC hglrc);
@@ -153,6 +154,7 @@ static void init_functions(void)
 
     /* WGL_ARB_extensions_string */
     GET_PROC(wglGetExtensionsStringARB)
+    GET_PROC(wglGetExtensionsStringEXT)
 
     /* WGL_ARB_make_current_read */
     GET_PROC(wglMakeContextCurrentARB);
@@ -1652,6 +1654,11 @@ static void test_bitmap_rendering( BOOL use_dib )
     ok( !!hglrc, "wglCreateContext failed, error %lu\n", GetLastError() );
     ret = wglMakeCurrent( hdc, hglrc );
     ok( ret, "wglMakeCurrent failed, error %lu\n", GetLastError() );
+
+    pwglGetExtensionsStringEXT = (void *)wglGetProcAddress( "wglGetExtensionsStringEXT" );
+    todo_wine ok(!pwglGetExtensionsStringEXT, "got wglGetExtensionsStringEXT %p\n", pwglGetExtensionsStringEXT);
+    pwglGetExtensionsStringARB = (void *)wglGetProcAddress( "wglGetExtensionsStringARB" );
+    todo_wine ok(!pwglGetExtensionsStringARB, "got wglGetExtensionsStringARB %p\n", pwglGetExtensionsStringARB);
 
     glGetIntegerv( GL_READ_BUFFER, &object );
     ok( object == GL_FRONT, "got %u\n", object );
@@ -3839,6 +3846,7 @@ START_TEST(opengl)
         HMODULE gdi32 = GetModuleHandleA("gdi32.dll");
         HDC hdc;
         int iPixelFormat, res;
+        const char *tmp;
         HGLRC hglrc;
         DWORD error;
 
@@ -3927,7 +3935,14 @@ START_TEST(opengl)
         test_memory_map(hdc);
         test_gl_error(hdc);
 
-        wgl_extensions = pwglGetExtensionsStringARB(hdc);
+        tmp = pwglGetExtensionsStringEXT();
+        ok(tmp && *tmp, "got wgl_extensions %s\n", debugstr_a(tmp));
+        wgl_extensions = tmp;
+
+        tmp = pwglGetExtensionsStringARB(hdc);
+        ok(tmp && *tmp, "got wgl_extensions %s\n", debugstr_a(tmp));
+        ok(!strcmp(tmp, wgl_extensions), "got wgl_extensions %s\n", debugstr_a(tmp));
+
         if(wgl_extensions == NULL) skip("Skipping opengl32 tests because this OpenGL implementation doesn't support WGL extensions!\n");
 
         if(strstr(wgl_extensions, "WGL_ARB_create_context"))

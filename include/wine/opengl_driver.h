@@ -74,7 +74,11 @@ struct opengl_client_context
     UINT64                      unix_handle;
     UINT64                      unix_funcs;
     GLenum                      last_error;
+    BOOLEAN                     extensions[GL_EXTENSION_COUNT];         /* exposed client extensions */
 };
+
+/* make sure client context size stays small */
+C_ASSERT( sizeof(struct opengl_client_context) <= 0x1000 );
 
 static inline struct opengl_client_context *opengl_client_context_from_client( HGLRC client_context )
 {
@@ -113,6 +117,7 @@ struct opengl_context
     HGLRC                       client_context;     /* client side context pointer */
     void                       *driver_private;     /* driver context / private data */
     void                       *internal_context;   /* driver context for win32u internal use */
+    BOOLEAN                     extensions[GL_EXTENSION_COUNT];  /* available host extensions */
     int                         format;             /* pixel format of the context */
     struct opengl_drawable     *draw;               /* currently bound draw surface */
     struct opengl_drawable     *read;               /* currently bound read surface */
@@ -135,6 +140,7 @@ struct opengl_funcs
     ALL_GL_FUNCS
     ALL_GL_EXT_FUNCS
 #undef USE_GL_FUNC
+    void (*p_init_extensions)( BOOLEAN extensions[GL_EXTENSION_COUNT] );
     void (*p_get_pixel_formats)( struct wgl_pixel_format *formats, UINT max_formats, UINT *num_formats, UINT *num_onscreen_formats );
     BOOL (*p_query_renderer)( UINT attribute, void *value );
     BOOL (*p_context_flush)( struct opengl_context *context, void (*flush)(void), UINT flags );
@@ -229,7 +235,7 @@ struct opengl_driver_funcs
     void *(*p_get_proc_address)(const char *);
     UINT (*p_init_pixel_formats)(UINT*);
     BOOL (*p_describe_pixel_format)(int,struct wgl_pixel_format*);
-    const char *(*p_init_wgl_extensions)(struct opengl_funcs *funcs);
+    void (*p_init_extensions)( struct opengl_funcs *funcs, BOOLEAN extensions[GL_EXTENSION_COUNT] );
     BOOL (*p_surface_create)( HWND hwnd, int format, struct opengl_drawable **drawable );
     BOOL (*p_context_create)( int format, void *share, const int *attribs, void **context );
     BOOL (*p_context_destroy)(void*);
