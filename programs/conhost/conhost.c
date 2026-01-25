@@ -2103,13 +2103,202 @@ static NTSTATUS set_output_info( struct screen_buffer *screen_buffer,
     return STATUS_SUCCESS;
 }
 
+#define BLACK    0x0000
+#define BLUE     0x0001
+#define GREEN    0x0002
+#define CYAN     BLUE | GREEN
+#define RED      0x0004
+#define MAGENTA  BLUE | RED
+#define YELLOW   GREEN | RED
+#define WHITE    BLUE | GREEN | RED
+
+static unsigned int next_csi_sgr_argument( const WCHAR *seq, unsigned int len, unsigned int *arg )
+{
+    unsigned int i=0, value = 0;
+    TRACE( "next SGR arg with %d length and [%s] as sequence! seq_p %p\n",len, debugstr_wn( seq, len ), seq );
+    for (i=0; i<len; i++)
+    {
+        if ((seq[i] == ';') || (seq[i]=='m'))
+        {
+            *arg = value;
+            return i+1;
+        }
+        value = 10 * value + seq[i]-'0';
+    }
+    return 0;
+}
+
+static void process_csi_sequence_console( struct screen_buffer *screen_buffer, const WCHAR *seq, size_t len )
+{
+    unsigned int colors[] = {BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE};
+    unsigned int value = 0, *arg = &value;
+    size_t seq_len = 0;
+    unsigned int r = 0, g = 0, b = 0;
+    struct condrv_output_info_params info_params;
+    BOOL is_bright = FALSE;
+
+    switch (seq[len-1])
+    {
+    case 'm': /* Select Graphic Rendition (SGR) */
+        while (len > 0)
+        {
+            TRACE( "This is an SGR seq with %Iu length and [%s] as payload! seq_p %p\n",len, debugstr_wn( seq, len ), seq );
+            seq_len = next_csi_sgr_argument(seq, len, arg);
+            if ((value>=90 && value<=97) || (value>=100 && value<=107))
+            {
+                is_bright = TRUE;
+                value -= 60;
+            }
+            switch (value)
+            {
+            case 30:
+            case 31:
+            case 32:
+            case 33:
+            case 34:
+            case 35:
+            case 36:
+            case 37:
+            {
+                len -= seq_len;
+                seq += seq_len;
+                info_params.info.attr = ( info_params.info.attr & 0xf0 ) | colors[*arg-30];
+                if (is_bright)
+                {
+                    info_params.info.attr |= FOREGROUND_INTENSITY;
+                    is_bright = FALSE;
+                }
+                break;
+            }
+            case 38:
+            {
+                len -= seq_len;
+                seq += seq_len;
+                seq_len = next_csi_sgr_argument( seq, len, arg );
+                if (*arg == 2)
+                {
+                    len -= seq_len;
+                    seq += seq_len;
+                    seq_len = next_csi_sgr_argument(seq, len, &r);
+                    len -= seq_len;
+                    seq += seq_len;
+                    seq_len = next_csi_sgr_argument(seq, len, &g);
+                    len -= seq_len;
+                    seq += seq_len;
+                    seq_len = next_csi_sgr_argument(seq, len, &b);
+                    len -= seq_len;
+                    seq += seq_len;
+                    FIXME( "24bit rgb is not supported yet for foreground r[%d]g[%d]b[%d]\n", r, g, b );
+                    info_params.info.attr = ( BLACK < 8 ) | ( WHITE ); /* Fixme set correct color */
+                }
+                if (*arg == 5)
+                {
+                    len -= seq_len;
+                    seq += seq_len;
+                    seq_len = next_csi_sgr_argument( seq, len, arg );
+                    len -= seq_len;
+                    seq += seq_len;
+                    info_params.info.attr = ( info_params.info.attr & 0xf0 ) | colors[*arg];
+                }
+                break;
+            }
+            case 39:
+            {
+                len -= seq_len;
+                seq += seq_len;
+                info_params.info.attr = ( info_params.info.attr & 0xf0 ) | ( WHITE ); /* default white fg */
+                break;
+            }
+            case 40:
+            case 41:
+            case 42:
+            case 43:
+            case 44:
+            case 45:
+            case 46:
+            case 47:
+            {
+                len -= seq_len;
+                seq += seq_len;
+                info_params.info.attr = ( info_params.info.attr & 0x0f ) | ( colors[*arg-40] << 4 );
+                if (is_bright)
+                {
+                    info_params.info.attr |= BACKGROUND_INTENSITY;
+                    is_bright = FALSE;
+                }
+                break;
+            }
+            case 48:
+            {
+                len -= seq_len;
+                seq += seq_len;
+                seq_len = next_csi_sgr_argument( seq, len, arg );
+                if (*arg == 2)
+                {
+                    len -= seq_len;
+                    seq += seq_len;
+                    seq_len = next_csi_sgr_argument( seq, len, &r );
+                    len -= seq_len;
+                    seq += seq_len;
+                    seq_len = next_csi_sgr_argument( seq, len, &g );
+                    len -= seq_len;
+                    seq += seq_len;
+                    seq_len = next_csi_sgr_argument( seq, len, &b );
+                    len -= seq_len;
+                    seq += seq_len;
+                    FIXME( "24bit rgb is not supported yet for background r[%d]g[%d]b[%d]\n", r, g, b );
+                    info_params.info.attr = ( BLACK < 4 ) | ( WHITE ); /* Fixme set correct color */
+                }
+                if (*arg == 5)
+                {
+                    len -= seq_len;
+                    seq += seq_len;
+                    seq_len = next_csi_sgr_argument( seq, len, arg );
+                    len -= seq_len;
+                    seq += seq_len;
+                    info_params.info.attr = ( info_params.info.attr & 0xf0 ) | colors[*arg];
+                }
+                break;
+            }
+            case 49:
+            {
+                len -= seq_len;
+                seq += seq_len;
+                info_params.info.attr = ( info_params.info.attr & 0x000f ) | ( BLACK < 4 ); /* default black bg */
+                break;
+            }
+            case 0:
+            {
+                len -= seq_len;
+                seq += seq_len;
+                info_params.info.attr = ( BLACK < 4 ) | ( WHITE ); /* white on black */
+                break;
+            }
+            default:
+                FIXME( "unhandled sgr sequence %s len[%Iu]\n", debugstr_wn( seq, len ), len );
+                info_params.info.attr = ( BLACK < 4 ) | ( WHITE ); /* white on black */
+                len = 0;
+                break;
+
+            }
+            info_params.mask = SET_CONSOLE_OUTPUT_INFO_ATTR;
+            set_output_info( screen_buffer, &info_params, sizeof(info_params) );
+        }
+        break;
+    default:
+        FIXME( "unhandled sequence %s switch char [%s] len[%Iu]\n", debugstr_wn( seq, len ), debugstr_wn( &seq[len], 1 ), len );
+        break;
+    }
+}
+
 static NTSTATUS write_console( struct screen_buffer *screen_buffer, const WCHAR *buffer, size_t len )
 {
     RECT update_rect;
-    size_t i, j;
+    size_t csi_len = 0, i, j;
     enum {
         ST_START, ST_PARAM, ST_INTER, ST_FINAL
     } state;
+    const WCHAR *csi_start;
 
     TRACE( "%s\n", debugstr_wn(buffer, len) );
 
@@ -2151,18 +2340,21 @@ static NTSTATUS write_console( struct screen_buffer *screen_buffer, const WCHAR 
                 {
                     if (buffer[i+1] == '[')
                     {
-                        FIXME( "CSI sequences not supported fully yet, only skipping control sequences!\n" );
                         state = ST_PARAM;
+                        csi_start = &buffer[i+2];
+                        csi_len = 0;
                         i+=2;
                     }
                     else
                     {
-                        ERR("Invalid CSI start sequence\n");
+                        ERR( "Invalid CSI start sequence\n" );
+                        ERR( "%s\n", debugstr_wn(buffer, len) );
                         break;
                     }
                     /* intermediate bytes 0x30 - 0x3f (0-?) */
                     for (; i<len && (state == ST_PARAM); i++)
                     {
+                        csi_len++;
                         if (buffer[i] >= 0x30 && buffer[i] <= 0x3b)
                             continue;
                         else if (buffer[i] >= 0x3c && buffer[i] <= 0x3f)
@@ -2173,17 +2365,20 @@ static NTSTATUS write_console( struct screen_buffer *screen_buffer, const WCHAR 
                         else
                         {
                             state = ST_INTER;
+                            csi_len--;
                             break;
                         }
                     }
                     /* intermediate bytes 0x20 - 0x2f*/
                     for (; i<len && (state == ST_INTER || state == ST_PARAM); i++)
                     {
+                        csi_len++;
                         if (buffer[i] >= 0x20 && buffer[i] <= 0x2f)
                             continue;
                         else
                         {
                             state = ST_FINAL;
+                            csi_len--;
                             break;
                         }
                     }
@@ -2193,6 +2388,9 @@ static NTSTATUS write_console( struct screen_buffer *screen_buffer, const WCHAR 
                             WARN("This is a private -terminal manufacturer only- CSI sequence\n");
                         else if (!(buffer[i] >= 0x40 && buffer[i] <= 0x6f))
                             ERR("This was no valid CSI sequence\n");
+
+                        csi_len++;
+                        process_csi_sequence_console(screen_buffer, csi_start, csi_len);
                     }
                 }
                 else
