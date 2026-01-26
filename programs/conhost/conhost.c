@@ -2177,6 +2177,7 @@ static void process_csi_sequence_console( struct screen_buffer *screen_buffer, c
                 seq_len = next_csi_sgr_argument( seq, len, arg );
                 if (*arg == 2)
                 {
+                    int color = BLACK;
                     len -= seq_len;
                     seq += seq_len;
                     seq_len = next_csi_sgr_argument(seq, len, &r);
@@ -2188,10 +2189,16 @@ static void process_csi_sequence_console( struct screen_buffer *screen_buffer, c
                     seq_len = next_csi_sgr_argument(seq, len, &b);
                     len -= seq_len;
                     seq += seq_len;
-                    FIXME( "24bit rgb is not supported yet for foreground r[%d]g[%d]b[%d]\n", r, g, b );
-                    info_params.info.attr = ( BLACK < 8 ) | ( WHITE ); /* Fixme set correct color */
+                    /* a simple color mapping for basic support */
+                    if ( r > 127 )
+                        color |= RED;
+                    if ( g > 127 )
+                        color |= GREEN;
+                    if ( b > 127 )
+                        color |= BLUE;
+                    info_params.info.attr = ( info_params.info.attr & 0xf0 ) | color;
                 }
-                if (*arg == 5)
+                else if (*arg == 5)
                 {
                     len -= seq_len;
                     seq += seq_len;
@@ -2235,6 +2242,7 @@ static void process_csi_sequence_console( struct screen_buffer *screen_buffer, c
                 seq_len = next_csi_sgr_argument( seq, len, arg );
                 if (*arg == 2)
                 {
+                    int color = BLACK;
                     len -= seq_len;
                     seq += seq_len;
                     seq_len = next_csi_sgr_argument( seq, len, &r );
@@ -2246,10 +2254,17 @@ static void process_csi_sequence_console( struct screen_buffer *screen_buffer, c
                     seq_len = next_csi_sgr_argument( seq, len, &b );
                     len -= seq_len;
                     seq += seq_len;
-                    FIXME( "24bit rgb is not supported yet for background r[%d]g[%d]b[%d]\n", r, g, b );
-                    info_params.info.attr = ( BLACK < 4 ) | ( WHITE ); /* Fixme set correct color */
+                    /* a simple color mapping for basic support */
+                    if ( r > 127 )
+                        color |= RED;
+                    if ( g > 127 )
+                        color |= GREEN;
+                    if ( b > 127 )
+                        color |= BLUE;
+                    info_params.info.attr = ( info_params.info.attr & 0x0f ) | ( color << 4 );
+
                 }
-                if (*arg == 5)
+                else if (*arg == 5)
                 {
                     len -= seq_len;
                     seq += seq_len;
