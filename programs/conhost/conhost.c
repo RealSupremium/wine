@@ -2300,6 +2300,46 @@ static void process_csi_sequence_console( struct screen_buffer *screen_buffer, c
             set_output_info( screen_buffer, &info_params, sizeof(info_params) );
         }
         break;
+    case 'H':
+        unsigned int x = 0, y = 0, value = 0, i;
+        TRACE( "This is an CUP seq with %Iu length and [%s] as payload! seq_p %p\n",len, debugstr_wn( seq, len ), seq );
+        
+        for (i = 0; i < len; i++)
+        {
+            if (seq[i] != ';' && seq[i] != 'H')
+                value = 10 * value + seq[i] - '0';
+            else if (seq[i] == ';')
+            {
+                if (value != 0)
+                {
+                    y = value;
+                    value = 0;
+                }
+                else
+                    y = 1;
+            }
+            else if (seq[i] == 'H')
+            {
+                if (y == 0 && value == 0)
+                {
+                    x = 1;
+                    y = 1;
+                } else if (y == 0 && value != 0)
+                {
+                    y = value;
+                    x = 1;
+                } else /* (y != 0 && value != 0) */
+                    x = value;
+            }
+            else
+            {
+                ERR( "CSI CUP parsing failed, this should not happen!\n" );
+                break;
+            }
+        }
+        screen_buffer->cursor_x = x-1;
+        screen_buffer->cursor_y = y-1;
+        break;
     default:
         FIXME( "unhandled sequence %s switch char [%s] len[%Iu]\n", debugstr_wn( seq, len ), debugstr_wn( &seq[len], 1 ), len );
         break;

@@ -5768,8 +5768,8 @@ static void test_ANSI_escape_sequences(void)
     ret = WriteConsoleW(hConOut, L"\x1b[1;1H", 6, &dw, NULL);
     ok(dw == 6, "Wrong count\n");
     ret = GetConsoleScreenBufferInfo(hConOut, &sb_info);
-    todo_wine ok(sb_info.dwCursorPosition.X == 0, "Incorrect X cursor position: got %d, expected %d\n", sb_info.dwCursorPosition.X, 0);
-    todo_wine ok(sb_info.dwCursorPosition.Y == 0, "Incorrect Y cursor position\n: got %d, expected %d\n", sb_info.dwCursorPosition.Y, 0);
+    ok(sb_info.dwCursorPosition.X == 0, "Incorrect X cursor position: got %d, expected %d\n", sb_info.dwCursorPosition.X, 0);
+    ok(sb_info.dwCursorPosition.Y == 0, "Incorrect Y cursor position\n: got %d, expected %d\n", sb_info.dwCursorPosition.Y, 0);
     ok(sb_info.wAttributes == (FOREGROUND_RED | BACKGROUND_BLUE), "Unexpected attributes: got %x, expected %x\n", sb_info.wAttributes, FOREGROUND_RED | BACKGROUND_BLUE);
 
     CloseHandle(hConOut);
