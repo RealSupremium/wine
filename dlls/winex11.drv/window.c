@@ -2122,19 +2122,20 @@ void make_window_embedded( struct x11drv_win_data *data )
  *
  * Synchronize the X window position with the Windows one
  */
-static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags, const struct window_rects *old_rects )
+static HWND sync_window_position( struct x11drv_win_data *data, UINT swp_flags, const struct window_rects *old_rects )
 {
     DWORD style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE );
     DWORD ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
     RECT new_rect, window_rect;
     BOOL above = FALSE;
+    HWND prev = 0;
 
-    if (data->managed && ((style & WS_MINIMIZE) || data->desired_state.wm_state == IconicState)) return;
+    if (data->managed && ((style & WS_MINIMIZE) || data->desired_state.wm_state == IconicState)) return prev;
 
     if (!(swp_flags & SWP_NOZORDER) || (swp_flags & SWP_SHOWWINDOW))
     {
         /* find window that this one must be after */
-        HWND prev = NtUserGetWindowRelative( data->hwnd, GW_HWNDPREV );
+        prev = NtUserGetWindowRelative( data->hwnd, GW_HWNDPREV );
         while (prev && !(NtUserGetWindowLongW( prev, GWL_STYLE ) & WS_VISIBLE))
             prev = NtUserGetWindowRelative( prev, GW_HWNDPREV );
         if (!prev) above = TRUE;  /* top child */
@@ -2154,6 +2155,7 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags, 
                                         window_rect.top - old_rects->window.top );
 
     window_set_config( data, new_rect, above );
+    return prev;
 }
 
 
@@ -3244,6 +3246,15 @@ static BOOL get_desired_wm_state( DWORD style, const struct window_rects *rects 
     return WithdrawnState;
 }
 
+static void unset_transient_hint( struct x11drv_win_data *data )
+{
+    Atom wm_transient_for;
+
+    if (!data->display || data->whole_window == None) return ;
+
+    wm_transient_for = XInternAtom( data->display, "WM_TRANSIENT_FOR", False );
+    if (wm_transient_for != None) XDeleteProperty( data->display, data->whole_window, wm_transient_for );
+}
 
 /***********************************************************************
  *		WindowPosChanged   (X11DRV.@)
@@ -3255,6 +3266,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ), new_style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
     struct window_rects old_rects;
     BOOL is_managed, was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE), fullscreen = !!(swp_flags & WINE_SWP_FULLSCREEN);
+    HWND prev = 0;
 
     if ((is_managed = is_window_managed( hwnd, swp_flags, fullscreen ))) make_owner_managed( hwnd );
 
@@ -3297,7 +3309,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     /* don't change position if we are about to minimize or maximize a managed window */
     if (!(data->managed && (swp_flags & SWP_STATECHANGED) && (new_style & (WS_MINIMIZE|WS_MAXIMIZE))))
     {
-        sync_window_position( data, swp_flags, &old_rects );
+        prev = sync_window_position( data, swp_flags, &old_rects );
 #ifdef HAVE_LIBXSHAPE
         if (IsRectEmpty( &old_rects.window ) != IsRectEmpty( &new_rects->window ))
             sync_empty_window_shape( data, surface );
@@ -3323,6 +3335,15 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     /* if window was fullscreen and is being hidden, release cursor clipping */
     was_fullscreen &= data->desired_state.wm_state != NormalState;
+
+    if (prev && prev == insert_after)
+    {
+        struct x11drv_win_data *prev_data = get_win_data( prev );
+        unset_transient_hint( data );
+        unset_transient_hint( prev_data );
+        if (prev_data && prev_data->whole_window) XSetTransientForHint( data->display, prev_data->whole_window, data->whole_window );
+        release_win_data( prev_data );
+    }
 
     XFlush( data->display );  /* make sure changes are done before we start painting again */
     release_win_data( data );
