@@ -63,6 +63,7 @@ foo@space@
 SUCCESS 1024
 @todo_wine@SUCCESS 666
 0
+@todo_wine@0
 --- success/failure for TYPE command
 FAILURE 1
 SUCCESS 0

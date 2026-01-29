@@ -679,6 +679,7 @@ mkdir foo & cd foo
 set "FOO_PATH=%cd%" > NUL
 cd ..
 call :setError 666 & (start /B /WAIT /d "%FOO_PATH%" cmd /s /c "if /I \"%%cd%%\"==\"%FOO_PATH%\" (exit 0) else (exit 1)" >nul &&echo !errorlevel!)
+call :setError 666 & (start /B /WAIT /d "%FOO_PATH%\" cmd /s /c "if /I \"%%cd%%\"==\"%FOO_PATH%\" (exit 0) else (exit 1)" >nul &&echo !errorlevel!)
 rd /q /s foo
 echo --- success/failure for TYPE command
 mkdir foo & cd foo
