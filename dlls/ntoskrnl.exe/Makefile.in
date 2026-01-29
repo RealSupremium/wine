@@ -7,6 +7,7 @@ VER_PRODUCTVERSION = 6,1,7601,21863
 
 SOURCES = \
 	asm_chkstk.c \
+	asm_i386_rtl.c \
 	instr.c \
 	ntoskrnl.c \
 	plugplay.idl \
