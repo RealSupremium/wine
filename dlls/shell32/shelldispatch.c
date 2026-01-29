@@ -2400,7 +2400,7 @@ static HRESULT WINAPI ShellDispatch_ShellExecute(IShellDispatch6 *iface,
 {
     VARIANT args_str, dir_str, op_str, show_int;
     WCHAR *args = NULL, *dir = NULL, *op = NULL;
-    INT show = 10; /* use default state specified by the application*/
+    INT show = SW_SHOWDEFAULT; /* use default state specified by the application*/
     HINSTANCE ret;
 
     TRACE("(%s, %s, %s, %s, %s)\n", debugstr_w(file), debugstr_variant(&v_args),
@@ -2421,7 +2421,7 @@ static HRESULT WINAPI ShellDispatch_ShellExecute(IShellDispatch6 *iface,
     if (V_VT(&op_str) == VT_BSTR)
         op = V_BSTR(&op_str);
 
-    /* check if show parameter is specified*/
+    /* use default if VT_EMPTY is specified */
     if(V_VT(&v_show) != VT_EMPTY)
     {
         VariantInit(&show_int);
