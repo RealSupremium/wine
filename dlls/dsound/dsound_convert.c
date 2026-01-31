@@ -154,7 +154,7 @@ void putieee32(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, floa
     *fbuf = value;
 }
 
-void putieee32_sum(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value)
+static void putieee32_sum(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value)
 {
     BYTE *buf = (BYTE *)dsb->device->tmp_buffer;
     float *fbuf = (float*)(buf + pos + sizeof(float) * channel);
@@ -163,50 +163,50 @@ void putieee32_sum(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, 
 
 void put_mono2stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value)
 {
-    dsb->put_aux(dsb, pos, 0, value);
-    dsb->put_aux(dsb, pos, 1, value);
+    putieee32(dsb, pos, 0, value);
+    putieee32(dsb, pos, 1, value);
 }
 
 void put_mono2quad(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value)
 {
-    dsb->put_aux(dsb, pos, 0, value);
-    dsb->put_aux(dsb, pos, 1, value);
-    dsb->put_aux(dsb, pos, 2, value);
-    dsb->put_aux(dsb, pos, 3, value);
+    putieee32(dsb, pos, 0, value);
+    putieee32(dsb, pos, 1, value);
+    putieee32(dsb, pos, 2, value);
+    putieee32(dsb, pos, 3, value);
 }
 
 void put_stereo2quad(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value)
 {
     if (channel == 0) { /* Left */
-        dsb->put_aux(dsb, pos, 0, value); /* Front left */
-        dsb->put_aux(dsb, pos, 2, value); /* Back left */
+        putieee32(dsb, pos, 0, value); /* Front left */
+        putieee32(dsb, pos, 2, value); /* Back left */
     } else if (channel == 1) { /* Right */
-        dsb->put_aux(dsb, pos, 1, value); /* Front right */
-        dsb->put_aux(dsb, pos, 3, value); /* Back right */
+        putieee32(dsb, pos, 1, value); /* Front right */
+        putieee32(dsb, pos, 3, value); /* Back right */
     }
 }
 
 void put_mono2surround51(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value)
 {
-    dsb->put_aux(dsb, pos, 0, value);
-    dsb->put_aux(dsb, pos, 1, value);
-    dsb->put_aux(dsb, pos, 2, value);
-    dsb->put_aux(dsb, pos, 3, value);
-    dsb->put_aux(dsb, pos, 4, value);
-    dsb->put_aux(dsb, pos, 5, value);
+    putieee32(dsb, pos, 0, value);
+    putieee32(dsb, pos, 1, value);
+    putieee32(dsb, pos, 2, value);
+    putieee32(dsb, pos, 3, value);
+    putieee32(dsb, pos, 4, value);
+    putieee32(dsb, pos, 5, value);
 }
 
 void put_stereo2surround51(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value)
 {
     if (channel == 0) { /* Left */
-        dsb->put_aux(dsb, pos, 0, value); /* Front left */
-        dsb->put_aux(dsb, pos, 4, value); /* Back left */
+        putieee32(dsb, pos, 0, value); /* Front left */
+        putieee32(dsb, pos, 4, value); /* Back left */
 
-        dsb->put_aux(dsb, pos, 2, 0.0f); /* Mute front centre */
-        dsb->put_aux(dsb, pos, 3, 0.0f); /* Mute LFE */
+        putieee32(dsb, pos, 2, 0.0f); /* Mute front centre */
+        putieee32(dsb, pos, 3, 0.0f); /* Mute LFE */
     } else if (channel == 1) { /* Right */
-        dsb->put_aux(dsb, pos, 1, value); /* Front right */
-        dsb->put_aux(dsb, pos, 5, value); /* Back right */
+        putieee32(dsb, pos, 1, value); /* Front right */
+        putieee32(dsb, pos, 5, value); /* Back right */
     }
 }
 
@@ -217,28 +217,28 @@ void put_surround512stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD c
 
     case 4: /* surround left */
         value *= 0.24f;
-        dsb->put_aux(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 0, value);
         break;
 
     case 0: /* front left */
         value *= 1.0f;
-        dsb->put_aux(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 0, value);
         break;
 
     case 5: /* surround right */
         value *= 0.24f;
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
 
     case 1: /* front right */
         value *= 1.0f;
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
 
     case 2: /* centre */
         value *= 0.7;
-        dsb->put_aux(dsb, pos, 0, value);
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
 
     case 3:
@@ -254,38 +254,38 @@ void put_surround712stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD c
 
     case 6: /* back left */
         value *= 0.24f;
-        dsb->put_aux(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 0, value);
         break;
 
     case 4: /* surround left */
         value *= 0.24f;
-        dsb->put_aux(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 0, value);
         break;
 
     case 0: /* front left */
         value *= 1.0f;
-        dsb->put_aux(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 0, value);
         break;
 
     case 7: /* back right */
         value *= 0.24f;
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
 
     case 5: /* surround right */
         value *= 0.24f;
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
 
     case 1: /* front right */
         value *= 1.0f;
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
 
     case 2: /* centre */
         value *= 0.7;
-        dsb->put_aux(dsb, pos, 0, value);
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
 
     case 3:
@@ -301,22 +301,22 @@ void put_quad2stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel
 
     case 2: /* back left */
         value *= 0.1f; /* (1/9) / (sum of left volumes) */
-        dsb->put_aux(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 0, value);
         break;
 
     case 0: /* front left */
         value *= 0.9f; /* 1 / (sum of left volumes) */
-        dsb->put_aux(dsb, pos, 0, value);
+        putieee32_sum(dsb, pos, 0, value);
         break;
 
     case 3: /* back right */
         value *= 0.1f; /* (1/9) / (sum of right volumes) */
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
 
     case 1: /* front right */
         value *= 0.9f; /* 1 / (sum of right volumes) */
-        dsb->put_aux(dsb, pos, 1, value);
+        putieee32_sum(dsb, pos, 1, value);
         break;
     }
 }

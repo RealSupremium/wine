@@ -149,10 +149,9 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 		dsb->freqAccNum = (dsb->freqAccNum * dsb->freqAdjustDen + oldFreqAdjustDen / 2) / oldFreqAdjustDen;
 
 	dsb->get_aux = ieee ? getbpp[4] : getbpp[dsb->pwfx->wBitsPerSample/8 - 1];
-	dsb->put_aux = putieee32;
 
 	dsb->get = dsb->get_aux;
-	dsb->put = dsb->put_aux;
+	dsb->put = putieee32;
 
 	if (ichannels == ochannels)
 	{
@@ -192,19 +191,16 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 	{
 		dsb->mix_channels = 6;
 		dsb->put = put_surround512stereo;
-		dsb->put_aux = putieee32_sum;
 	}
 	else if (ichannels == 8 && ochannels == 2)
 	{
 		dsb->mix_channels = 8;
 		dsb->put = put_surround712stereo;
-		dsb->put_aux = putieee32_sum;
 	}
 	else if (ichannels == 4 && ochannels == 2)
 	{
 		dsb->mix_channels = 4;
 		dsb->put = put_quad2stereo;
-		dsb->put_aux = putieee32_sum;
 	}
 	else
 	{
@@ -897,7 +893,8 @@ static void DSOUND_MixToTemporary(IDirectSoundBufferImpl *dsb, DWORD frames)
 		dsb->device->tmp_buffer_len = size_bytes;
 		dsb->device->tmp_buffer = realloc(dsb->device->tmp_buffer, size_bytes);
 	}
-	if(dsb->put_aux == putieee32_sum)
+	if(dsb->put == put_surround512stereo || dsb->put == put_surround712stereo ||
+	   dsb->put == put_quad2stereo)
 		memset(dsb->device->tmp_buffer, 0, dsb->device->tmp_buffer_len);
 
 	cp_fields(dsb, frames, &dsb->freqAccNum);

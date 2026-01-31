@@ -47,7 +47,6 @@ typedef float (*bitsgetfunc)(const IDirectSoundBufferImpl *dsb, BYTE *base, DWOR
 typedef void (*bitsputfunc)(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
 extern const bitsgetfunc getbpp[5];
 void putieee32(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
-void putieee32_sum(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
 void mixieee32(float *src, float *dst, unsigned samples);
 typedef void (*normfunc)(const void *src, void *dst, unsigned samples);
 extern const normfunc normfunctions[4];
@@ -168,7 +167,7 @@ struct IDirectSoundBufferImpl
     /* Used for bit depth conversion */
     int                         mix_channels;
     bitsgetfunc get, get_aux;
-    bitsputfunc put, put_aux;
+    bitsputfunc put;
     int                         num_filters;
     DSFilter*                   filters;
 
