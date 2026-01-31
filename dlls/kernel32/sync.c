@@ -101,8 +101,18 @@ ULONGLONG WINAPI DECLSPEC_HOTPATCH GetTickCount64(void)
  */
 DWORD WINAPI DECLSPEC_HOTPATCH GetTickCount(void)
 {
+    DWORD ret;
+    static int once;
     /* note: we ignore TickCountMultiplier */
-    return user_shared_data->TickCount.LowPart;
+    ret = user_shared_data->TickCount.LowPart;
+    if ((ret & 0x80000000) && !once)
+    {
+        once = 1;
+        MESSAGE("The value returning from GetTickCount excceeds the signed integer maximum, "
+                "which may make some applications fail. "
+                "Consider using the wineserver option --serverboottime.\n");
+    }
+    return ret;
 }
 
 /***********************************************************************

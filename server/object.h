@@ -343,6 +343,7 @@ extern int debug_level;
 extern int foreground;
 extern timeout_t master_socket_timeout;
 extern const char *server_argv0;
+extern int serverboottime;
 
   /* server start time used for GetTickCount() */
 extern timeout_t server_start_time;

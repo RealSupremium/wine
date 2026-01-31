@@ -46,6 +46,7 @@ int debug_level = 0;
 int foreground = 0;
 timeout_t master_socket_timeout = 3 * -TICKS_PER_SEC;  /* master socket timeout, default is 3 seconds */
 const char *server_argv0;
+int serverboottime = 0;
 
 /* parse-line args */
 
@@ -60,6 +61,7 @@ static void usage( FILE *fh )
     fprintf(fh, "   -p[n], --persistent[=n]  make server persistent, optionally for n seconds\n");
     fprintf(fh, "   -v,    --version         display version information and exit\n");
     fprintf(fh, "   -w,    --wait            wait until the current wineserver terminates\n");
+    fprintf(fh, "   -s,    --serverboottime  return ticks from start of wineserver\n");
     fprintf(fh, "\n");
 }
 
@@ -94,6 +96,9 @@ static void option_callback( int optc, char *optarg )
         else
             master_socket_timeout = TIMEOUT_INFINITE;
         break;
+    case 's':
+        serverboottime = 1;
+        break;
     case 'v':
         fprintf( stderr, "%s\n", PACKAGE_STRING );
         exit(0);
@@ -120,6 +125,7 @@ static struct long_option
     {"persistent",  2, 'p'},
     {"version",     0, 'v'},
     {"wait",        0, 'w'},
+    {"serverboottime", 0, 's'},
     { NULL }
 };
 
@@ -245,7 +251,7 @@ int main( int argc, char *argv[] )
 {
     setvbuf( stderr, NULL, _IOLBF, 0 );
     server_argv0 = argv[0];
-    parse_options( argc, argv, "d::fhk::p::vw", long_options, option_callback );
+    parse_options( argc, argv, "d::fhk::p::vws", long_options, option_callback );
 
     /* setup temporary handlers before the real signal initialization is done */
     signal( SIGPIPE, SIG_IGN );

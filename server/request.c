@@ -510,11 +510,15 @@ timeout_t monotonic_counter(void)
 {
 #ifdef __APPLE__
     static mach_timebase_info_data_t timebase;
+#elif defined(HAVE_CLOCK_GETTIME)
+    struct timespec ts;
+#endif
 
+    if (serverboottime) return current_time - server_start_time;
+#ifdef __APPLE__
     if (!timebase.denom) mach_timebase_info( &timebase );
     return mach_continuous_time() * timebase.numer / timebase.denom / 100;
 #elif defined(HAVE_CLOCK_GETTIME)
-    struct timespec ts;
 #ifdef CLOCK_BOOTTIME
     if (!clock_gettime( CLOCK_BOOTTIME, &ts ))
         return (timeout_t)ts.tv_sec * TICKS_PER_SEC + ts.tv_nsec / 100;
