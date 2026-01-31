@@ -148,9 +148,7 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 	if (oldFreqAdjustDen)
 		dsb->freqAccNum = (dsb->freqAccNum * dsb->freqAdjustDen + oldFreqAdjustDen / 2) / oldFreqAdjustDen;
 
-	dsb->get_aux = ieee ? getbpp[4] : getbpp[dsb->pwfx->wBitsPerSample/8 - 1];
-
-	dsb->get = dsb->get_aux;
+	dsb->get = ieee ? getbpp[4] : getbpp[dsb->pwfx->wBitsPerSample/8 - 1];
 	dsb->put = putieee32;
 
 	if (ichannels == ochannels)
@@ -175,7 +173,7 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 	else if (ochannels == 1)
 	{
 		dsb->mix_channels = 1;
-		dsb->get = get_mono;
+		dsb->get = ieee ? getbpp_mono[4] : getbpp_mono[dsb->pwfx->wBitsPerSample/8 - 1];
 	}
 	else if (ichannels == 2 && ochannels == 4)
 	{

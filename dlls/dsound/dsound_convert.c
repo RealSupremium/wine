@@ -99,17 +99,67 @@ static float getieee32(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD chan
 
 const bitsgetfunc getbpp[5] = {get8, get16, get24, get32, getieee32};
 
-float get_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+static float get8_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
 {
     DWORD channels = dsb->pwfx->nChannels;
     DWORD c;
     float val = 0;
     /* XXX: does Windows include LFE into the mix? */
     for (c = 0; c < channels; c++)
-        val += dsb->get_aux(dsb, base, c);
+        val += get8(dsb, base, c);
     val /= channels;
     return val;
 }
+
+static float get16_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+{
+    DWORD channels = dsb->pwfx->nChannels;
+    DWORD c;
+    float val = 0;
+    /* XXX: does Windows include LFE into the mix? */
+    for (c = 0; c < channels; c++)
+        val += get16(dsb, base, c);
+    val /= channels;
+    return val;
+}
+
+static float get24_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+{
+    DWORD channels = dsb->pwfx->nChannels;
+    DWORD c;
+    float val = 0;
+    /* XXX: does Windows include LFE into the mix? */
+    for (c = 0; c < channels; c++)
+        val += get24(dsb, base, c);
+    val /= channels;
+    return val;
+}
+
+static float get32_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+{
+    DWORD channels = dsb->pwfx->nChannels;
+    DWORD c;
+    float val = 0;
+    /* XXX: does Windows include LFE into the mix? */
+    for (c = 0; c < channels; c++)
+        val += get32(dsb, base, c);
+    val /= channels;
+    return val;
+}
+
+static float getieee32_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+{
+    DWORD channels = dsb->pwfx->nChannels;
+    DWORD c;
+    float val = 0;
+    /* XXX: does Windows include LFE into the mix? */
+    for (c = 0; c < channels; c++)
+        val += getieee32(dsb, base, c);
+    val /= channels;
+    return val;
+}
+
+const bitsgetfunc getbpp_mono[5] = {get8_mono, get16_mono, get24_mono, get32_mono, getieee32_mono};
 
 static inline unsigned char f_to_8(float value)
 {

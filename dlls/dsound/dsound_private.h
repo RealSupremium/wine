@@ -46,6 +46,7 @@ typedef struct DirectSoundDevice             DirectSoundDevice;
 typedef float (*bitsgetfunc)(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel);
 typedef void (*bitsputfunc)(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
 extern const bitsgetfunc getbpp[5];
+extern const bitsgetfunc getbpp_mono[5];
 void putieee32(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
 void mixieee32(float *src, float *dst, unsigned samples);
 typedef void (*normfunc)(const void *src, void *dst, unsigned samples);
@@ -166,7 +167,7 @@ struct IDirectSoundBufferImpl
     BOOL                        ds3db_need_recalc;
     /* Used for bit depth conversion */
     int                         mix_channels;
-    bitsgetfunc get, get_aux;
+    bitsgetfunc get;
     bitsputfunc put;
     int                         num_filters;
     DSFilter*                   filters;
@@ -174,7 +175,6 @@ struct IDirectSoundBufferImpl
     struct list entry;
 };
 
-float get_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel);
 void put_mono2stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
 void put_mono2quad(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
 void put_stereo2quad(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
