@@ -655,7 +655,7 @@ static bool transform_create_converter_elements(struct wg_transform *transform,
 
     if (g_str_has_prefix(output_mime, "video/"))
     {
-        if (!(element = create_element("videoconvert", "base"))
+        if (!(element = create_element("videoconvertscale", "base"))
                 || !append_element(transform->container, element, first, last))
             return false;
         /* Let GStreamer choose a default number of threads. */

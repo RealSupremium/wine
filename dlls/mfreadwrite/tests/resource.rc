@@ -25,3 +25,7 @@ test.wav RCDATA test.wav
 /* ffmpeg -f lavfi -i smptebars -f lavfi -i "sine=frequency=1000" -t 1.0 -r 25 -f mp4 -vcodec h264 -vf scale=160x120 -acodec aac test.mp4 */
 /* @makedep: test.mp4 */
 test.mp4 RCDATA test.mp4
+
+/* ffmpeg -filter_complex "nullsrc=s=128x96,geq=random(1)*255:128:128[vout]" -map "[vout]" -t 0.25 -r 25 -vcodec h264  -aspect 1 -brand mp42 -an sar_test.mp4 */
+/* @makedep: sar_test.mp4 */
+sar_test.mp4 RCDATA sar_test.mp4

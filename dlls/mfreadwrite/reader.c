@@ -714,19 +714,49 @@ static void media_type_try_copy_attr(IMFMediaType *dst, IMFMediaType *src, const
     PropVariantClear(&value);
 }
 
+static HRESULT media_type_get_uint32_pair(IMFMediaType *type, const GUID *key, UINT32 *hi, UINT32 *lo)
+{
+    UINT64 data;
+    HRESULT hr = IMFMediaType_GetUINT64(type, key, &data);
+    if (FAILED(hr)) return hr;
+
+    *hi = data >> 32;
+    *lo = data & 0xffffffff;
+    return hr;
+}
 
 /* Update a media type with additional attributes reported by another media type, */
 /* also present as update_media_type_from_upstream in mf/topology_loader.c pipeline. */
 HRESULT update_media_type(IMFMediaType *dst_type, IMFMediaType *src_type, BOOL advanced)
 {
     HRESULT hr = S_OK;
+    UINT64 dst_frame_size;
+    UINT32 par_w, par_h, w, h;
+
+    if (advanced && SUCCEEDED(media_type_get_uint32_pair(src_type, &MF_MT_FRAME_SIZE, &w, &h)) &&
+            FAILED(IMFMediaType_GetUINT64(dst_type, &MF_MT_FRAME_SIZE, &dst_frame_size)) &&
+            SUCCEEDED(media_type_get_uint32_pair(src_type, &MF_MT_PIXEL_ASPECT_RATIO, &par_w, &par_h)))
+    {
+        /* Video processor should rectify the aspect ratio so the output has aspect ratio of 1:1.
+         * We are doing this here by explicitly changing the target frame size.
+         *
+         * Alternatively it's possible to pass along a aspect ratio of 1:1 and let winegstreamer
+         * handle it, but unfortunately gstreamer has a way of calcuating desired frame sizes that's
+         * different from Windows native. */
+
+        UINT64 new_h = h * par_h / par_w;
+        IMFMediaType_SetUINT64(dst_type, &MF_MT_FRAME_SIZE, ((UINT64)w << 32) + new_h);
+    }
+    else
+    {
+        media_type_try_copy_attr(dst_type, src_type, &MF_MT_FRAME_SIZE, &hr);
+        media_type_try_copy_attr(dst_type, src_type, &MF_MT_PIXEL_ASPECT_RATIO, &hr);
+    }
 
     /* propagate common video attributes */
-    media_type_try_copy_attr(dst_type, src_type, &MF_MT_FRAME_SIZE, &hr);
     media_type_try_copy_attr(dst_type, src_type, &MF_MT_FRAME_RATE, &hr);
     media_type_try_copy_attr(dst_type, src_type, &MF_MT_VIDEO_ROTATION, &hr);
     media_type_try_copy_attr(dst_type, src_type, &MF_MT_FIXED_SIZE_SAMPLES, &hr);
-    media_type_try_copy_attr(dst_type, src_type, &MF_MT_PIXEL_ASPECT_RATIO, &hr);
     media_type_try_copy_attr(dst_type, src_type, &MF_MT_ALL_SAMPLES_INDEPENDENT, &hr);
     media_type_try_copy_attr(dst_type, src_type, &MF_MT_MINIMUM_DISPLAY_APERTURE, &hr);
 

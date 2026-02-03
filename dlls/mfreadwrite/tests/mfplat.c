@@ -1154,6 +1154,234 @@ static void test_source_reader(const char *filename, bool video)
     winetest_pop_context();
 }
 
+
+static void test_source_reader_aspect_ratio(void)
+{
+    IMFSourceResolver *source_resolver;
+    IMFByteStream *byte_stream = NULL;
+    IMFAttributes *attributes;
+    IMFSourceReader *reader;
+    MF_OBJECT_TYPE obj_type;
+    IMFMediaType *media_type, *output_media_type;
+    IMFMediaSource *media_source;
+    IMFTransform *transform;
+    HRESULT hr;
+    LONGLONG timestamp;
+    IMFSample *sample;
+    DWORD actualindex, sample_flags;
+    PROPVARIANT position = { .vt = VT_I8 };
+    UINT64 tmp = 0;
+
+    if (!pMFCreateMFByteStreamOnStream)
+    {
+        win_skip("MFCreateMFByteStreamOnStream() not found\n");
+        return;
+    }
+
+    winetest_push_context("sar_test.mp4");
+
+    byte_stream = get_resource_stream("sar_test.mp4");
+
+    hr = MFCreateMediaType(&output_media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_SetGUID(output_media_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_SetGUID(output_media_type, &MF_MT_SUBTYPE, &MFVideoFormat_ARGB32);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_SetUINT32(output_media_type, &MF_MT_VIDEO_ROTATION, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    MFCreateAttributes(&attributes, 1);
+    hr = MFCreateSourceResolver(&source_resolver);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceResolver_CreateObjectFromByteStream(source_resolver, byte_stream, L"test.mp4",
+            MF_RESOLUTION_MEDIASOURCE, NULL, &obj_type, (IUnknown **)&media_source);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFAttributes_SetUINT32(attributes, &MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, TRUE);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = MFCreateSourceReaderFromMediaSource(media_source, attributes, &reader);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceReader_GetServiceForStream(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, &GUID_NULL, &IID_IMFTransform, (void **)&transform);
+    ok(hr == E_NOINTERFACE, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceReader_GetNativeMediaType(reader, 0, 0, &media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_FRAME_SIZE, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    ok(tmp == 0x8000000060, "Unexpected frame size: %I64x\n", tmp);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_PIXEL_ASPECT_RATIO, &tmp);
+    todo_wine ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    todo_wine ok(tmp == 0x300000004, "Unexpected aspect ratio: %I64x\n", tmp);
+    IMFMediaType_Release(media_type);
+
+    /* Ask for pixel format conversion. This causes a video processor to be added, which will also
+     * resize the video according to the source pixel aspect ratio. */
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, 0, NULL, output_media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 1);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, 0, &media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_FRAME_SIZE, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    todo_wine ok(tmp == 0x8000000080, "Unexpected frame size: %I64x\n", tmp);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_PIXEL_ASPECT_RATIO, &tmp);
+    /* Native doesn't return an aspect ratio in current output type, unless it was explicitly set. */
+    ok(hr == MF_E_ATTRIBUTENOTFOUND, "Unexpected hr %#lx\n", hr);
+    IMFMediaType_Release(media_type);
+
+    hr = IMFSourceReader_ReadSample(reader, 0, 0, &actualindex, &sample_flags, &timestamp, &sample);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    todo_wine ok(sample_flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED,
+            "Unexpected sample flags: %#lx\n", sample_flags);
+    IMFSample_Release(sample);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, 0, &media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_FRAME_SIZE, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    todo_wine ok(tmp == 0x8000000080, "Unexpected frame size: %I64x\n", tmp);
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_PIXEL_ASPECT_RATIO, &tmp);
+    ok(hr == MF_E_ATTRIBUTENOTFOUND, "Unexpected hr %#lx\n", hr);
+    IMFMediaType_Release(media_type);
+
+    /* What if we explicitly set a pixel aspect ratio in the output type? */
+    hr = IMFSourceReader_SetCurrentPosition(reader, &GUID_NULL, &position);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_SetUINT64(output_media_type, &MF_MT_PIXEL_ASPECT_RATIO, 0x300000002); /* 3:2 */
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, 0, NULL, output_media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_DeleteItem(output_media_type, &MF_MT_PIXEL_ASPECT_RATIO);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 1);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, 0, &media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    /* Specified aspect ratio has no effect on the output frame size, but the output media type
+     * does take on the aspect ratio. */
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_FRAME_SIZE, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    todo_wine ok(tmp == 0x8000000080, "Unexpected frame size: %I64x\n", tmp);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_PIXEL_ASPECT_RATIO, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    ok(tmp == 0x300000002, "Unexpected aspect ratio: %I64x\n", tmp);
+    IMFMediaType_Release(media_type);
+
+    /* What if we explicitly set a frame size? */
+    hr = IMFSourceReader_SetCurrentPosition(reader, &GUID_NULL, &position);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_SetUINT64(output_media_type, &MF_MT_FRAME_SIZE, 0x4000000040); /* 64x64 */
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, 0, NULL, output_media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 1);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, 0, &media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_FRAME_SIZE, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    /* Frame size has precedence */
+    ok(tmp == 0x4000000040, "Unexpected frame size: %I64x\n", tmp);
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_PIXEL_ASPECT_RATIO, &tmp);
+    ok(hr == MF_E_ATTRIBUTENOTFOUND, "Unexpected hr %#lx\n", hr);
+    IMFMediaType_Release(media_type);
+
+    /* What if we explicitly set both? */
+    hr = IMFSourceReader_SetCurrentPosition(reader, &GUID_NULL, &position);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_SetUINT64(output_media_type, &MF_MT_PIXEL_ASPECT_RATIO, 0x300000002); /* 3:2 */
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, 0, NULL, output_media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, 0, NULL, output_media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 1);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, 0, &media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_FRAME_SIZE, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    ok(tmp == 0x4000000040, "Unexpected frame size: %I64x\n", tmp);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_PIXEL_ASPECT_RATIO, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    ok(tmp == 0x300000002, "Unexpected aspect ratio: %I64x\n", tmp);
+    IMFMediaType_Release(media_type);
+
+    IMFSourceReader_Release(reader);
+    IMFMediaSource_Release(media_source);
+
+    hr = IMFMediaType_DeleteItem(output_media_type, &MF_MT_PIXEL_ASPECT_RATIO);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_DeleteItem(output_media_type, &MF_MT_FRAME_SIZE);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    /* Without advanced video processing. */
+    hr = IMFSourceResolver_CreateObjectFromByteStream(source_resolver, byte_stream, L"test.mp4",
+            MF_RESOLUTION_MEDIASOURCE, NULL, &obj_type, (IUnknown **)&media_source);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFAttributes_SetUINT32(attributes, &MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, FALSE);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFAttributes_SetUINT32(attributes, &MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = MFCreateSourceReaderFromMediaSource(media_source, attributes, &reader);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 0);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFMediaType_SetGUID(output_media_type, &MF_MT_SUBTYPE, &MFVideoFormat_NV12);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, 0, NULL, output_media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    hr = IMFSourceReader_SetStreamSelection(reader, 0, 1);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, 0, &media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_FRAME_SIZE, &tmp);
+    ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    ok(tmp == 0x8000000060, "Unexpected frame size: %I64x\n", tmp);
+    tmp = 0xdeadbeef;
+    hr = IMFMediaType_GetUINT64(media_type, &MF_MT_PIXEL_ASPECT_RATIO, &tmp);
+    todo_wine ok(hr == S_OK, "Unexpected hr %#lx\n", hr);
+    todo_wine ok(tmp == 0x300000004, "Unexpected aspect ratio: %I64x\n", tmp);
+    IMFMediaType_Release(media_type);
+
+    IMFMediaType_Release(output_media_type);
+    IMFSourceResolver_Release(source_resolver);
+    IMFAttributes_Release(attributes);
+    IMFSourceReader_Release(reader);
+}
+
 static void test_source_reader_from_media_source(void)
 {
     static const DWORD expected_sample_order[10] = {0, 0, 1, 1, 0, 0, 0, 0, 1, 0};
@@ -3922,6 +4150,7 @@ START_TEST(mfplat)
     test_sink_writer_get_object();
     test_sink_writer_add_stream();
     test_sink_writer_sample_process();
+    test_source_reader_aspect_ratio();
 
     hr = MFShutdown();
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
