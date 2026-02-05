@@ -74,6 +74,8 @@ struct opengl_client_context
     UINT64                      unix_handle;
     UINT64                      unix_funcs;
     GLenum                      last_error;
+    int                         major_version;
+    int                         minor_version;
     BOOLEAN                     extensions[GL_EXTENSION_COUNT];         /* exposed client extensions */
 };
 
