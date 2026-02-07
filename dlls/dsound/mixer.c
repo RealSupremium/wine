@@ -328,6 +328,91 @@ static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, UINT count)
 
 #ifdef __i386__
 
+void downsample_fma(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
+        UINT required_input, float *input, float *output);
+__ASM_GLOBAL_FUNC( downsample_fma,
+        "pushl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+
+        "movl 0x14(%esp), %edx\n\t"
+
+        "vmovss 0x1c(%esp), %xmm1\n\t"
+        "vmovss " __ASM_NAME("rem_den_rcp") ", %xmm0\n\t"
+        "vmulss %xmm1, %xmm0, %xmm0\n\t"
+
+        "movl 0x28(%esp), %edi\n\t"
+        "shrl $2, %edi\n\t"
+        "movl 0x14(%esp), %ebx\n\t"
+        "subl 0x18(%esp), %ebx\n\t"
+        "subl $1, %ebx\n\t"
+        "sbbl $" EXPAND_STR(FIR_WIDTH - 1) ", %edi\n\t"
+        "notl %ebx\n\t"
+
+        "movl 0x24(%esp), %esi\n\t"
+        "movl 0x20(%esp), %eax\n\t"
+        "leal (%esi,%eax,4), %ebp\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"downsample_fma.L3:\n\t"
+        "movl %ebx, %ecx\n\t"
+        "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
+        "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
+        "leal " __ASM_NAME("fir") "(,%ecx,4), %ecx\n\t"
+
+        "movl %ebx, %eax\n\t"
+        "shll $" EXPAND_STR(FIR_STEP_SHIFT) ", %eax\n\t"
+        "shrl %eax\n\t"
+        "vcvtsi2ss %eax, %xmm3, %xmm3\n\t"
+        "vmulss %xmm0, %xmm3, %xmm3\n\t"
+        "vsubss %xmm3, %xmm1, %xmm2\n\t"
+
+        "vmovss (%esi), %xmm4\n\t"
+        "vmulss %xmm4, %xmm2, %xmm2\n\t"
+        "vmulss %xmm4, %xmm3, %xmm3\n\t"
+        "vshufps $0, %xmm2, %xmm2, %xmm2\n\t"
+        "vshufps $0, %xmm3, %xmm3, %xmm3\n\t"
+        "vinsertf128 $1, %xmm2, %ymm2, %ymm2\n\t"
+        "vinsertf128 $1, %xmm3, %ymm3, %ymm3\n\t"
+
+        "xorl %eax, %eax\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"downsample_fma.L2:\n\t"
+        "vmulps (%eax,%ecx), %ymm2, %ymm4\n\t"
+        "vfmadd231ps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %ymm3, %ymm4\n\t"
+        "vaddps (%eax,%edi,4), %ymm4, %ymm4\n\t"
+        "vmovups %ymm4, (%eax,%edi,4)\n\t"
+        "addl $32, %eax\n\t"
+        "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
+        "jl downsample_fma.L2\n\t"
+
+        "subl %edx, %ebx\n\t"
+        "adcl $0, %edi\n\t"
+
+        "addl $4, %esi\n\t"
+        "cmpl %ebp, %esi\n\t"
+        "jl downsample_fma.L3\n\t"
+
+        "vzeroupper\n\t"
+
+        "popl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "ret" )
+
 void downsample_sse(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
         UINT required_input, float *input, float *output);
 __ASM_GLOBAL_FUNC( downsample_sse,
@@ -646,6 +731,11 @@ static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq
 
         memset(output, 0, count * sizeof(float));
 #ifdef __i386__
+        if (fma_supported) {
+            downsample_fma(freq_adjust_fixed_den, freq_acc_fixed_start, firgain, required_input,
+                    input, output);
+            return;
+        }
         if (sse_supported) {
             downsample_sse(freq_adjust_fixed_den, freq_acc_fixed_start, firgain, required_input,
                     input, output);
