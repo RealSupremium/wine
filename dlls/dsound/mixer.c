@@ -34,6 +34,7 @@
 #include "wingdi.h"
 #include "mmreg.h"
 #include "wine/debug.h"
+#include "wine/asm.h"
 #include "dsound.h"
 #include "ks.h"
 #include "ksmedia.h"
@@ -41,6 +42,19 @@
 #include "fir.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dsound);
+
+#define STR(a) #a
+#define EXPAND_STR(a) STR(a)
+
+static const float __attribute__((used)) rem_den_rcp = 1.0f / (1u << 31);
+static const float __attribute__((used, aligned(16))) one[] =
+{
+    1.0f, 1.0f, 1.0f, 1.0f,
+};
+
+#ifdef __i386__
+static BOOL sse_supported;
+#endif
 
 void DSOUND_RecalcVolPan(PDSVOLUMEPAN volpan)
 {
@@ -333,6 +347,95 @@ static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgai
     }
 }
 
+#ifdef __i386__
+
+void upsample_sse(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+        float *output);
+__ASM_GLOBAL_FUNC(upsample_sse,
+        "pushl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+
+        "movss " __ASM_NAME("rem_den_rcp") ", %xmm0\n\t"
+        "movaps " __ASM_NAME("one") ", %xmm1\n\t"
+
+        "movl 0x14(%esp), %edx\n\t"
+
+        "movl 0x18(%esp), %ebx\n\t"
+        "movl 0x20(%esp), %esi\n\t"
+        "shrl $2, %esi\n\t"
+
+        "movl 0x24(%esp), %edi\n\t"
+        "movl 0x1c(%esp), %eax\n\t"
+        "leal (%edi,%eax,4), %ebp\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"upsample_sse.L3:\n\t"
+        "movl %ebx, %ecx\n\t"
+        "notl %ecx\n\t"
+        "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
+        "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
+        "leal " __ASM_NAME("fir") "(,%ecx,4), %ecx\n\t"
+
+        "movl %ebx, %eax\n\t"
+        "shll $" EXPAND_STR(FIR_STEP_SHIFT) ", %eax\n\t"
+        "shrl %eax\n\t"
+        "cvtsi2ssl %eax, %xmm2\n\t"
+        "mulss %xmm0, %xmm2\n\t"
+        "shufps $0, %xmm2, %xmm2\n\t"
+        "movups %xmm1, %xmm3\n\t"
+        "subps %xmm2, %xmm3\n\t"
+
+        "xorl %eax, %eax\n\t"
+        "xorps %xmm7, %xmm7\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"upsample_sse.L2:\n\t"
+        "movaps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %xmm4\n\t"
+        "movaps (%eax,%ecx), %xmm5\n\t"
+        "movups (%eax,%esi,4), %xmm6\n\t"
+        "addl $16, %eax\n\t"
+        "mulps %xmm3, %xmm4\n\t"
+        "mulps %xmm2, %xmm5\n\t"
+        "addps %xmm4, %xmm5\n\t"
+        "mulps %xmm6, %xmm5\n\t"
+        "addps %xmm5, %xmm7\n\t"
+        "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
+        "jl upsample_sse.L2\n\t"
+
+        "addl %edx, %ebx\n\t"
+        "adcl $0, %esi\n\t"
+
+        "movups %xmm7, %xmm6\n\t"
+        "shufps $0xb1, %xmm7, %xmm7\n\t"
+        "addps %xmm7, %xmm6\n\t"
+        "movhlps %xmm6, %xmm7\n\t"
+        "addss %xmm7, %xmm6\n\t"
+        "movss %xmm6, (%edi)\n\t"
+
+        "addl $4, %edi\n\t"
+        "cmpl %ebp, %edi\n\t"
+        "jl upsample_sse.L3\n\t"
+
+        "popl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "ret")
+
+#endif
+
 static void upsample(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
         float *output)
 {
@@ -371,6 +474,12 @@ static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq
         DWORD freq_adjust_fixed_num = (freq_adjust_num << 32) / freq_adjust_den;
         DWORD freq_acc_fixed_start = (freq_acc_start << 32) / freq_adjust_den;
 
+#ifdef __i386__
+        if (sse_supported) {
+            upsample_sse(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
+            return;
+        }
+#endif
         upsample(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
     }
 }
@@ -813,6 +922,10 @@ DWORD CALLBACK DSOUND_mixthread(void *p)
 	TRACE("(%p)\n", dev);
 	SetThreadDescription(GetCurrentThread(), L"wine_dsound_mixer");
         _controlfp_s(NULL, _DN_FLUSH, _MCW_DN);
+
+#ifdef __i386__
+	sse_supported = IsProcessorFeaturePresent(PF_XMMI_INSTRUCTIONS_AVAILABLE);
+#endif
 
 	while (dev->ref) {
 		DWORD ret;
