@@ -317,10 +317,10 @@ static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgai
 
     for (j = 0; j < required_input; ++j) {
         LONG64 opos_num = freq_adjust_den - freq_acc_start + j * (LONG64)freq_adjust_den + ~0u;
-        int opos = (int)(opos_num >> 32) - fir_width;
+        int opos = (int)(opos_num >> 32) - FIR_WIDTH;
 
-        UINT idx = ~(DWORD)opos_num >> (32 - fir_step_shift) << fir_width_shift;
-        int rem_num = ~(DWORD)opos_num << fir_step_shift >> 1;
+        UINT idx = ~(DWORD)opos_num >> (32 - FIR_STEP_SHIFT) << FIR_WIDTH_SHIFT;
+        int rem_num = ~(DWORD)opos_num << FIR_STEP_SHIFT >> 1;
         float rem = rem_num * (1.0f / (1ll << 31));
 
         float input_value = input[j] * firgain;
@@ -328,8 +328,8 @@ static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgai
         float input_value1 = rem * input_value;
 
         UINT i;
-        for (i = 0; i < fir_width; ++i)
-            output[opos + i] += fir[idx + i] * input_value0 + fir[idx + fir_width + i] * input_value1;
+        for (i = 0; i < FIR_WIDTH; ++i)
+            output[opos + i] += fir[idx + i] * input_value0 + fir[idx + FIR_WIDTH + i] * input_value1;
     }
 }
 
@@ -342,8 +342,8 @@ static void upsample(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, fl
         LONG64 ipos_num = freq_acc_start + i * (LONG64)freq_adjust_num;
         UINT ipos = ipos_num >> 32;
 
-        UINT idx = ~(DWORD)ipos_num >> (32 - fir_step_shift) << fir_width_shift;
-        int rem_num = (DWORD)ipos_num << fir_step_shift >> 1;
+        UINT idx = ~(DWORD)ipos_num >> (32 - FIR_STEP_SHIFT) << FIR_WIDTH_SHIFT;
+        int rem_num = (DWORD)ipos_num << FIR_STEP_SHIFT >> 1;
         float rem_inv = rem_num * (1.0f / (1ll << 31));
         float rem = 1.0f - rem_inv;
 
@@ -351,8 +351,8 @@ static void upsample(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, fl
         float sum = 0.0;
         float* cache = &input[ipos];
 
-        for (j = 0; j < fir_width; j++)
-            sum += (fir[idx + j] * rem_inv + fir[idx + j + fir_width] * rem) * cache[j];
+        for (j = 0; j < FIR_WIDTH; j++)
+            sum += (fir[idx + j] * rem_inv + fir[idx + j + FIR_WIDTH] * rem) * cache[j];
         output[i] = sum;
     }
 }
@@ -388,12 +388,12 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *
     UINT max_ipos = (freqAcc_start + count * dsb->freqAdjustNum) / dsb->freqAdjustDen;
 
     UINT required_input = max(
-            (freqAcc_start + (count - 1) * dsb->freqAdjustNum) / dsb->freqAdjustDen + fir_width,
-            (freqAcc_start + (count - 1 + fir_width) * dsb->freqAdjustNum) / dsb->freqAdjustDen);
+            (freqAcc_start + (count - 1) * dsb->freqAdjustNum) / dsb->freqAdjustDen + FIR_WIDTH,
+            (freqAcc_start + (count - 1 + FIR_WIDTH) * dsb->freqAdjustNum) / dsb->freqAdjustDen);
     float *intermediate, *output, *itmp;
 
     DWORD len = required_input * channels;
-    len += fir_width - 1 + (count + fir_width - 1) * channels;
+    len += FIR_WIDTH - 1 + (count + FIR_WIDTH - 1) * channels;
     len *= sizeof(float);
 
     *freqAccNum = freqAcc_end % dsb->freqAdjustDen;
@@ -410,7 +410,7 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *
     }
 
     intermediate = dsb->device->cp_buffer;
-    output = intermediate + required_input * channels + fir_width - 1;
+    output = intermediate + required_input * channels + FIR_WIDTH - 1;
 
     if(dsb->use_committed) {
         committed_samples = (dsb->writelead - dsb->committed_mixpos) / istride;
@@ -434,11 +434,11 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *
     for (channel = 0; channel < channels; channel++)
         resample(dsb->freqAdjustNum, dsb->freqAdjustDen, freqAcc_start, dsb->firgain,
                 required_input, count, intermediate + channel * required_input,
-                output + channel * (fir_width - 1 + count));
+                output + channel * (FIR_WIDTH - 1 + count));
 
     for(i = 0; i < count; ++i)
         for (channel = 0; channel < channels; channel++)
-            dsb->put(dsb, i * ostride, channel, output[channel * (fir_width - 1 + count) + i]);
+            dsb->put(dsb, i * ostride, channel, output[channel * (FIR_WIDTH - 1 + count) + i]);
 
     return max_ipos;
 }
