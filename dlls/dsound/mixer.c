@@ -25,6 +25,7 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <math.h>	/* Insomnia - pow() function */
+#include <intrin.h>
 
 #define COBJMACROS
 
@@ -47,13 +48,14 @@ WINE_DEFAULT_DEBUG_CHANNEL(dsound);
 #define EXPAND_STR(a) STR(a)
 
 static const float __attribute__((used)) rem_den_rcp = 1.0f / (1u << 31);
-static const float __attribute__((used, aligned(16))) one[] =
+static const float __attribute__((used, aligned(32))) one[] =
 {
-    1.0f, 1.0f, 1.0f, 1.0f,
+    1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
 };
 
 #ifdef __i386__
 static BOOL sse_supported;
+static BOOL fma_supported;
 #endif
 
 void DSOUND_RecalcVolPan(PDSVOLUMEPAN volpan)
@@ -441,6 +443,89 @@ static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgai
 
 #ifdef __i386__
 
+void upsample_fma(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+        float *output);
+__ASM_GLOBAL_FUNC( upsample_fma,
+        "pushl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+
+        "vmovss " __ASM_NAME("rem_den_rcp") ", %xmm0\n\t"
+        "vmovaps " __ASM_NAME("one") ", %ymm1\n\t"
+
+        "movl 0x14(%esp), %edx\n\t"
+
+        "movl 0x18(%esp), %ebx\n\t"
+        "movl 0x20(%esp), %esi\n\t"
+        "shrl $2, %esi\n\t"
+
+        "movl 0x24(%esp), %edi\n\t"
+        "movl 0x1c(%esp), %eax\n\t"
+        "leal (%edi,%eax,4), %ebp\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"upsample_fma.L3:\n\t"
+        "movl %ebx, %ecx\n\t"
+        "notl %ecx\n\t"
+        "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
+        "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
+        "leal " __ASM_NAME("fir") "(,%ecx,4), %ecx\n\t"
+
+        "movl %ebx, %eax\n\t"
+        "shll $" EXPAND_STR(FIR_STEP_SHIFT) ", %eax\n\t"
+        "shrl %eax\n\t"
+        "vcvtsi2ss %eax, %xmm2, %xmm2\n\t"
+        "vmulss %xmm0, %xmm2, %xmm2\n\t"
+        "vshufps $0, %xmm2, %xmm2, %xmm2\n\t"
+        "vinsertf128 $1, %xmm2, %ymm2, %ymm2\n\t"
+        "vsubps %ymm2, %ymm1, %ymm3\n\t"
+
+        "xorl %eax, %eax\n\t"
+        "vxorps %xmm5, %xmm5, %xmm5\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"upsample_fma.L2:\n\t"
+        "vmulps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %ymm3, %ymm4\n\t"
+        "vfmadd231ps (%eax,%ecx), %ymm2, %ymm4\n\t"
+        "vfmadd231ps (%eax,%esi,4), %ymm4, %ymm5\n\t"
+        "addl $32, %eax\n\t"
+        "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
+        "jl upsample_fma.L2\n\t"
+
+        "addl %edx, %ebx\n\t"
+        "adcl $0, %esi\n\t"
+
+        "vextractf128 $0x1, %ymm5, %xmm4\n\t"
+        "vaddps %xmm5, %xmm4, %xmm5\n\t"
+        "vmovhlps %xmm5, %xmm5, %xmm4\n\t"
+        "vaddps %xmm5, %xmm4, %xmm4\n\t"
+        "vshufps $85, %xmm4, %xmm4, %xmm5\n\t"
+        "vaddps %xmm4, %xmm5, %xmm4\n\t"
+        "vmovss %xmm4, (%edi)\n\t"
+
+        "addl $4, %edi\n\t"
+        "cmpl %ebp, %edi\n\t"
+        "jl upsample_fma.L3\n\t"
+
+        "vzeroupper\n\t"
+
+        "popl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "ret" )
+
 void upsample_sse(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
         float *output);
 __ASM_GLOBAL_FUNC(upsample_sse,
@@ -574,6 +659,10 @@ static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq
         DWORD freq_acc_fixed_start = (freq_acc_start << 32) / freq_adjust_den;
 
 #ifdef __i386__
+        if (fma_supported) {
+            upsample_fma(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
+            return;
+        }
         if (sse_supported) {
             upsample_sse(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
             return;
@@ -1024,6 +1113,11 @@ DWORD CALLBACK DSOUND_mixthread(void *p)
 
 #ifdef __i386__
 	sse_supported = IsProcessorFeaturePresent(PF_XMMI_INSTRUCTIONS_AVAILABLE);
+	if (IsProcessorFeaturePresent(PF_AVX_INSTRUCTIONS_AVAILABLE)) {
+		int regs[4];
+		__cpuid(regs, 1);
+		fma_supported = !!(regs[2] & (1 << 12));
+	}
 #endif
 
 	while (dev->ref) {
