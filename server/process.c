@@ -1431,14 +1431,22 @@ DECL_HANDLER(new_process)
 DECL_HANDLER(get_new_process_info)
 {
     struct startup_info *info;
+    struct thread *thread;
 
-    if ((info = (struct startup_info *)get_handle_obj( current->process, req->info,
-                                                       0, &startup_info_ops )))
+    if (!(info = (struct startup_info *)get_handle_obj( current->process, req->info, 0, &startup_info_ops ))) return;
+    if (!(thread = get_process_first_thread( info->process )))
     {
-        reply->success = is_process_init_done( info->process );
-        reply->exit_code = info->process->exit_code;
-        release_object( info );
+        set_error( STATUS_INVALID_PARAMETER );
+        goto done;
     }
+
+    reply->tid = get_thread_id( thread );
+    reply->handle = alloc_handle_no_access_check( current->process, thread, req->access, req->attributes );
+    reply->success = is_process_init_done( info->process );
+    reply->exit_code = info->process->exit_code;
+
+done:
+    release_object( info );
 }
 
 /* Itererate processes using global process list */

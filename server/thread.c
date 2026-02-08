@@ -1705,6 +1705,7 @@ DECL_HANDLER(new_thread)
     {
         thread->system_regs = current->system_regs;
         reply->tid = get_thread_id( thread );
+        if (request_fd == -1) goto done; /* thread handle will be returned from get_new_process_info */
         if ((reply->handle = alloc_handle_no_access_check( current->process, thread,
                                                            req->access, objattr->attributes )))
         {

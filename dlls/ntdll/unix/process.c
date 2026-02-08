@@ -877,15 +877,10 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     SERVER_START_REQ( new_thread )
     {
         req->process    = wine_server_obj_handle( process_handle );
-        req->access     = thread_access;
         req->flags      = thread_flags;
         req->request_fd = -1;
         wine_server_add_data( req, objattr, attr_len );
-        if (!(status = wine_server_call( req )))
-        {
-            thread_handle = wine_server_ptr_handle( reply->handle );
-            id.UniqueThread = ULongToHandle( reply->tid );
-        }
+        status = wine_server_call( req );
     }
     SERVER_END_REQ;
     free( objattr );
@@ -903,10 +898,14 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     NtWaitForSingleObject( process_info, FALSE, NULL );
     SERVER_START_REQ( get_new_process_info )
     {
-        req->info = wine_server_obj_handle( process_info );
+        req->info       = wine_server_obj_handle( process_info );
+        req->access     = thread_access;
+        req->attributes = thread_attr ? thread_attr->Attributes : 0;
         wine_server_call( req );
         success = reply->success;
         status = reply->exit_code;
+        thread_handle   = wine_server_ptr_handle( reply->handle );
+        id.UniqueThread = ULongToHandle( reply->tid );
     }
     SERVER_END_REQ;
 
