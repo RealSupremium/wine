@@ -9,6 +9,7 @@ VER_FILEDESCRIPTION_STR = "Wine CRT library"
 VER_PRODUCTVERSION      = 10,0,30319,0
 
 SOURCES = \
+	asm_i386_ftol.c \
 	concurrency.c \
 	console.c \
 	cpp.c \

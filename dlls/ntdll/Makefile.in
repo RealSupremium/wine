@@ -14,6 +14,7 @@ x86_64_EXTRADLLFLAGS = -Wl,--image-base,0x170000000
 VER_PRODUCTVERSION = 6,1,7601,24059
 
 SOURCES = \
+	asm_i386_rtl.c \
 	actctx.c \
 	atom.c \
 	crypt.c \
