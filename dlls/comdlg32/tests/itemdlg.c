@@ -2492,6 +2492,76 @@ static void test_overwrite(void)
     IShellItem_Release(psi_current);
 }
 
+static void test_pickfolders(void)
+{
+    IFileDialogEventsImpl *pfdeimpl;
+    IFileDialogEvents *pfde;
+    IFileOpenDialog *pfod;
+    IShellItem *psi_current, *psi_result;
+    DWORD options, cookie;
+    WCHAR curdir[MAX_PATH];
+    WCHAR *path = NULL;
+    SIZE_T len;
+    HRESULT hr;
+
+    GetCurrentDirectoryW(ARRAYSIZE(curdir), curdir);
+    ok(!!pSHCreateItemFromParsingName, "SHCreateItemFromParsingName is missing.\n");
+    hr = pSHCreateItemFromParsingName(curdir, NULL, &IID_IShellItem, (void **)&psi_current);
+    ok(hr == S_OK, "Got 0x%08lx\n", hr);
+
+    hr = CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
+                          &IID_IFileOpenDialog, (void **)&pfod);
+    ok(hr == S_OK, "got 0x%08lx.\n", hr);
+
+    hr = IFileOpenDialog_GetOptions(pfod, &options);
+    ok(hr == S_OK, "got 0x%08lx.\n", hr);
+
+    hr = IFileOpenDialog_SetOptions(pfod, options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR);
+    ok(hr == S_OK, "got 0x%08lx.\n", hr);
+
+    hr = IFileOpenDialog_SetFolder(pfod, psi_current);
+    ok(hr == S_OK, "got 0x%08lx.\n", hr);
+
+    pfde = IFileDialogEvents_Constructor();
+    pfdeimpl = impl_from_IFileDialogEvents(pfde);
+    /* Trigger IDOK from the event callback once the dialog is initialized. */
+    pfdeimpl->set_filename = L".";
+    /* Ensure this test cannot hang if IDOK doesn't close the dialog. */
+    pfdeimpl->events_test = IFDEVENT_TEST2;
+    hr = IFileOpenDialog_Advise(pfod, pfde, &cookie);
+    ok(hr == S_OK, "Advise failed: Got 0x%08lx\n", hr);
+
+    hr = IFileOpenDialog_Show(pfod, NULL);
+    if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+    {
+        win_skip("IFileOpenDialog pickfolders auto-accept did not complete; dialog cancelled.\n");
+        goto done;
+    }
+    ok(hr == S_OK, "Show failed: Got 0x%08lx\n", hr);
+    ok(pfdeimpl->OnFileOk == 1, "got %lu ok events\n", pfdeimpl->OnFileOk);
+
+    hr = IFileOpenDialog_GetResult(pfod, &psi_result);
+    ok(hr == S_OK, "GetResult failed: Got 0x%08lx\n", hr);
+    hr = IShellItem_GetDisplayName(psi_result, SIGDN_FILESYSPATH, &path);
+    ok(hr == S_OK, "GetDisplayName failed: Got 0x%08lx\n", hr);
+    len = lstrlenW(path);
+    if (len >= 2 && path[len - 2] == '\\' && path[len - 1] == '.')
+    {
+        path[len - 2] = 0;
+    }
+    ok(!lstrcmpiW(path, curdir), "Expected %s, got %s\n", wine_dbgstr_w(curdir), wine_dbgstr_w(path));
+    CoTaskMemFree(path);
+    IShellItem_Release(psi_result);
+
+done:
+    hr = IFileOpenDialog_Unadvise(pfod, cookie);
+    ok(hr == S_OK, "got 0x%08lx.\n", hr);
+
+    IFileDialogEvents_Release(pfde);
+    IFileOpenDialog_Release(pfod);
+    IShellItem_Release(psi_current);
+}
+
 static void test_customize_remove_from_empty_combobox(void)
 {
     IFileDialog *pfod;
@@ -2581,6 +2651,7 @@ START_TEST(itemdlg)
         test_customize();
         test_persistent_state();
         test_overwrite();
+        test_pickfolders();
         test_customize_remove_from_empty_combobox();
         test_double_show();
     }
