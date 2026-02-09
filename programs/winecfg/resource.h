@@ -45,6 +45,9 @@
 #define IDS_SHELL_FOLDER                16
 #define IDS_LINKS_TO                    17
 #define IDS_WINECFG_TITLE_APP           18   /* App specific title */
+#define IDS_FILEDIALOG_PORTAL_AUTO      19
+#define IDS_FILEDIALOG_PORTAL_ALWAYS    20
+#define IDS_FILEDIALOG_PORTAL_NEVER     21
 #define IDI_WINECFG                     100
 #define IDI_LOGO                        102
 #define IDD_ABOUTCFG                    107
@@ -180,6 +183,9 @@
 #define IDC_SYSPARAM_COLOR              1419
 #define IDC_SYSPARAM_FONT               1420
 #define IDC_ENABLE_FILE_ASSOCIATIONS    1421
+#define IDC_FILEDIALOG_PORTAL           1422
+#define IDC_FILEDIALOG_GROUP            1423
+#define IDC_FILEDIALOG_PORTAL_LABEL     1424
 
 #define IDC_SYSPARAMS_BUTTON            8400
 #define IDC_SYSPARAMS_BUTTON_TEXT       8401
