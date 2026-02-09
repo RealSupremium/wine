@@ -1161,7 +1161,7 @@ DECL_HANDLER(new_process)
     struct token *token = NULL;
     struct debug_obj *debug_obj = NULL;
     struct process *parent;
-    struct thread *parent_thread = current;
+    struct thread *thread, *parent_thread = current;
     int socket_fd = thread_get_inflight_fd( current, req->socket_fd );
     const obj_handle_t *handles = NULL;
     const obj_handle_t *job_handles = NULL;
@@ -1415,6 +1415,10 @@ DECL_HANDLER(new_process)
         info->data->process_group_id = process->group_id;
 
     info->process = (struct process *)grab_object( process );
+
+    if (!(thread = create_thread( -1, process, process->thread_flags, process->thread_sd ))) goto done;
+    thread->system_regs = current->system_regs;
+
     reply->info = alloc_handle( current->process, info, SYNCHRONIZE, 0 );
     reply->pid = get_process_id( process );
     reply->handle = alloc_handle_no_access_check( current->process, process, req->access, objattr->attributes );
