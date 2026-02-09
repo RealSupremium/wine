@@ -872,20 +872,6 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         goto done;
     }
 
-    if ((status = alloc_object_attributes( thread_attr, &objattr, &attr_len ))) goto done;
-
-    SERVER_START_REQ( new_thread )
-    {
-        req->process    = wine_server_obj_handle( process_handle );
-        req->flags      = thread_flags;
-        req->request_fd = -1;
-        wine_server_add_data( req, objattr, attr_len );
-        status = wine_server_call( req );
-    }
-    SERVER_END_REQ;
-    free( objattr );
-    if (status) goto done;
-
     /* create the child process */
 
     if ((status = spawn_process( params, socketfd[0], unixdir, winedebug, &pe_info ))) goto done;

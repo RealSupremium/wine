@@ -1676,17 +1676,9 @@ DECL_HANDLER(new_thread)
 
     if (process != current->process)
     {
-        if (request_fd != -1)  /* can't create a request fd in a different process */
-        {
-            close( request_fd );
-            set_error( STATUS_INVALID_PARAMETER );
-            goto done;
-        }
-        if (process->running_threads)  /* only the initial thread can be created in another process */
-        {
-            set_error( STATUS_ACCESS_DENIED );
-            goto done;
-        }
+        if (request_fd != -1) close( request_fd );
+        set_error( STATUS_ACCESS_DENIED );
+        goto done;
     }
     else if (request_fd == -1 || fcntl( request_fd, F_SETFL, O_NONBLOCK ) == -1)
     {
@@ -1705,7 +1697,6 @@ DECL_HANDLER(new_thread)
     {
         thread->system_regs = current->system_regs;
         reply->tid = get_thread_id( thread );
-        if (request_fd == -1) goto done; /* thread handle will be returned from get_new_process_info */
         if ((reply->handle = alloc_handle_no_access_check( current->process, thread,
                                                            req->access, objattr->attributes )))
         {
