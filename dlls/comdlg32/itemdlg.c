@@ -21,6 +21,7 @@
 #include <stdarg.h>
 
 #define COBJMACROS
+#define WIN32_NO_STATUS
 #include "windef.h"
 #include "winbase.h"
 #include "winuser.h"
@@ -32,8 +33,23 @@
 #include "cdlg.h"
 #include "filedlgbrowser.h"
 
+#undef WIN32_NO_STATUS
+#include "ntstatus.h"
+
+#include "wine/appdefaults.h"
 #include "wine/debug.h"
 #include "wine/list.h"
+#include "wine/unixlib.h"
+#include "unixlib.h"
+
+enum portal_policy
+{
+    PORTAL_POLICY_AUTO,
+    PORTAL_POLICY_FORCE,
+    PORTAL_POLICY_NEVER,
+};
+
+static enum portal_policy get_portal_policy(void);
 
 #define IDC_NAV_TOOLBAR      200
 #define IDC_NAVBACK          201
@@ -119,6 +135,9 @@ typedef struct FileDialogImpl {
     IShellItem *psi_setfolder;
     IShellItem *psi_folder;
 
+    WCHAR portal_result_path[MAX_PATH];
+    BOOL portal_result_valid;
+
     HWND dlg_hwnd;
     IExplorerBrowser *peb;
     DWORD ebevents_cookie;
@@ -148,6 +167,8 @@ typedef struct FileDialogImpl {
 
     HANDLE user_actctx;
 } FileDialogImpl;
+
+static void cache_portal_result(FileDialogImpl *This, const WCHAR *path);
 
 /**************************************************************************
  * Event wrappers.
@@ -429,6 +450,8 @@ static UINT get_file_name(FileDialogImpl *This, LPWSTR *str)
     HWND hwnd_edit = GetDlgItem(This->dlg_hwnd, IDC_FILENAME);
     UINT len;
 
+    TRACE("get_file_name: hwnd_edit=%p set_filename=%s\n", hwnd_edit, debugstr_w(This->set_filename));
+
     if(!hwnd_edit)
     {
         if(This->set_filename)
@@ -436,8 +459,10 @@ static UINT get_file_name(FileDialogImpl *This, LPWSTR *str)
             len = lstrlenW(This->set_filename);
             *str = CoTaskMemAlloc(sizeof(WCHAR)*(len+1));
             lstrcpyW(*str, This->set_filename);
+            TRACE("get_file_name: returning set_filename len=%u value=%s\n", len, debugstr_w(*str));
             return len;
         }
+        TRACE("get_file_name: no edit control and no set_filename\n");
         return 0;
     }
 
@@ -447,6 +472,7 @@ static UINT get_file_name(FileDialogImpl *This, LPWSTR *str)
         return 0;
 
     SendMessageW(hwnd_edit, WM_GETTEXT, len+1, (LPARAM)*str);
+    TRACE("get_file_name: returning len=%u value=%s\n", len, debugstr_w(*str));
     return len;
 }
 
@@ -469,12 +495,48 @@ static void set_current_filter(FileDialogImpl *This, LPCWSTR str)
     }
 }
 
+static void set_result_folder(FileDialogImpl *This, const WCHAR *path)
+{
+    IShellItem *psi = NULL;
+    PIDLIST_ABSOLUTE pidl = NULL;
+    WCHAR dir[MAX_PATH];
+    const WCHAR *slash;
+    size_t len;
+
+    if (!path || !*path)
+        return;
+
+    slash = wcsrchr(path, '\\');
+    if (!slash) slash = wcsrchr(path, '/');
+    if (!slash || slash == path)
+        return;
+
+    len = (size_t)(slash - path);
+    if (len >= ARRAY_SIZE(dir))
+        len = ARRAY_SIZE(dir) - 1;
+
+    memcpy(dir, path, len * sizeof(WCHAR));
+    dir[len] = 0;
+
+    if (SUCCEEDED(SHParseDisplayName(dir, NULL, &pidl, 0, NULL)))
+    {
+        if (SUCCEEDED(SHCreateShellItem(NULL, NULL, pidl, &psi)))
+        {
+            if (This->psi_folder) IShellItem_Release(This->psi_folder);
+            This->psi_folder = psi;
+        }
+        ILFree(pidl);
+    }
+}
+
 static BOOL set_file_name(FileDialogImpl *This, LPCWSTR str)
 {
     if(This->set_filename)
         LocalFree(This->set_filename);
 
     This->set_filename = str ? StrDupW(str) : NULL;
+
+    TRACE("set_file_name: %s\n", debugstr_w(This->set_filename));
 
     if (str && wcspbrk(str, L"*?"))
         set_current_filter(This, str);
@@ -2519,12 +2581,626 @@ static ULONG WINAPI IFileDialog2_fnRelease(IFileDialog2 *iface)
     return ref;
 }
 
+/* ------------------ XDG Portal Integration ---------------------- */
+
+/***********************************************************************
+ * call_unix_portal
+ *
+ * Internal helper to bridge the PE/Unix boundary using the standard
+ * Wine unix_call pattern.
+ */
+static NTSTATUS call_unix_portal(enum comdlg32_unix_funcs code, void *params)
+{
+	return WINE_UNIX_CALL(code, params);
+}
+
+static BOOL portal_supports_itemdlg_options(FileDialogImpl *This)
+{
+    DWORD unsupported_mask = FOS_ALLNONSTORAGEITEMS |
+                             FOS_CREATEPROMPT |
+                             FOS_SHAREAWARE |
+                             FOS_HIDEMRUPLACES |
+                             FOS_HIDEPINNEDPLACES |
+                             FOS_DONTADDTORECENT |
+                             FOS_DEFAULTNOMINIMODE |
+                             FOS_FORCEPREVIEWPANEON |
+                             FOS_SUPPORTSTREAMABLEITEMS;
+    DWORD unsupported = This->options & unsupported_mask;
+
+    if (unsupported)
+    {
+        TRACE("Portal disabled: unsupported IFileDialog options=0x%08lx\n", (unsigned long)unsupported);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+static BOOL should_use_portal_for_itemdlg(FileDialogImpl *This)
+{
+    enum portal_policy policy = get_portal_policy();
+
+    if (policy == PORTAL_POLICY_NEVER)
+        return FALSE;
+
+    if (policy != PORTAL_POLICY_FORCE)
+    {
+        if (!portal_supports_itemdlg_options(This))
+            return FALSE;
+
+        /* Don't use if custom controls are added */
+        if (!list_empty(&This->cctrls))
+        {
+            TRACE("Custom controls present, not using portal\n");
+            return FALSE;
+        }
+
+        /* Don't use if events listeners are registered */
+        if (!list_empty(&This->events_clients))
+        {
+            TRACE("Event listeners present, not using portal\n");
+            return FALSE;
+        }
+    }
+
+    /* Check if Unix library is available */
+    {
+        struct portal_is_available_params params = {0};
+        return call_unix_portal(unix_portal_is_available, &params) == STATUS_SUCCESS;
+    }
+}
+
+static HRESULT create_shell_item_array_from_paths(WCHAR **paths, IShellItemArray **ppsia)
+{
+    PIDLIST_ABSOLUTE *pidls;
+    UINT count, i, j;
+    HRESULT hr;
+
+    /* Count paths */
+    for (count = 0; paths[count]; count++);
+
+    if (count == 0)
+        return E_FAIL;
+
+    pidls = calloc(count, sizeof(PIDLIST_ABSOLUTE));
+    if (!pidls)
+        return E_OUTOFMEMORY;
+
+    /* Convert each path to PIDL */
+    for (i = 0; i < count; i++)
+    {
+        hr = SHParseDisplayName(paths[i], NULL, &pidls[i], 0, NULL);
+        if (FAILED(hr))
+        {
+            WARN("Failed to parse path %s: %08lx\n", debugstr_w(paths[i]), hr);
+            /* Cleanup and fail */
+            for (j = 0; j < i; j++)
+                ILFree(pidls[j]);
+            free(pidls);
+            return hr;
+        }
+    }
+
+    /* Create IShellItemArray */
+    hr = SHCreateShellItemArrayFromIDLists(count, (LPCITEMIDLIST*)pidls, ppsia);
+
+    /* Cleanup PIDLs */
+    for (i = 0; i < count; i++)
+        ILFree(pidls[i]);
+    free(pidls);
+
+    return hr;
+}
+
+static void copy_wchar_to_utf8(char *dst, size_t dst_len, const WCHAR *wstr)
+{
+	int len;
+	char *tmp;
+
+	if (!dst_len) return;
+	if (!wstr)
+	{
+		dst[0] = 0;
+		return;
+	}
+
+	len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+	if (len <= 0)
+	{
+		dst[0] = 0;
+		return;
+	}
+
+	if ((size_t)len <= dst_len)
+	{
+		WideCharToMultiByte(CP_UTF8, 0, wstr, -1, dst, dst_len, NULL, NULL);
+		return;
+	}
+
+	tmp = malloc(len);
+	if (!tmp)
+	{
+		dst[0] = 0;
+		return;
+	}
+
+	WideCharToMultiByte(CP_UTF8, 0, wstr, -1, tmp, len, NULL, NULL);
+	memcpy(dst, tmp, dst_len - 1);
+	dst[dst_len - 1] = 0;
+	free(tmp);
+}
+
+static void copy_wchar_to_unix_path(char *dst, size_t dst_len, const WCHAR *wstr)
+{
+    char *unix_path;
+    size_t len;
+
+    if (!dst_len) return;
+    dst[0] = 0;
+    if (!wstr || !*wstr) return;
+
+    unix_path = wine_get_unix_file_name(wstr);
+    if (unix_path)
+    {
+        len = strlen(unix_path);
+        if (len >= dst_len) len = dst_len - 1;
+        memcpy(dst, unix_path, len);
+        dst[len] = 0;
+        HeapFree(GetProcessHeap(), 0, unix_path);
+        return;
+    }
+
+    WideCharToMultiByte(CP_UNIXCP, 0, wstr, -1, dst, dst_len, NULL, NULL);
+}
+
+static WCHAR *alloc_dir_from_path(const WCHAR *path)
+{
+    const WCHAR *last;
+    size_t len;
+    WCHAR *dir;
+
+    if (!path || !*path) return NULL;
+    last = wcsrchr(path, '\\');
+    if (!last) last = wcsrchr(path, '/');
+    if (!last) return NULL;
+
+    len = (size_t)(last - path + 1);
+    dir = malloc((len + 1) * sizeof(WCHAR));
+    if (!dir) return NULL;
+    memcpy(dir, path, len * sizeof(WCHAR));
+    dir[len] = 0;
+    return dir;
+}
+
+static const WCHAR *file_part_from_path(const WCHAR *path)
+{
+    const WCHAR *last;
+
+    if (!path) return NULL;
+    last = wcsrchr(path, '\\');
+    if (!last) last = wcsrchr(path, '/');
+    return last ? last + 1 : path;
+}
+
+static BOOL append_utf8_to_blob(char *dst, size_t dst_len, size_t *pos, const WCHAR *wstr)
+{
+    int len;
+
+    if (!dst || !dst_len || !pos) return FALSE;
+    if (!wstr) wstr = L"";
+
+    len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+    if (len <= 0) return FALSE;
+
+    if (*pos + (size_t)len > dst_len)
+        return FALSE;
+
+    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, dst + *pos, len, NULL, NULL);
+    *pos += len;
+    return TRUE;
+}
+
+static void build_filters_blob_from_specs(char *dst, size_t dst_len,
+                                           const COMDLG_FILTERSPEC *specs, UINT spec_count,
+                                           UINT *out_count, UINT *out_len)
+{
+    size_t pos = 0;
+    UINT count = 0;
+    UINT i;
+
+    if (out_count) *out_count = 0;
+    if (out_len) *out_len = 0;
+    if (!dst_len) return;
+    dst[0] = 0;
+
+    for (i = 0; i < spec_count; i++)
+    {
+        if (!specs[i].pszName || !specs[i].pszSpec) continue;
+        if (!append_utf8_to_blob(dst, dst_len, &pos, specs[i].pszName)) break;
+        if (!append_utf8_to_blob(dst, dst_len, &pos, specs[i].pszSpec)) break;
+        count++;
+    }
+
+    if (pos < dst_len) dst[pos++] = 0;
+    else dst[dst_len - 1] = 0;
+
+    if (out_count) *out_count = count;
+    if (out_len) *out_len = (UINT)pos;
+}
+
+static BOOL get_shellitem_filesys_path(IShellItem *psi, WCHAR *buf, UINT buf_len)
+{
+    LPWSTR path = NULL;
+    HRESULT hr;
+    BOOL ok = FALSE;
+
+    if (!psi || !buf || !buf_len) return FALSE;
+    buf[0] = 0;
+
+    hr = IShellItem_GetDisplayName(psi, SIGDN_FILESYSPATH, &path);
+    if (SUCCEEDED(hr) && path)
+    {
+        lstrcpynW(buf, path, buf_len);
+        ok = TRUE;
+    }
+    CoTaskMemFree(path);
+    return ok;
+}
+
+static BOOL get_portal_policy_value(WCHAR *buffer, DWORD size)
+{
+    return wine_get_appdefaults_reg_sz(L"X11 Driver", L"FileDialogPortal", buffer, size);
+}
+
+static enum portal_policy get_portal_policy(void)
+{
+    const char *force_portal = getenv("WINE_FORCE_PORTAL");
+    WCHAR value[32];
+
+    if (force_portal && *force_portal == '1')
+        return PORTAL_POLICY_FORCE;
+
+    if (get_portal_policy_value(value, sizeof(value)))
+    {
+        if (!wcsicmp(value, L"always"))
+            return PORTAL_POLICY_FORCE;
+        if (!wcsicmp(value, L"never"))
+            return PORTAL_POLICY_NEVER;
+        if (!wcsicmp(value, L"auto"))
+            return PORTAL_POLICY_AUTO;
+    }
+
+    return PORTAL_POLICY_AUTO;
+}
+
+static HRESULT try_portal_itemdlg(FileDialogImpl *This, HWND hwndOwner)
+{
+    struct portal_open_file_params open_params = {0};
+    struct portal_save_file_params save_params = {0};
+    WCHAR folder_w[MAX_PATH];
+    WCHAR *dir;
+    UINT filter_index;
+    NTSTATUS status;
+    HRESULT hr = S_OK;
+
+    if (This->dlg_type == ITEMDLG_TYPE_OPEN)
+    {
+        WCHAR **paths = NULL;
+
+        /* Open file dialog */
+        copy_wchar_to_utf8(open_params.title_utf8, sizeof(open_params.title_utf8), This->custom_title);
+        open_params.initial_dir_utf8[0] = 0;
+        if (This->psi_setfolder || This->psi_defaultfolder)
+        {
+			if (get_shellitem_filesys_path(This->psi_setfolder ? This->psi_setfolder : This->psi_defaultfolder,
+			                               folder_w, ARRAY_SIZE(folder_w)))
+			{
+				copy_wchar_to_unix_path(open_params.initial_dir_utf8,
+				                        sizeof(open_params.initial_dir_utf8), folder_w);
+			}
+		}
+
+		build_filters_blob_from_specs(open_params.filters_blob, sizeof(open_params.filters_blob),
+		                              This->filterspecs, This->filterspec_count,
+		                              &open_params.filter_count, &open_params.filters_blob_len);
+		filter_index = This->filetypeindex + 1;
+		open_params.current_filter_index = (open_params.filter_count &&
+		                                    filter_index <= open_params.filter_count) ? filter_index :
+		                                    (open_params.filter_count ? 1 : 0);
+		open_params.flags = 0;
+		if (This->options & FOS_ALLOWMULTISELECT)
+			open_params.flags |= PORTAL_OPEN_FLAG_MULTIPLE;
+		if (This->options & FOS_PICKFOLDERS)
+			open_params.flags |= PORTAL_OPEN_FLAG_DIRECTORY;
+
+		open_params.max_results = (This->options & FOS_ALLOWMULTISELECT) ? 1024 : 1;
+		open_params.result_count = 0;
+		open_params.result_grouped = 0;
+		open_params.result_buffer[0] = 0;
+		open_params.result_buffer_len = 0;
+
+        /* Call Unix library */
+        status = call_unix_portal(unix_portal_open_file, &open_params);
+
+        /* Handle result */
+        TRACE("portal open result: status=0x%08lx count=%u first_char=%04x grouped=%u\n",
+              status, open_params.result_count,
+              open_params.result_buffer[0], open_params.result_grouped);
+
+        if (status == STATUS_SUCCESS && open_params.result_count && open_params.result_buffer[0])
+        {
+            const WCHAR *buf = open_params.result_buffer;
+
+            if (!(open_params.flags & PORTAL_OPEN_FLAG_MULTIPLE) || open_params.result_count == 1)
+            {
+                WCHAR *single_paths[2] = { (WCHAR *)buf, NULL };
+                hr = create_shell_item_array_from_paths(single_paths, &This->psia_results);
+                if (SUCCEEDED(hr))
+                {
+                    const WCHAR *title = file_part_from_path(single_paths[0]);
+                    set_file_name(This, (title && *title) ? title : single_paths[0]);
+                    set_result_folder(This, single_paths[0]);
+                    hr = events_OnFileOk(This);
+                }
+            }
+            else if (open_params.result_grouped)
+            {
+                const WCHAR *dir_str = buf;
+                const WCHAR *p = dir_str + lstrlenW(dir_str) + 1;
+                UINT i;
+
+                paths = calloc(open_params.result_count + 1, sizeof(*paths));
+                if (!paths) hr = E_OUTOFMEMORY;
+                else
+                {
+                    for (i = 0; i < open_params.result_count; i++)
+                    {
+                        const WCHAR *name = p;
+                        UINT dir_len = lstrlenW(dir_str);
+                        UINT name_len = lstrlenW(name);
+                        UINT need_sep = (dir_len && dir_str[dir_len - 1] != '\\' && dir_str[dir_len - 1] != '/');
+                        UINT full_len = dir_len + need_sep + name_len;
+
+                        paths[i] = malloc((full_len + 1) * sizeof(WCHAR));
+                        if (!paths[i]) { hr = E_OUTOFMEMORY; break; }
+
+                        memcpy(paths[i], dir_str, dir_len * sizeof(WCHAR));
+                        if (need_sep) paths[i][dir_len++] = '\\';
+                        memcpy(paths[i] + dir_len, name, name_len * sizeof(WCHAR));
+                        paths[i][full_len] = 0;
+
+                        p += name_len + 1;
+                    }
+
+                    if (SUCCEEDED(hr))
+                    {
+                        hr = create_shell_item_array_from_paths(paths, &This->psia_results);
+                        if (SUCCEEDED(hr) && paths[0])
+                        {
+                            const WCHAR *title = file_part_from_path(paths[0]);
+                            set_file_name(This, (title && *title) ? title : paths[0]);
+                            set_result_folder(This, dir_str);
+                            hr = events_OnFileOk(This);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                const WCHAR *p = buf;
+                UINT i;
+
+                paths = calloc(open_params.result_count + 1, sizeof(*paths));
+                if (!paths) hr = E_OUTOFMEMORY;
+                else
+                {
+                    for (i = 0; i < open_params.result_count; i++)
+                    {
+                        paths[i] = (WCHAR *)p;
+                        p += lstrlenW(p) + 1;
+                    }
+                    hr = create_shell_item_array_from_paths(paths, &This->psia_results);
+                    if (SUCCEEDED(hr) && paths[0])
+                    {
+                        const WCHAR *title = file_part_from_path(paths[0]);
+                        set_file_name(This, (title && *title) ? title : paths[0]);
+                        set_result_folder(This, paths[0]);
+                        hr = events_OnFileOk(This);
+                    }
+                }
+            }
+        }
+        else if (status == STATUS_CANCELLED)
+        {
+            TRACE("User cancelled dialog\n");
+            hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
+        }
+        else
+        {
+            TRACE("Portal failed with status %08lx\n", status);
+            hr = E_FAIL;
+        }
+
+        if (paths)
+        {
+            if (open_params.result_grouped)
+            {
+                UINT i;
+                for (i = 0; i < open_params.result_count; i++) free(paths[i]);
+            }
+            free(paths);
+        }
+    }
+    else
+    {
+		/* Save file dialog */
+		copy_wchar_to_utf8(save_params.title_utf8, sizeof(save_params.title_utf8), This->custom_title);
+		save_params.initial_dir_utf8[0] = 0;
+		save_params.initial_filename_utf8[0] = 0;
+		save_params.current_file_unix[0] = 0;
+
+		if (This->set_filename && *This->set_filename)
+		{
+			const WCHAR *name = file_part_from_path(This->set_filename);
+			BOOL has_wildcards = name && wcspbrk(name, L"*?") != NULL;
+			BOOL has_path = (name && name != This->set_filename) || wcschr(This->set_filename, L':');
+
+			if (name && *name && !has_wildcards)
+				copy_wchar_to_utf8(save_params.initial_filename_utf8,
+				                   sizeof(save_params.initial_filename_utf8), name);
+
+			if (has_path && !has_wildcards)
+				copy_wchar_to_unix_path(save_params.current_file_unix,
+				                        sizeof(save_params.current_file_unix), This->set_filename);
+
+			if (name && name != This->set_filename)
+			{
+				dir = alloc_dir_from_path(This->set_filename);
+				if (dir)
+				{
+					copy_wchar_to_unix_path(save_params.initial_dir_utf8,
+					                        sizeof(save_params.initial_dir_utf8), dir);
+					free(dir);
+				}
+			}
+		}
+
+		if (!save_params.initial_dir_utf8[0] && (This->psi_setfolder || This->psi_defaultfolder))
+		{
+			if (get_shellitem_filesys_path(This->psi_setfolder ? This->psi_setfolder : This->psi_defaultfolder,
+			                               folder_w, ARRAY_SIZE(folder_w)))
+			{
+				copy_wchar_to_unix_path(save_params.initial_dir_utf8,
+				                        sizeof(save_params.initial_dir_utf8), folder_w);
+			}
+		}
+
+		build_filters_blob_from_specs(save_params.filters_blob, sizeof(save_params.filters_blob),
+		                              This->filterspecs, This->filterspec_count,
+		                              &save_params.filter_count, &save_params.filters_blob_len);
+		filter_index = This->filetypeindex + 1;
+		save_params.current_filter_index = (save_params.filter_count &&
+		                                    filter_index <= save_params.filter_count) ? filter_index :
+		                                    (save_params.filter_count ? 1 : 0);
+		save_params.flags = 0;
+
+        /* Call Unix library */
+        status = call_unix_portal(unix_portal_save_file, &save_params);
+        TRACE("portal save: status=%08lx len=%u first=%04x path=%s\n",
+              status, save_params.result_path_len,
+              save_params.result_path[0], debugstr_w(save_params.result_path));
+        /* Handle result */
+        if (status == STATUS_SUCCESS && save_params.result_path[0])
+        {
+			PIDLIST_ABSOLUTE pidl = NULL;
+			HRESULT hr_array;
+
+			if (This->psia_results)
+			{
+				IShellItemArray_Release(This->psia_results);
+				This->psia_results = NULL;
+			}
+
+			/* Convert path to IShellItem; allow non-existent targets.
+			 * Order: parse path; try shell item; try ILCreateFromPathW; last resort temp placeholder
+			 * (delete-on-close) so SHParseDisplayName can succeed without leaving user-visible files. */
+			hr = SHParseDisplayName(save_params.result_path, NULL, &pidl, 0, NULL);
+
+			if (FAILED(hr) || !pidl)
+			{
+				IShellItem *psi = NULL;
+				hr = SHCreateItemFromParsingName(save_params.result_path, NULL, &IID_IShellItem, (void **)&psi);
+				if (SUCCEEDED(hr) && psi)
+				{
+					if (FAILED(SHGetIDListFromObject((IUnknown *)psi, &pidl))) pidl = NULL;
+					IShellItem_Release(psi);
+				}
+			}
+
+			/* Prefer ILCreateFromPathW before touching disk. */
+			if (!pidl)
+				pidl = ILCreateFromPathW(save_params.result_path);
+
+			if (!pidl)
+			{
+				/* Last resort: create a temp placeholder (delete-on-close) so SHParseDisplayName can succeed. */
+				HANDLE h = CreateFileW(save_params.result_path, GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+				                      NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, NULL);
+				if (h != INVALID_HANDLE_VALUE)
+				{
+					hr = SHParseDisplayName(save_params.result_path, NULL, &pidl, 0, NULL);
+					CloseHandle(h);
+				}
+			}
+
+			if (!pidl)
+			{
+				WARN("Could not create PIDL for save path %s\n", debugstr_w(save_params.result_path));
+			}
+
+			if (pidl)
+			{
+				hr_array = SHCreateShellItemArrayFromIDLists(1, (LPCITEMIDLIST*)&pidl, &This->psia_results);
+				ILFree(pidl);
+				if (FAILED(hr_array) || !This->psia_results)
+					WARN("SHCreateShellItemArrayFromIDLists failed %08lx for %s\n", hr_array, debugstr_w(save_params.result_path));
+				else
+					TRACE("portal save: built ShellItemArray for %s hr=%08lx\n",
+					      debugstr_w(save_params.result_path), hr_array);
+			}
+			else
+			{
+				hr_array = E_FAIL;
+			}
+			TRACE("portal save: pidl=%p hr_array=%08lx path=%s\n", pidl, hr_array, debugstr_w(save_params.result_path));
+
+			/* Mirror the chosen path into filename edit for apps querying GetFileName */
+            set_file_name(This, save_params.result_path);
+            set_result_folder(This, save_params.result_path);
+            cache_portal_result(This, save_params.result_path);
+            /* Fire OnFileOk so apps see the choice immediately */
+            hr = events_OnFileOk(This);
+            /* If app rejected (S_FALSE), surface cancel; if we lack results, fail to avoid legacy fallback */
+            if (hr == S_FALSE)
+                return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+
+			if (FAILED(hr_array) || !This->psia_results)
+				return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+
+			return S_OK;
+		}
+		else if (status == STATUS_CANCELLED)
+		{
+			TRACE("User cancelled dialog\n");
+			hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
+		}
+		else
+		{
+			TRACE("Portal failed with status %08lx\n", status);
+			hr = E_FAIL;
+		}
+	}
+
+	return hr;
+}
+
 static HRESULT WINAPI IFileDialog2_fnShow(IFileDialog2 *iface, HWND hwndOwner)
 {
     FileDialogImpl *This = impl_from_IFileDialog2(iface);
+    HRESULT hr;
+
     TRACE("%p (%p)\n", iface, hwndOwner);
 
     This->opendropdown_has_selection = FALSE;
+
+    /* Try XDG portal if applicable */
+    if (should_use_portal_for_itemdlg(This))
+    {
+        hr = try_portal_itemdlg(This, hwndOwner);
+        TRACE("IFileDialog2_Show returning %08lx from portal\n", hr);
+        if (hr != E_FAIL)  /* E_FAIL means portal not available, fall through */
+            return hr;
+    }
 
     return create_dialog(This, hwndOwner);
 }
@@ -2835,6 +3511,13 @@ static HRESULT WINAPI IFileDialog2_fnSetFileNameLabel(IFileDialog2 *iface, LPCWS
     return S_OK;
 }
 
+static void cache_portal_result(FileDialogImpl *This, const WCHAR *path)
+{
+    if (!path) return;
+    lstrcpynW(This->portal_result_path, path, ARRAY_SIZE(This->portal_result_path));
+    This->portal_result_valid = TRUE;
+}
+
 static HRESULT WINAPI IFileDialog2_fnGetResult(IFileDialog2 *iface, IShellItem **ppsi)
 {
     FileDialogImpl *This = impl_from_IFileDialog2(iface);
@@ -2855,9 +3538,29 @@ static HRESULT WINAPI IFileDialog2_fnGetResult(IFileDialog2 *iface, IShellItem *
 
             /* Adds a reference. */
             hr = IShellItemArray_GetItemAt(This->psia_results, 0, ppsi);
+            if (SUCCEEDED(hr) && ppsi && *ppsi)
+            {
+                LPWSTR path = NULL;
+                if (SUCCEEDED(IShellItem_GetDisplayName(*ppsi, SIGDN_FILESYSPATH, &path)))
+                {
+                    TRACE("GetResult path: %s\n", debugstr_w(path));
+                    CoTaskMemFree(path);
+                }
+            }
         }
 
         return hr;
+    }
+
+    /* If portal populated a path but we failed to build a shell item array, still return path-only result. */
+    if (This->portal_result_valid && ppsi)
+    {
+        HRESULT local_hr = SHCreateItemFromParsingName(This->portal_result_path, NULL, &IID_IShellItem, (void **)ppsi);
+        if (SUCCEEDED(local_hr))
+            TRACE("GetResult (portal fallback) path: %s\n", debugstr_w(This->portal_result_path));
+        else
+            WARN("GetResult (portal fallback) failed %08lx for %s\n", local_hr, debugstr_w(This->portal_result_path));
+        return local_hr;
     }
 
     return E_UNEXPECTED;
