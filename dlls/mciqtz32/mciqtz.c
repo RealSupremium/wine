@@ -381,6 +381,7 @@ static DWORD MCIQTZ_mciClose(UINT wDevID, DWORD dwFlags, LPMCI_GENERIC_PARMS lpP
     if (wma->opened) {
         if (wma->window)
         {
+            IVideoWindow_put_Visible(wma->vidwin, OAFALSE);
             IVideoWindow_put_MessageDrain(wma->vidwin, (OAHWND)NULL);
             IVideoWindow_put_Owner(wma->vidwin, (OAHWND)NULL);
             DestroyWindow(wma->window);
