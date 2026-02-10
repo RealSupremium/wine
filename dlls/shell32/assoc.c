@@ -464,7 +464,10 @@ static HRESULT ASSOC_ReturnString(ASSOCF flags, LPWSTR out, DWORD *outlen, LPCWS
         *outlen = datalen;
     }
     else
+    {
         len = datalen;
+        *outlen = datalen;
+    }
 
     if (len)
         memcpy(out, data, len*sizeof(WCHAR));
