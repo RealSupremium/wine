@@ -653,61 +653,6 @@ static BOOL is_extension_supported( struct context *ctx, const char *extension )
                     sizeof(ctx->extension_array[0]), string_array_cmp ) != NULL;
 }
 
-static char *append_extension( char *ptr, const char *name )
-{
-    size_t size = strlen( name );
-    memcpy( ptr, name, size );
-    ptr += size;
-    *ptr++ = ' ';
-    return ptr;
-}
-
-/* build the extension string by filtering out the disabled extensions */
-static GLubyte *filter_extensions( struct context *ctx, const char *extensions, const struct opengl_funcs *funcs )
-{
-    const char *end, **extra;
-    size_t size;
-    char *p, *str;
-
-    size = strlen( extensions ) + 2;
-    if (funcs->p_glImportMemoryWin32HandleEXT) size += strlen( "GL_EXT_memory_object_win32" ) + 1;
-    if (funcs->p_glImportSemaphoreWin32HandleEXT) size += strlen( "GL_EXT_semaphore_win32" ) + 1;
-    for (extra = legacy_extensions; *extra; extra++) size += strlen( *extra ) + 1;
-    if (!(p = str = malloc( size ))) return NULL;
-
-    TRACE( "GL_EXTENSIONS:\n" );
-
-    for (;;)
-    {
-        while (*extensions == ' ') extensions++;
-        if (!*extensions) break;
-
-        if (!(end = strchr( extensions, ' ' ))) end = extensions + strlen( extensions );
-        memcpy( p, extensions, end - extensions );
-        p[end - extensions] = 0;
-
-        if (is_extension_supported( ctx, p ))
-        {
-            TRACE( "++ %s\n", p );
-            p += end - extensions;
-            *p++ = ' ';
-        }
-        else
-        {
-            TRACE( "-- %s (disabled in context)\n", p );
-        }
-        extensions = end;
-    }
-
-    if (funcs->p_glImportMemoryWin32HandleEXT) p = append_extension( p, "GL_EXT_memory_object_win32" );
-    if (funcs->p_glImportSemaphoreWin32HandleEXT) p = append_extension( p, "GL_EXT_semaphore_win32" );
-    for (extra = legacy_extensions; *extra; extra++) p = append_extension( p, *extra );
-
-    if (p != str) --p;
-    *p = 0;
-    return (GLubyte *)str;
-}
-
 /* Check if any GL extension from the list is supported */
 static BOOL is_any_extension_supported( struct context *ctx, const char *extension )
 {
@@ -809,9 +754,6 @@ static BOOL get_integer( TEB *teb, GLenum pname, GLint *data )
 
     switch (pname)
     {
-    case GL_NUM_EXTENSIONS:
-        *data = ctx->extension_count;
-        return TRUE;
     case GL_DRAW_FRAMEBUFFER_BINDING:
         if (!draw->draw_fbo) break;
         *data = ctx->draw_fbo;
@@ -860,12 +802,6 @@ const GLubyte *wrap_glGetString( TEB *teb, GLenum name )
             const char *renderer = funcs->p_wglQueryCurrentRendererStringWINE( WGL_RENDERER_DEVICE_ID_WINE );
             return renderer ? (const GLubyte *)renderer : ret;
         }
-        if (name == GL_EXTENSIONS)
-        {
-            struct context *ctx = get_current_context( teb, NULL, NULL );
-            GLubyte **extensions = &ctx->extensions;
-            if (*extensions || (*extensions = filter_extensions( ctx, (const char *)ret, funcs ))) return *extensions;
-        }
         else if (name == GL_VERSION)
         {
             struct context *ctx = get_current_context( teb, NULL, NULL );
@@ -874,20 +810,6 @@ const GLubyte *wrap_glGetString( TEB *teb, GLenum name )
     }
 
     return ret;
-}
-
-const GLubyte *wrap_glGetStringi( TEB *teb, GLenum name, GLuint index )
-{
-    const struct opengl_funcs *funcs = teb->glTable;
-
-    if (name == GL_EXTENSIONS)
-    {
-        struct context *ctx = get_current_context( teb, NULL, NULL );
-        if (index < ctx->extension_count) return (const GLubyte *)ctx->extension_array[index];
-        index = -1;
-    }
-
-    return funcs->p_glGetStringi( name, index );
 }
 
 static int registry_entry_cmp( const void *a, const void *b )
@@ -1237,6 +1159,7 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
     size_t size = ARRAYSIZE(legacy_extensions) - 1, count = 0;
     const char *version, *compat, *rest = "", **extensions;
     GLint profile = GL_CONTEXT_COMPATIBILITY_PROFILE_BIT;
+    USHORT *ptr;
     int i, j;
 
     static const char *disabled, *enabled;
@@ -1380,7 +1303,12 @@ static void make_context_current( TEB *teb, const struct opengl_funcs *funcs, HD
         ctx->extension_count = j;
     }
 
-    if (TRACE_ON(opengl)) for (i = 0; i < count; i++) TRACE( "++ %s\n", extensions[i] );
+    dump_extensions( "Client", client->extensions );
+
+    ptr = client->compat_extensions;
+    for (enum opengl_extension *ext = parsed_extensions; *ext != GL_EXTENSION_COUNT; ext++)
+        if (client->extensions[*ext]) *ptr++ = *ext;
+    *ptr = GL_EXTENSION_COUNT;
 }
 
 BOOL wrap_wglMakeCurrent( TEB *teb, HDC hdc, HGLRC client_context )

@@ -277,6 +277,7 @@ struct context
 {
     struct opengl_client_context base;
     struct handle_table syncs;
+    char *extensions;
 };
 
 static struct context *context_from_opengl_client_context( struct opengl_client_context *base )
@@ -322,6 +323,7 @@ static void free_client_context( struct handle_entry *ptr )
 {
     struct context *context = context_from_opengl_client_context( ptr->context );
     free_handle( &contexts, ptr );
+    free( context->extensions );
     free( context );
 }
 
@@ -1992,6 +1994,29 @@ GLsync WINAPI glImportSyncEXT( GLenum external_sync_type, GLintptr external_sync
     return NULL;
 }
 
+static const enum opengl_extension legacy_extensions[] =
+{
+    WGL_EXT_extensions_string,
+    WGL_EXT_swap_control,
+};
+
+static const char *enum_gl_extensions( struct context *ctx, UINT index, GLint *ret )
+{
+    UINT count = 0;
+    for (enum opengl_extension ext = 0; ext < ARRAY_SIZE(all_extensions); ext++)
+    {
+        if (strncmp( all_extensions[ext].name, "GL_", 3 )) continue;
+        if (ctx->base.extensions[ext] && count++ == index) return all_extensions[ext].name;
+    }
+    for (UINT i = 0; i < ARRAY_SIZE(legacy_extensions); i++)
+    {
+        enum opengl_extension ext = legacy_extensions[i];
+        if (ctx->base.extensions[ext] && count++ == index) return all_extensions[ext].name;
+    }
+    if (ret) *ret = count;
+    return NULL;
+}
+
 static BOOL get_integer( struct context *ctx, GLenum name, GLint *data )
 {
     switch (name)
@@ -2001,6 +2026,9 @@ static BOOL get_integer( struct context *ctx, GLenum name, GLint *data )
         return TRUE;
     case GL_MINOR_VERSION:
         *data = ctx->base.minor_version;
+        return TRUE;
+    case GL_NUM_EXTENSIONS:
+        enum_gl_extensions( ctx, -1, data );
         return TRUE;
     }
 
@@ -2019,8 +2047,20 @@ const GLubyte * WINAPI glGetStringi( GLenum name, GLuint index )
 #ifndef _WIN64
     GLubyte *wow64_str = NULL;
 #endif
+    struct context *ctx;
+    const char *str;
 
     TRACE( "name %d, index %d\n", name, index );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
+
+    switch (name)
+    {
+    case GL_EXTENSIONS:
+        if ((str = enum_gl_extensions( ctx, index, NULL ))) return (const GLubyte *)str;
+        set_gl_error( GL_INVALID_VALUE );
+        return NULL;
+    }
 
 #ifndef _WIN64
     if (UNIX_CALL( glGetStringi, &args ) == STATUS_BUFFER_TOO_SMALL) args.ret = wow64_str = malloc( (size_t)args.ret );
@@ -2039,12 +2079,47 @@ const GLubyte * WINAPI glGetStringi( GLenum name, GLuint index )
 const GLubyte * WINAPI glGetString( GLenum name )
 {
     struct glGetString_params args = { .teb = NtCurrentTeb(), .name = name };
+    struct context *ctx;
     NTSTATUS status;
 #ifndef _WIN64
     GLubyte *wow64_str = NULL;
 #endif
 
     TRACE( "name %d\n", name );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
+
+    switch (name)
+    {
+    case GL_EXTENSIONS:
+        if (*ctx->base.compat_extensions == GL_EXTENSION_COUNT)
+        {
+            set_gl_error( GL_INVALID_ENUM );
+            return NULL;
+        }
+        if (!ctx->extensions)
+        {
+            const USHORT *indexes = ctx->base.compat_extensions;
+            UINT size = 0;
+            char *ptr;
+
+            for (UINT i = 0; indexes[i] != GL_EXTENSION_COUNT; i++) size += all_extensions[indexes[i]].len + 1;
+            if (ctx->base.extensions[GL_EXT_memory_object_win32]) size += strlen( "GL_EXT_memory_object_win32 " );
+            if (ctx->base.extensions[GL_EXT_semaphore_win32]) size += strlen( "GL_EXT_semaphore_win32 " );
+            if (ctx->base.extensions[WGL_EXT_extensions_string]) size += strlen( "WGL_EXT_extensions_string " );
+            if (ctx->base.extensions[WGL_EXT_swap_control]) size += strlen( "WGL_EXT_swap_control " );
+            if (!(ptr = ctx->extensions = malloc( size ))) return NULL;
+
+            for (UINT i = 0; indexes[i] != GL_EXTENSION_COUNT; i++) ptr += sprintf( ptr, "%s ", all_extensions[indexes[i]].name );
+            if (ctx->base.extensions[GL_EXT_memory_object_win32]) ptr += sprintf( ptr, "GL_EXT_memory_object_win32 " );
+            if (ctx->base.extensions[GL_EXT_semaphore_win32]) ptr += sprintf( ptr, "GL_EXT_semaphore_win32 " );
+            if (ctx->base.extensions[WGL_EXT_extensions_string]) ptr += sprintf( ptr, "WGL_EXT_extensions_string " );
+            if (ctx->base.extensions[WGL_EXT_swap_control]) ptr += sprintf( ptr, "WGL_EXT_swap_control " );
+            if (ptr != ctx->extensions) ptr[-1] = 0;
+        }
+
+        return (const GLubyte *)ctx->extensions;
+    }
 
 #ifndef _WIN64
     if (UNIX_CALL( glGetString, &args ) == STATUS_BUFFER_TOO_SMALL) args.ret = wow64_str = malloc( (size_t)args.ret );

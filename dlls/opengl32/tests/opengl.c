@@ -58,6 +58,13 @@ static const char *debugstr_ok( const char *cond )
     } while (0)
 #define ok_ret( e, r )      ok_ex( r, ==, e, UINT, "%#x" )
 
+#define check_gl_error(exp) check_gl_error_(__LINE__, exp)
+static void check_gl_error_( unsigned int line, GLenum exp )
+{
+    GLenum err = glGetError();
+    ok_(__FILE__,line)( err == exp, "glGetError returned %x, expected %x\n", err, exp );
+}
+
 static NTSTATUS (WINAPI *pD3DKMTCreateDCFromMemory)( D3DKMT_CREATEDCFROMMEMORY *desc );
 static NTSTATUS (WINAPI *pD3DKMTDestroyDCFromMemory)( const D3DKMT_DESTROYDCFROMMEMORY *desc );
 
@@ -109,11 +116,12 @@ static PFN_glCopyNamedBufferSubData pglCopyNamedBufferSubData;
 static PFN_glCreateBuffers pglCreateBuffers;
 static PFN_glDeleteBuffers pglDeleteBuffers;
 static PFN_glDeleteSync pglDeleteSync;
+static PFN_glFenceSync pglFenceSync;
 static PFN_glFlushMappedBufferRange pglFlushMappedBufferRange;
 static PFN_glFlushMappedNamedBufferRange pglFlushMappedNamedBufferRange;
 static PFN_glGenBuffers pglGenBuffers;
+static PFN_glGetStringi pglGetStringi;
 static PFN_glIsSync pglIsSync;
-static PFN_glFenceSync pglFenceSync;
 static PFN_glMapBuffer pglMapBuffer;
 static PFN_glMapBufferRange pglMapBufferRange;
 static PFN_glMapNamedBuffer pglMapNamedBuffer;
@@ -197,11 +205,12 @@ static void init_functions(void)
     GET_PROC(glCreateBuffers)
     GET_PROC(glDeleteBuffers)
     GET_PROC(glDeleteSync)
+    GET_PROC(glFenceSync)
     GET_PROC(glFlushMappedBufferRange)
     GET_PROC(glFlushMappedNamedBufferRange)
     GET_PROC(glGenBuffers)
+    GET_PROC(glGetStringi)
     GET_PROC(glIsSync)
-    GET_PROC(glFenceSync)
     GET_PROC(glMapBuffer)
     GET_PROC(glMapBufferRange)
     GET_PROC(glMapNamedBuffer)
@@ -2388,12 +2397,26 @@ static void test_opengl3(HDC hdc)
     {
         int attribs[] = {WGL_CONTEXT_MAJOR_VERSION_ARB, 3, WGL_CONTEXT_MINOR_VERSION_ARB, 0, 0};
         HGLRC gl3Ctx = pwglCreateContextAttribsARB(hdc, 0, attribs);
+        const GLubyte *ext;
+        GLint num;
 
         if(gl3Ctx == NULL)
         {
             skip("Skipping the rest of the WGL_ARB_create_context test due to lack of OpenGL 3.0\n");
             return;
         }
+
+        wglMakeCurrent(hdc, gl3Ctx);
+
+        glGetIntegerv(GL_NUM_EXTENSIONS, &num);
+        ok(num > 0, "got %u\n", num);
+        check_gl_error(0);
+        ext = pglGetStringi(GL_EXTENSIONS, 0);
+        ok(!!ext, "got %p\n", ext);
+        check_gl_error(0);
+        ext = pglGetStringi(GL_EXTENSIONS, num);
+        ok(!ext, "got %p\n", ext);
+        check_gl_error(GL_INVALID_VALUE);
 
         wglDeleteContext(gl3Ctx);
     }
@@ -3533,13 +3556,6 @@ static void test_child_window(HWND hwnd, PIXELFORMATDESCRIPTOR *pfd)
 
     ReleaseDC(child, hdc);
     DestroyWindow(child);
-}
-
-#define check_gl_error(exp) check_gl_error_(__LINE__, exp)
-static void check_gl_error_( unsigned int line, GLenum exp )
-{
-    GLenum err = glGetError();
-    ok_(__FILE__,line)( err == exp, "glGetError returned %x, expected %x\n", err, exp );
 }
 
 static void test_gl_error( HDC hdc )

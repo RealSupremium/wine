@@ -77,9 +77,11 @@ struct opengl_client_context
     int                         major_version;
     int                         minor_version;
     BOOLEAN                     extensions[GL_EXTENSION_COUNT];         /* exposed client extensions */
+    UINT16                      compat_extensions[GL_EXTENSION_COUNT];  /* compat extension indexes */
 };
 
 /* make sure client context size stays small */
+C_ASSERT( ARRAY_SIZE(((struct opengl_client_context *)0)->compat_extensions) <= 0x10000 );
 C_ASSERT( sizeof(struct opengl_client_context) <= 0x1000 );
 
 static inline struct opengl_client_context *opengl_client_context_from_client( HGLRC client_context )
