@@ -2438,8 +2438,20 @@ static void LISTVIEW_GetItemMetrics(const LISTVIEW_INFO *infoPtr, const LVITEMW 
 		Icon.right += infoPtr->iconSize.cx;
 	    Icon.bottom = Icon.top + infoPtr->iconSize.cy;
 	}
-	if(lprcIcon) *lprcIcon = Icon;
-	TRACE("    - icon=%s\n", wine_dbgstr_rect(&Icon));
+	if(lprcIcon)
+	{
+		if (infoPtr->uView == LV_VIEW_ICON)
+		{
+			int cx_margin = GetSystemMetrics(SM_CXBORDER) * Icon.left;
+			int cy_margin = GetSystemMetrics(SM_CYEDGE);
+			Icon.left   -= cx_margin;
+			Icon.right  += cx_margin;
+			Icon.top    -= cy_margin;
+			Icon.bottom += cy_margin;
+		}
+		*lprcIcon = Icon;
+	}
+    TRACE("    - icon=%s\n", wine_dbgstr_rect(&Icon));
 
         /* TODO: is this correct? */
         if (lprcStateIcon)
