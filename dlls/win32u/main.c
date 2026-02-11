@@ -2246,6 +2246,11 @@ BOOL SYSCALL_API NtUserSetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE
     SYSCALL_FUNC( NtUserSetLayeredWindowAttributes );
 }
 
+BOOL SYSCALL_API NtUserSetWindowDwmConfig( HWND hwnd, LONG command, const void *data )
+{
+    SYSCALL_FUNC( NtUserSetWindowDwmConfig );
+}
+
 BOOL SYSCALL_API NtUserSetMenu( HWND hwnd, HMENU menu )
 {
     SYSCALL_FUNC( NtUserSetMenu );

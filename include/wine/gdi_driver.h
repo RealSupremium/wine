@@ -408,6 +408,7 @@ struct user_driver_funcs
     void    (*pSetDesktopWindow)(HWND);
     void    (*pActivateWindow)(HWND,HWND);
     void    (*pSetLayeredWindowAttributes)(HWND,COLORREF,BYTE,DWORD);
+    BOOL    (*pSetWindowDwmConfig)(HWND,INT,const void *);
     void    (*pSetParent)(HWND,HWND,HWND);
     void    (*pSetWindowRgn)(HWND,HRGN,BOOL);
     void    (*pSetWindowIcons)(HWND,HICON,const ICONINFO*,HICON,const ICONINFO*);

@@ -2730,6 +2730,9 @@ typedef struct {
 #define LWA_COLORKEY        0x00000001
 #define LWA_ALPHA           0x00000002
 
+/* SetWindowDwmConfig() flags */
+#define DWM_CONFIG_OPAQUE_REGION 0x00000001
+
 /* UpdateLayeredWindow() flags */
 #define ULW_COLORKEY        0x00000001
 #define ULW_ALPHA           0x00000002

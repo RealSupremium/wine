@@ -1051,6 +1051,7 @@
 @ stdcall SetKeyboardState(ptr) NtUserSetKeyboardState
 @ stdcall SetLastErrorEx(long long)
 @ stdcall SetLayeredWindowAttributes(ptr long long long) NtUserSetLayeredWindowAttributes
+@ stdcall SetWindowDwmConfig(ptr long ptr) NtUserSetWindowDwmConfig
 @ stdcall SetLogonNotifyWindow(long long)
 # @ stub SetMagnificationDesktopColorEffect
 # @ stub SetMagnificationDesktopMagnification

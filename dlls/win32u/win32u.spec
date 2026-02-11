@@ -1382,6 +1382,7 @@
 @ stdcall -syscall NtUserSetInternalWindowPos(long long ptr ptr)
 @ stdcall -syscall NtUserSetKeyboardState(ptr)
 @ stdcall -syscall NtUserSetLayeredWindowAttributes(ptr long long long)
+@ stdcall -syscall NtUserSetWindowDwmConfig(ptr long ptr)
 @ stub -syscall NtUserSetMagnificationDesktopMagnifierOffsetsDWMUpdated
 @ stub -syscall NtUserSetManipulationInputTarget
 @ stdcall -syscall NtUserSetMenu(long long)

@@ -27,6 +27,7 @@
 #include "winbase.h"
 #include "wingdi.h"
 #include "winuser.h"
+#include "ntuser.h"
 #include "dwmapi.h"
 #include "wine/debug.h"
 
@@ -66,9 +67,15 @@ HRESULT WINAPI DwmEnableComposition(UINT uCompositionAction)
 /**********************************************************************
  *           DwmExtendFrameIntoClientArea    (DWMAPI.@)
  */
-HRESULT WINAPI DwmExtendFrameIntoClientArea(HWND hwnd, const MARGINS* margins)
+HRESULT WINAPI DwmExtendFrameIntoClientArea(HWND hwnd, const MARGINS *margins)
 {
-    FIXME("(%p, %p) stub\n", hwnd, margins);
+    if (!margins) return E_INVALIDARG;
+
+    TRACE("%p: margins %d, %d, %d, %d\n", hwnd,
+          margins->cxLeftWidth, margins->cxRightWidth,
+          margins->cyTopHeight, margins->cyBottomHeight);
+
+    NtUserSetWindowDwmConfig(hwnd, DWM_CONFIG_OPAQUE_REGION, margins);
 
     return S_OK;
 }
