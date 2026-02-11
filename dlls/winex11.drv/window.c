@@ -664,15 +664,21 @@ static void sync_window_region( struct x11drv_win_data *data, HRGN win_region )
  */
 static void sync_window_opacity( Display *display, Window win, BYTE alpha, DWORD flags )
 {
-    unsigned long opacity = 0xffffffff;
+    unsigned long opacity = alpha * (0xffffffff / 255);
 
-    if (flags & LWA_ALPHA) opacity = (0xffffffff / 0xff) * alpha;
-
-    if (opacity == 0xffffffff)
+    /* If alpha is 255 (Opaque) and we are using ARGB, delete the property 
+       to let the compositor rely on the per-pixel ARGB values. */
+    if ((flags & LWA_ALPHA) && alpha == 255)
+    {
         XDeleteProperty( display, win, x11drv_atom(_NET_WM_WINDOW_OPACITY) );
-    else
+        return;
+    }
+
+    if (flags & LWA_ALPHA)
         XChangeProperty( display, win, x11drv_atom(_NET_WM_WINDOW_OPACITY),
                          XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&opacity, 1 );
+    else
+        XDeleteProperty( display, win, x11drv_atom(_NET_WM_WINDOW_OPACITY) );
 }
 
 
@@ -2359,16 +2365,31 @@ Window create_client_window( HWND hwnd, RECT client_rect, const XVisualInfo *vis
     XSetWindowAttributes attr;
     Window ret;
     int x, y, cx, cy;
+    Visual *client_visual_ptr = visual->visual;
+    int client_depth = visual->depth;
 
     if (!data) data = &dummy; /* use a dummy window data for HWND_MESSAGE and foreign windows, to create an offscreen client window */
 
     detach_client_window( data, data->client_window );
 
-    attr.colormap = colormap;
+    /* Inherit ARGB visual and colormap from the Whole window if active */
+    if (data->whole_window && data->vis.visualid == argb_visual.visualid)
+    {
+        client_visual_ptr = argb_visual.visual;
+        client_depth = 32;
+        attr.colormap = data->whole_colormap;
+        attr.background_pixmap = None;
+        attr.border_pixel = 0;
+    }
+    else
+    {
+        attr.colormap = colormap;
+        attr.border_pixel = 0;
+    }
+
     attr.bit_gravity = NorthWestGravity;
     attr.win_gravity = NorthWestGravity;
     attr.backing_store = NotUseful;
-    attr.border_pixel = 0;
 
     x = data->rects.client.left - data->rects.visible.left;
     y = data->rects.client.top - data->rects.visible.top;
@@ -2376,11 +2397,14 @@ Window create_client_window( HWND hwnd, RECT client_rect, const XVisualInfo *vis
     cy = min( max( 1, client_rect.bottom - client_rect.top ), 65535 );
 
     XSync( gdi_display, False ); /* make sure whole_window is known from gdi_display */
+    
+    /* Use calculated visual/depth and include BackPixmap in mask if ARGB */
     ret = data->client_window = XCreateWindow( gdi_display,
                                                data->whole_window ? data->whole_window : get_dummy_parent(),
-                                               x, y, cx, cy, 0, visual->depth, InputOutput,
-                                               visual->visual, CWBitGravity | CWWinGravity |
-                                               CWBackingStore | CWColormap | CWBorderPixel, &attr );
+                                               x, y, cx, cy, 0, client_depth, InputOutput,
+                                               client_visual_ptr, CWBitGravity | CWWinGravity |
+                                               CWBackingStore | CWColormap | CWBorderPixel | 
+                                               (client_depth == 32 ? CWBackPixmap : 0), &attr );
     if (data->client_window)
     {
         XMapWindow( gdi_display, data->client_window );
@@ -2409,9 +2433,11 @@ static void create_whole_window( struct x11drv_win_data *data )
     WCHAR text[1024];
     COLORREF key;
     BYTE alpha;
-    DWORD layered_flags;
+    DWORD layered_flags = 0;
     HRGN win_rgn;
     POINT pos;
+    DWORD ex_style;
+    BOOL is_layered;
 
     if ((win_rgn = NtGdiCreateRectRgn( 0, 0, 0, 0 )) &&
         NtUserGetWindowRgnEx( data->hwnd, win_rgn, 0 ) == ERROR)
@@ -2421,12 +2447,35 @@ static void create_whole_window( struct x11drv_win_data *data )
     }
     data->shaped = (win_rgn != 0);
 
+    /* Pre-emptive ARGB selection */
+    ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
+    if (!NtUserGetLayeredWindowAttributes( data->hwnd, &key, &alpha, &layered_flags )) 
+        layered_flags = 0;
+
+    is_layered = (ex_style & WS_EX_LAYERED);
+
+    /* Check for Layered or .NET ControlParent style */
+    if ((is_layered || (ex_style & WS_EX_CONTROLPARENT)) && argb_visual.visualid)
+    {
+        TRACE( "Forcing ARGB visual for window %p\n", data->hwnd );
+        data->vis = argb_visual;
+    }
+
     if (data->vis.visualid != default_visual.visualid)
         data->whole_colormap = XCreateColormap( data->display, root_window, data->vis.visual, AllocNone );
 
     data->managed = is_window_managed( data->hwnd, SWP_NOACTIVATE, FALSE );
     mask = get_window_attributes( data, &attr ) | CWOverrideRedirect;
     attr.override_redirect = !data->managed;
+
+    /* Force background pixmap to None for ARGB visuals */
+    if (data->vis.visualid == argb_visual.visualid)
+    {
+        attr.background_pixmap = None;
+        attr.border_pixel = 0;
+        mask |= CWBackPixmap | CWBorderPixel;
+        mask &= ~CWBackPixel;
+    }
 
     if (!(cx = data->rects.visible.right - data->rects.visible.left)) cx = 1;
     else if (cx > 65535) cx = 65535;
@@ -2458,7 +2507,7 @@ static void create_whole_window( struct x11drv_win_data *data )
     else if (win_rgn) sync_window_region( data, win_rgn );
 
     /* set the window opacity */
-    if (!NtUserGetLayeredWindowAttributes( data->hwnd, &key, &alpha, &layered_flags )) layered_flags = 0;
+    /* Note: variable 'layered_flags' is reused/set at the top of this function now */
     sync_window_opacity( data->display, data->whole_window, alpha, layered_flags );
     sync_window_input_shape( data );
 
@@ -3444,7 +3493,9 @@ void X11DRV_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWO
 
     if (data)
     {
-        set_window_visual( data, &default_visual, FALSE );
+        /* Only revert to default visual if we are NOT already ARGB */
+        if (data->vis.visualid != argb_visual.visualid)
+            set_window_visual( data, &default_visual, FALSE );
 
         if (data->whole_window)
         {
@@ -3491,6 +3542,22 @@ BOOL X11DRV_SetWindowDwmConfig( HWND hwnd, INT command, const void *data )
 
     if (!(data_ptr = get_win_data( hwnd ))) return FALSE;
 
+    /* Runtime Visual Upgrade */
+    /* If the app requests "Sheet of Glass" (-1) but we are still using the default 
+       24-bit visual, we MUST upgrade to 32-bit ARGB now. */
+    if (margins->cxLeftWidth == -1 && 
+        data_ptr->vis.visualid != argb_visual.visualid && 
+        argb_visual.visualid)
+    {
+        TRACE( "Upgrading hwnd %p to ARGB Visual for DWM Glass effect\n", hwnd );
+        set_window_visual( data_ptr, &argb_visual, TRUE );
+        
+        if (data_ptr->whole_window)
+        {
+             sync_window_opacity( data_ptr->display, data_ptr->whole_window, 255, 0 );
+        }
+    }
+
     window = data_ptr->whole_window;
     if (!window)
     {
@@ -3504,16 +3571,22 @@ BOOL X11DRV_SetWindowDwmConfig( HWND hwnd, INT command, const void *data )
     X11DRV_expect_error( data_ptr->display, NULL, NULL );
 
 #ifdef HAVE_LIBXSHAPE
-    /* -1 (Sheet of Glass) or 0 (Standard) resets the shape to the full window */
-    if (margins->cxLeftWidth == -1 ||
-       (margins->cxLeftWidth == 0 && margins->cxRightWidth == 0 &&
-        margins->cyTopHeight == 0 && margins->cyBottomHeight == 0))
+    /* CASE 1: Sheet of Glass (-1) */
+    if (margins->cxLeftWidth == -1)
+    {
+        /* Clear shapes to allow alpha-blended pixels to show through the full window */
+        XShapeCombineMask( data_ptr->display, window, ShapeBounding, 0, 0, None, ShapeSet );
+        XShapeCombineMask( data_ptr->display, window, ShapeInput, 0, 0, None, ShapeSet );
+    }
+    /* CASE 2: Standard Opaque (0) */
+    else if (margins->cxLeftWidth == 0 && margins->cxRightWidth == 0 &&
+             margins->cyTopHeight == 0 && margins->cyBottomHeight == 0)
     {
         XRectangle full_rect = { 0, 0, width, height };
         XShapeCombineRectangles( data_ptr->display, window, ShapeBounding, 0, 0, &full_rect, 1, ShapeSet, Unsorted );
         XShapeCombineRectangles( data_ptr->display, window, ShapeInput, 0, 0, &full_rect, 1, ShapeSet, Unsorted );
     }
-    /* Hole Punching (Custom Margins), calculates the region that should remain opaque */
+    /* CASE 3: Hole Punching (Custom Margins) */
     else
     {
         opaque_rect.x = margins->cxLeftWidth;
