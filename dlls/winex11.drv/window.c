@@ -50,6 +50,7 @@
 #include "x11drv.h"
 #include "wingdi.h"
 #include "winuser.h"
+#include <uxtheme.h>
 
 #include "wine/debug.h"
 #include "wine/server.h"
@@ -3465,6 +3466,81 @@ void X11DRV_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWO
             XFlush( gdi_display );
         }
     }
+}
+
+
+/***********************************************************************
+ *      X11DRV_SetWindowDwmConfig  (X11DRV.@)
+ *
+ * Handle DWM configuration requests.
+ */
+BOOL X11DRV_SetWindowDwmConfig( HWND hwnd, INT command, const void *data )
+{
+    struct x11drv_win_data *data_ptr;
+    Window window;
+    const MARGINS *margins;
+    XRectangle opaque_rect;
+    int width, height;
+
+    if (command != DWM_CONFIG_OPAQUE_REGION) return FALSE;
+    if (!(margins = data)) return FALSE;
+
+    TRACE( "hwnd %p, margins %d,%d,%d,%d\n", hwnd,
+           margins->cxLeftWidth, margins->cxRightWidth,
+           margins->cyTopHeight, margins->cyBottomHeight );
+
+    if (!(data_ptr = get_win_data( hwnd ))) return FALSE;
+
+    window = data_ptr->whole_window;
+    if (!window)
+    {
+        release_win_data( data_ptr );
+        return FALSE;
+    }
+
+    width = data_ptr->rects.visible.right - data_ptr->rects.visible.left;
+    height = data_ptr->rects.visible.bottom - data_ptr->rects.visible.top;
+
+    X11DRV_expect_error( data_ptr->display, NULL, NULL );
+
+#ifdef HAVE_LIBXSHAPE
+    /* -1 (Sheet of Glass) or 0 (Standard) resets the shape to the full window */
+    if (margins->cxLeftWidth == -1 ||
+       (margins->cxLeftWidth == 0 && margins->cxRightWidth == 0 &&
+        margins->cyTopHeight == 0 && margins->cyBottomHeight == 0))
+    {
+        XRectangle full_rect = { 0, 0, width, height };
+        XShapeCombineRectangles( data_ptr->display, window, ShapeBounding, 0, 0, &full_rect, 1, ShapeSet, Unsorted );
+        XShapeCombineRectangles( data_ptr->display, window, ShapeInput, 0, 0, &full_rect, 1, ShapeSet, Unsorted );
+    }
+    /* Hole Punching (Custom Margins), calculates the region that should remain opaque */
+    else
+    {
+        opaque_rect.x = margins->cxLeftWidth;
+        opaque_rect.y = margins->cyTopHeight;
+        opaque_rect.width = width - (margins->cxLeftWidth + margins->cxRightWidth);
+        opaque_rect.height = height - (margins->cyTopHeight + margins->cyBottomHeight);
+
+        if (opaque_rect.width <= 0 || opaque_rect.height <= 0)
+        {
+             XShapeCombineMask( data_ptr->display, window, ShapeBounding, 0, 0, None, ShapeSet );
+             XShapeCombineMask( data_ptr->display, window, ShapeInput, 0, 0, None, ShapeSet );
+        }
+        else
+        {
+            XShapeCombineRectangles( data_ptr->display, window, ShapeBounding, 0, 0, &opaque_rect, 1, ShapeSet, Unsorted );
+            XShapeCombineRectangles( data_ptr->display, window, ShapeInput, 0, 0, &opaque_rect, 1, ShapeSet, Unsorted );
+        }
+    }
+#else
+    WARN("XShape support not compiled in; DWM margins ignored.\n");
+#endif
+
+    if (X11DRV_check_error())
+        ERR("XShape error while applying DWM margins.\n");
+
+    release_win_data( data_ptr );
+    return TRUE;
 }
 
 
