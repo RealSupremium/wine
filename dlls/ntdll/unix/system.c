@@ -249,6 +249,10 @@ enum smbios_type
 #define FIRM 0x4649524D
 #define RSMB 0x52534D42
 
+#ifndef MAXIMUM_GROUPS
+#define MAXIMUM_GROUPS 8
+#endif
+
 static char cpu_name[49];
 static char cpu_vendor[13];
 static USHORT cpu_level, cpu_revision;
@@ -260,7 +264,7 @@ static SYSTEM_LOGICAL_PROCESSOR_INFORMATION *logical_proc_info;
 static unsigned int logical_proc_info_len, logical_proc_info_alloc_len;
 static SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *logical_proc_info_ex;
 static unsigned int logical_proc_info_ex_size, logical_proc_info_ex_alloc_size;
-static ULONG_PTR system_cpu_mask;
+static ULONG_PTR system_cpu_mask[MAXIMUM_GROUPS];
 
 static pthread_mutex_t timezone_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -778,34 +782,46 @@ static DWORD count_bits( ULONG_PTR mask )
     return count;
 }
 
-static BOOL logical_proc_info_ex_add_by_id( LOGICAL_PROCESSOR_RELATIONSHIP rel, DWORD id, ULONG_PTR mask )
+static BOOL logical_proc_info_ex_add_by_id( LOGICAL_PROCESSOR_RELATIONSHIP rel, DWORD id, ULONG_PTR mask, WORD group )
 {
     SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *dataex;
-    unsigned int ofs = 0;
+    unsigned int i, ofs = 0;
 
     while (ofs < logical_proc_info_ex_size)
     {
         dataex = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)((char *)logical_proc_info_ex + ofs);
-        if (rel == RelationProcessorPackage && dataex->Relationship == rel && dataex->Processor.Reserved[1] == id)
+        if (dataex->Relationship == rel && dataex->Processor.Reserved[1] == id)
         {
-            dataex->Processor.GroupMask[0].Mask |= mask;
-            return TRUE;
-        }
-        else if (rel == RelationProcessorCore && dataex->Relationship == rel && dataex->Processor.Reserved[1] == id)
-        {
+            for (i = 0; i < dataex->Processor.GroupCount; i++)
+            {
+                if (dataex->Processor.GroupMask[i].Group == group)
+                {
+                    dataex->Processor.GroupMask[i].Mask |= mask;
+                    return TRUE;
+                }
+            }
+
+            /* group not found, add it */
+            if (!grow_logical_proc_ex_buf( sizeof(GROUP_AFFINITY) )) return FALSE;
+            dataex = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)((char *)logical_proc_info_ex + ofs);
+            memmove( (char *)dataex + dataex->Size + sizeof(GROUP_AFFINITY),
+                     (char *)dataex + dataex->Size,
+                     logical_proc_info_ex_size - (ofs + dataex->Size) );
+            logical_proc_info_ex_size += sizeof(GROUP_AFFINITY);
+            dataex->Processor.GroupMask[dataex->Processor.GroupCount].Mask = mask;
+            dataex->Processor.GroupMask[dataex->Processor.GroupCount].Group = group;
+            dataex->Processor.GroupCount++;
+            dataex->Size += sizeof(GROUP_AFFINITY);
             return TRUE;
         }
         ofs += dataex->Size;
     }
 
-    /* TODO: For now, just one group. If more than 64 processors, then we
-     * need another group. */
-    if (!grow_logical_proc_ex_buf( log_proc_ex_size_plus( sizeof(PROCESSOR_RELATIONSHIP) ))) return FALSE;
-
+    if (!grow_logical_proc_ex_buf( FIELD_OFFSET(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, Processor.GroupMask[1]) )) return FALSE;
     dataex = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)((char *)logical_proc_info_ex + ofs);
 
     dataex->Relationship = rel;
-    dataex->Size = log_proc_ex_size_plus( sizeof(PROCESSOR_RELATIONSHIP) );
+    dataex->Size = FIELD_OFFSET(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, Processor.GroupMask[1]);
     if (rel == RelationProcessorCore)
         dataex->Processor.Flags = count_bits( mask ) > 1 ? LTP_PC_SMT : 0;
     else
@@ -816,9 +832,7 @@ static BOOL logical_proc_info_ex_add_by_id( LOGICAL_PROCESSOR_RELATIONSHIP rel, 
         dataex->Processor.EfficiencyClass = 0;
     dataex->Processor.GroupCount = 1;
     dataex->Processor.GroupMask[0].Mask = mask;
-    dataex->Processor.GroupMask[0].Group = 0;
-    /* mark for future lookup */
-    dataex->Processor.Reserved[0] = 0;
+    dataex->Processor.GroupMask[0].Group = group;
     dataex->Processor.Reserved[1] = id;
 
     logical_proc_info_ex_size += dataex->Size;
@@ -831,21 +845,19 @@ static BOOL logical_proc_info_ex_add_by_id( LOGICAL_PROCESSOR_RELATIONSHIP rel, 
  * - RelationProcessorPackage: package id ('CPU socket').
  * - RelationProcessorCore: physical core number.
  */
-static BOOL logical_proc_info_add_by_id( LOGICAL_PROCESSOR_RELATIONSHIP rel, DWORD id, ULONG_PTR mask )
+static BOOL logical_proc_info_add_by_id( LOGICAL_PROCESSOR_RELATIONSHIP rel, DWORD id, ULONG_PTR mask, WORD group )
 {
     unsigned int i;
 
+    if (group) return logical_proc_info_ex_add_by_id( rel, id, mask, group );
+
     for (i = 0; i < logical_proc_info_len; i++)
     {
-        if (rel == RelationProcessorPackage && logical_proc_info[i].Relationship == rel
-            && logical_proc_info[i].Reserved[1] == id)
+        if (logical_proc_info[i].Relationship == rel && logical_proc_info[i].Reserved[1] == id)
         {
             logical_proc_info[i].ProcessorMask |= mask;
-            return logical_proc_info_ex_add_by_id( rel, id, mask );
+            return logical_proc_info_ex_add_by_id( rel, id, mask, group );
         }
-        else if (rel == RelationProcessorCore && logical_proc_info[i].Relationship == rel
-                 && logical_proc_info[i].Reserved[1] == id)
-            return logical_proc_info_ex_add_by_id( rel, id, mask );
     }
 
     if (!grow_logical_proc_buf()) return FALSE;
@@ -854,37 +866,39 @@ static BOOL logical_proc_info_add_by_id( LOGICAL_PROCESSOR_RELATIONSHIP rel, DWO
     logical_proc_info[i].ProcessorMask = mask;
     if (rel == RelationProcessorCore)
         logical_proc_info[i].ProcessorCore.Flags = count_bits( mask ) > 1 ? LTP_PC_SMT : 0;
-    logical_proc_info[i].Reserved[0] = 0;
     logical_proc_info[i].Reserved[1] = id;
     logical_proc_info_len = i + 1;
 
-    return logical_proc_info_ex_add_by_id( rel, id, mask );
+    return logical_proc_info_ex_add_by_id( rel, id, mask, group );
 }
 
-static BOOL logical_proc_info_add_cache( ULONG_PTR mask, CACHE_DESCRIPTOR *cache )
+static BOOL logical_proc_info_add_cache( ULONG_PTR mask, WORD group, CACHE_DESCRIPTOR *cache )
 {
     SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *dataex;
     unsigned int ofs = 0, i;
 
-    for (i = 0; i < logical_proc_info_len; i++)
+    if (!group)
     {
-        if (logical_proc_info[i].Relationship==RelationCache && logical_proc_info[i].ProcessorMask==mask
-            && logical_proc_info[i].Cache.Level==cache->Level && logical_proc_info[i].Cache.Type==cache->Type)
-            return TRUE;
+        for (i = 0; i < logical_proc_info_len; i++)
+        {
+            if (logical_proc_info[i].Relationship==RelationCache && logical_proc_info[i].ProcessorMask==mask
+                && logical_proc_info[i].Cache.Level==cache->Level && logical_proc_info[i].Cache.Type==cache->Type)
+                return TRUE;
+        }
+
+        if (!grow_logical_proc_buf()) return FALSE;
+
+        logical_proc_info[i].Relationship = RelationCache;
+        logical_proc_info[i].ProcessorMask = mask;
+        logical_proc_info[i].Cache = *cache;
+        logical_proc_info_len = i + 1;
     }
-
-    if (!grow_logical_proc_buf()) return FALSE;
-
-    logical_proc_info[i].Relationship = RelationCache;
-    logical_proc_info[i].ProcessorMask = mask;
-    logical_proc_info[i].Cache = *cache;
-    logical_proc_info_len = i + 1;
 
     for (ofs = 0; ofs < logical_proc_info_ex_size; )
     {
         dataex = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)((char *)logical_proc_info_ex + ofs);
         if (dataex->Relationship == RelationCache && dataex->Cache.GroupMask.Mask == mask
-            && dataex->Cache.Level == cache->Level && dataex->Cache.Type == cache->Type)
+            && dataex->Cache.GroupMask.Group == group && dataex->Cache.Level == cache->Level && dataex->Cache.Type == cache->Type)
             return TRUE;
         ofs += dataex->Size;
     }
@@ -901,23 +915,26 @@ static BOOL logical_proc_info_add_cache( ULONG_PTR mask, CACHE_DESCRIPTOR *cache
     dataex->Cache.CacheSize = cache->Size;
     dataex->Cache.Type = cache->Type;
     dataex->Cache.GroupMask.Mask = mask;
-    dataex->Cache.GroupMask.Group = 0;
+    dataex->Cache.GroupMask.Group = group;
 
     logical_proc_info_ex_size += dataex->Size;
 
     return TRUE;
 }
 
-static BOOL logical_proc_info_add_numa_node( ULONG_PTR mask, DWORD node_id )
+static BOOL logical_proc_info_add_numa_node( ULONG_PTR mask, WORD group, DWORD node_id )
 {
     SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *dataex;
 
-    if (!grow_logical_proc_buf()) return FALSE;
+    if (!group)
+    {
+        if (!grow_logical_proc_buf()) return FALSE;
 
-    logical_proc_info[logical_proc_info_len].Relationship = RelationNumaNode;
-    logical_proc_info[logical_proc_info_len].ProcessorMask = mask;
-    logical_proc_info[logical_proc_info_len].NumaNode.NodeNumber = node_id;
-    ++logical_proc_info_len;
+        logical_proc_info[logical_proc_info_len].Relationship = RelationNumaNode;
+        logical_proc_info[logical_proc_info_len].ProcessorMask = mask;
+        logical_proc_info[logical_proc_info_len].NumaNode.NodeNumber = node_id;
+        ++logical_proc_info_len;
+    }
 
     if (!grow_logical_proc_ex_buf( log_proc_ex_size_plus( sizeof(NUMA_NODE_RELATIONSHIP) ))) return FALSE;
 
@@ -927,31 +944,37 @@ static BOOL logical_proc_info_add_numa_node( ULONG_PTR mask, DWORD node_id )
     dataex->Size = log_proc_ex_size_plus( sizeof(NUMA_NODE_RELATIONSHIP) );
     dataex->NumaNode.NodeNumber = node_id;
     dataex->NumaNode.GroupMask.Mask = mask;
-    dataex->NumaNode.GroupMask.Group = 0;
+    dataex->NumaNode.GroupMask.Group = group;
 
     logical_proc_info_ex_size += dataex->Size;
 
     return TRUE;
 }
 
-static BOOL logical_proc_info_add_group( DWORD num_cpus, ULONG_PTR mask )
+static BOOL logical_proc_info_add_group(void)
 {
     SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *dataex;
+    unsigned int i, num_groups = 0;
 
-    if (!grow_logical_proc_ex_buf( log_proc_ex_size_plus( sizeof(GROUP_RELATIONSHIP) ))) return FALSE;
+    for (i = 0; i < MAXIMUM_GROUPS; i++) if (system_cpu_mask[i]) num_groups++;
+
+    if (!grow_logical_proc_ex_buf( log_proc_ex_size_plus( offsetof(GROUP_RELATIONSHIP, GroupInfo[num_groups]) ) )) return FALSE;
 
     dataex = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)(((char *)logical_proc_info_ex) + logical_proc_info_ex_size);
 
     dataex->Relationship = RelationGroup;
-    dataex->Size = log_proc_ex_size_plus( sizeof(GROUP_RELATIONSHIP) );
-    dataex->Group.MaximumGroupCount = 1;
-    dataex->Group.ActiveGroupCount = 1;
-    dataex->Group.GroupInfo[0].MaximumProcessorCount = num_cpus;
-    dataex->Group.GroupInfo[0].ActiveProcessorCount = num_cpus;
-    dataex->Group.GroupInfo[0].ActiveProcessorMask = mask;
+    dataex->Size = log_proc_ex_size_plus( offsetof(GROUP_RELATIONSHIP, GroupInfo[num_groups]) );
+    dataex->Group.MaximumGroupCount = num_groups;
+    dataex->Group.ActiveGroupCount = num_groups;
+
+    for (i = 0; i < num_groups; i++)
+    {
+        dataex->Group.GroupInfo[i].MaximumProcessorCount = sizeof(ULONG_PTR) * 8;
+        dataex->Group.GroupInfo[i].ActiveProcessorCount = count_bits(system_cpu_mask[i]);
+        dataex->Group.GroupInfo[i].ActiveProcessorMask = system_cpu_mask[i];
+    }
 
     logical_proc_info_ex_size += dataex->Size;
-    system_cpu_mask |= mask;
     return TRUE;
 }
 
@@ -978,40 +1001,6 @@ static BOOL sysfs_parse_bitmap(const char *filename, ULONG_PTR *mask)
         char op;
         if (!fscanf(f, "%x%c ", &r, &op)) break;
         *mask = (sizeof(ULONG_PTR)>sizeof(int) ? *mask << (8 * sizeof(DWORD)) : 0) + r;
-    }
-    fclose( f );
-    return TRUE;
-}
-
-/* Helper function for counting number of elements in interval lists as used by
- * the Linux kernel. The format is comma separated list of intervals of which
- * each interval has the format of "begin-end" where begin and end are decimal
- * numbers. E.g. "0-7", "0-7,16-23"
- *
- * Example files include:
- * - /sys/devices/system/cpu/online
- * - /sys/devices/system/cpu/cpu0/cache/index0/shared_cpu_list
- * - /sys/devices/system/cpu/cpu0/topology/thread_siblings_list.
- */
-static BOOL sysfs_count_list_elements(const char *filename, unsigned int *result)
-{
-    FILE *f;
-
-    f = fopen(filename, "r");
-    if (!f) return FALSE;
-
-    while (!feof(f))
-    {
-        char op;
-        unsigned int beg, end;
-
-        if (!fscanf(f, "%u%c ", &beg, &op)) break;
-        if(op == '-')
-            fscanf(f, "%u%c ", &end, &op);
-        else
-            end = beg;
-
-        *result += end - beg + 1;
     }
     fclose( f );
     return TRUE;
@@ -1062,23 +1051,8 @@ static NTSTATUS create_logical_proc_info(void)
     static const char numa_info[] = "/sys/devices/system/node/node%u/cpumap";
 
     FILE *fcpu_list, *fnuma_list, *f;
-    unsigned int beg, end, i, j, r, num_cpus = 0, max_cpus = 0;
+    unsigned int beg, end, i, j, r;
     char op, name[MAX_PATH];
-    ULONG_PTR all_cpus_mask = 0;
-
-    /* On systems with a large number of CPU cores (32 or 64 depending on 32-bit or 64-bit),
-     * we have issues parsing processor information:
-     * - ULONG_PTR masks as used in data structures can't hold all cores. Requires splitting
-     *   data appropriately into "processor groups". We are hard coding 1.
-     * - Thread affinity code in wineserver and our CPU parsing code here work independently.
-     *   So far the Windows mask applied directly to Linux, but process groups break that.
-     *   (NUMA systems you may have multiple non-full groups.)
-     */
-    if(sysfs_count_list_elements("/sys/devices/system/cpu/present", &max_cpus) && max_cpus > MAXIMUM_PROCESSORS)
-    {
-        FIXME("Improve CPU info reporting: system supports %u logical cores, but only %u supported!\n",
-                max_cpus, MAXIMUM_PROCESSORS);
-    }
 
     fill_performance_core_info();
 
@@ -1095,8 +1069,14 @@ static NTSTATUS create_logical_proc_info(void)
         {
             unsigned int phys_core = 0;
             ULONG_PTR thread_mask = 0;
+            WORD group = i / (sizeof(ULONG_PTR) * 8);
+            ULONG_PTR cpu_mask = (ULONG_PTR)1 << (i % (sizeof(ULONG_PTR) * 8));
 
-            if (i > 8 * sizeof(ULONG_PTR)) break;
+            if (group >= MAXIMUM_GROUPS)
+            {
+                FIXME( "Improve CPU info reporting: system supports %u logical cores, but only %lu supported!\n",
+                       i + 1, (unsigned long)MAXIMUM_GROUPS * sizeof(ULONG_PTR) * 8 );
+            }
 
             snprintf(name, sizeof(name), core_info, i, "physical_package_id");
             f = fopen(name, "r");
@@ -1106,7 +1086,7 @@ static NTSTATUS create_logical_proc_info(void)
                 fclose(f);
             }
             else r = 0;
-            if (!logical_proc_info_add_by_id( RelationProcessorPackage, r, (ULONG_PTR)1 << i ))
+            if (!logical_proc_info_add_by_id( RelationProcessorPackage, r, cpu_mask, group ))
             {
                 fclose(fcpu_list);
                 return STATUS_NO_MEMORY;
@@ -1125,10 +1105,10 @@ static NTSTATUS create_logical_proc_info(void)
 
             /* Mask of logical threads sharing same physical core in kernel core numbering. */
             snprintf(name, sizeof(name), core_info, i, "thread_siblings");
-            if(!sysfs_parse_bitmap(name, &thread_mask)) thread_mask = 1<<i;
+            if(!sysfs_parse_bitmap(name, &thread_mask)) thread_mask = cpu_mask;
 
             /* Needed later for NumaNode and Group. */
-            all_cpus_mask |= thread_mask;
+            if (group < MAXIMUM_GROUPS) system_cpu_mask[group] |= thread_mask;
 
             snprintf(name, sizeof(name), core_info, i, "thread_siblings_list");
             f = fopen(name, "r");
@@ -1139,7 +1119,7 @@ static NTSTATUS create_logical_proc_info(void)
             }
             else phys_core = i;
 
-            if (!logical_proc_info_add_by_id( RelationProcessorCore, phys_core, thread_mask ))
+            if (!logical_proc_info_add_by_id( RelationProcessorCore, phys_core, thread_mask, group ))
             {
                 fclose(fcpu_list);
                 return STATUS_NO_MEMORY;
@@ -1199,7 +1179,7 @@ static NTSTATUS create_logical_proc_info(void)
                         cache.Type = CacheUnified;
                 }
 
-                if (!logical_proc_info_add_cache( mask, &cache ))
+                if (!logical_proc_info_add_cache( mask, group, &cache ))
                 {
                     fclose(fcpu_list);
                     return STATUS_NO_MEMORY;
@@ -1209,12 +1189,10 @@ static NTSTATUS create_logical_proc_info(void)
     }
     fclose(fcpu_list);
 
-    num_cpus = count_bits(all_cpus_mask);
-
     fnuma_list = fopen("/sys/devices/system/node/online", "r");
     if (!fnuma_list)
     {
-        if (!logical_proc_info_add_numa_node( all_cpus_mask, 0 ))
+        if (!logical_proc_info_add_numa_node( system_cpu_mask[0], 0, 0 ))
             return STATUS_NO_MEMORY;
     }
     else
@@ -1233,7 +1211,7 @@ static NTSTATUS create_logical_proc_info(void)
                 snprintf(name, sizeof(name), numa_info, i);
                 if (!sysfs_parse_bitmap( name, &mask )) continue;
 
-                if (!logical_proc_info_add_numa_node( mask, i ))
+                if (!logical_proc_info_add_numa_node( mask, 0, i ))
                 {
                     fclose(fnuma_list);
                     return STATUS_NO_MEMORY;
@@ -1243,7 +1221,7 @@ static NTSTATUS create_logical_proc_info(void)
         fclose(fnuma_list);
     }
 
-    logical_proc_info_add_group( num_cpus, all_cpus_mask );
+    logical_proc_info_add_group();
 
     performance_cores_capacity = 0;
     free(performance_cores);
@@ -1351,12 +1329,12 @@ static NTSTATUS create_logical_proc_info(void)
             all_cpus_mask |= mask;
 
             /* add to package */
-            if(!logical_proc_info_add_by_id( RelationProcessorPackage, p, mask ))
+            if(!logical_proc_info_add_by_id( RelationProcessorPackage, p, mask, 0 ))
                 return STATUS_NO_MEMORY;
 
             /* add new core */
             phys_core = p * cores_per_package + j;
-            if(!logical_proc_info_add_by_id( RelationProcessorCore, phys_core, mask ))
+            if(!logical_proc_info_add_by_id( RelationProcessorCore, phys_core, mask, 0 ))
                 return STATUS_NO_MEMORY;
 
             for(i = 1; i < 5; ++i)
@@ -1367,7 +1345,7 @@ static NTSTATUS create_logical_proc_info(void)
                     for(k = 0; k < cache_sharing[i]; ++k)
                         mask |= (ULONG_PTR)1 << (j * lcpu_per_core + k);
 
-                    if (!logical_proc_info_add_cache( mask, &cache[i] ))
+                    if (!logical_proc_info_add_cache( mask, 0, &cache[i] ))
                         return STATUS_NO_MEMORY;
                 }
 
@@ -1378,10 +1356,10 @@ static NTSTATUS create_logical_proc_info(void)
     }
 
     /* OSX doesn't support NUMA, so just make one NUMA node for all CPUs */
-    if(!logical_proc_info_add_numa_node( all_cpus_mask, 0 ))
+    if(!logical_proc_info_add_numa_node( all_cpus_mask, 0, 0 ))
         return STATUS_NO_MEMORY;
 
-    logical_proc_info_add_group( lcpu_no, all_cpus_mask );
+    logical_proc_info_add_group();
 
     return STATUS_SUCCESS;
 }
@@ -1414,7 +1392,7 @@ static NTSTATUS add_hwloc_cache(hwloc_obj_t obj, int level)
             break;
         }
     }
-    if (!logical_proc_info_add_cache(hwloc_bitmap_to_ulong(obj->cpuset), &cache))
+    if (!logical_proc_info_add_cache(hwloc_bitmap_to_ulong(obj->cpuset), 0, &cache))
         return STATUS_NO_MEMORY;
     return STATUS_SUCCESS;
 }
@@ -1425,7 +1403,7 @@ static NTSTATUS add_hwloc_numa_nodes(hwloc_topology_t topology)
 
     for (obj = hwloc_get_obj_by_type(topology, HWLOC_OBJ_NUMANODE, 0); obj != NULL; obj = obj->next_cousin)
     {
-        if (!logical_proc_info_add_numa_node(obj->logical_index, hwloc_bitmap_to_ulong(obj->cpuset)))
+        if (!logical_proc_info_add_numa_node(obj->logical_index, 0, hwloc_bitmap_to_ulong(obj->cpuset)))
             return STATUS_NO_MEMORY;
     }
     return STATUS_SUCCESS;
@@ -1439,11 +1417,11 @@ static NTSTATUS traverse_hwloc_topology(hwloc_obj_t obj)
     switch (obj->type)
     {
     case HWLOC_OBJ_PACKAGE:
-        if (!logical_proc_info_add_by_id(RelationProcessorPackage, obj->logical_index, hwloc_bitmap_to_ulong(obj->cpuset)))
+        if (!logical_proc_info_add_by_id(RelationProcessorPackage, obj->logical_index, hwloc_bitmap_to_ulong(obj->cpuset), 0))
             return STATUS_NO_MEMORY;
         break;
     case HWLOC_OBJ_CORE:
-        if (!logical_proc_info_add_by_id(RelationProcessorCore, obj->logical_index, hwloc_bitmap_to_ulong(obj->cpuset)))
+        if (!logical_proc_info_add_by_id(RelationProcessorCore, obj->logical_index, hwloc_bitmap_to_ulong(obj->cpuset), 0))
             return STATUS_NO_MEMORY;
         break;
     case HWLOC_OBJ_L1CACHE:
@@ -1507,7 +1485,7 @@ static NTSTATUS create_logical_proc_info(void)
     if (nt_status != STATUS_SUCCESS)
         goto end;
 
-    if (!logical_proc_info_add_group(hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU), hwloc_bitmap_to_ulong(root_obj->cpuset)))
+    if (!logical_proc_info_add_group())
     {
         nt_status = STATUS_NO_MEMORY;
         goto end;
@@ -1541,7 +1519,7 @@ static void init_tsc_frequency(void)
 
     for (i = 0; i < MAXIMUM_PROCESSORS; ++i)
     {
-        if (system_cpu_mask && !(system_cpu_mask & ((ULONG_PTR)1 << i))) continue;
+        if (*system_cpu_mask && !(system_cpu_mask[i / (sizeof(ULONG_PTR) * 8)] & ((ULONG_PTR)1 << (i % (sizeof(ULONG_PTR) * 8))))) continue;
         snprintf( filename, sizeof(filename), "/sys/devices/system/cpu/cpu%d/cpufreq/base_frequency", i );
         if (!(f = fopen( filename, "r" ))) break;
         if (fscanf( f, "%lu", &val ) == 1) tsc_from_jiffies[i] = 1000.0 * val / clk_tck;
@@ -2636,7 +2614,8 @@ static void get_cpu_idle_cycle_times( ULONG64 *times )
 
         if (count < 2 || strncmp( name, "cpu", 3 )) break;
         host_index = atoi( name + 3 );
-        if (system_cpu_mask && !(system_cpu_mask & ((ULONG_PTR)1 << host_index))) continue;
+        if (host_index >= ARRAY_SIZE(tsc_from_jiffies)) continue;
+        if (*system_cpu_mask && !(system_cpu_mask[host_index / (sizeof(ULONG_PTR) * 8)] & ((ULONG_PTR)1 << (host_index % (sizeof(ULONG_PTR) * 8))))) continue;
         times[index] = idle * tsc_from_jiffies[host_index];
         ++index;
     }
