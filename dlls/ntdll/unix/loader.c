@@ -1999,45 +1999,8 @@ jint JNI_OnLoad( JavaVM *vm, void *reserved )
 #endif  /* __ANDROID__ */
 
 #ifdef __APPLE__
-static void *apple_wine_thread( void *arg )
-{
-    start_main_thread();
-    return NULL;
-}
-
-/***********************************************************************
- *           apple_create_wine_thread
- *
- * Spin off a secondary thread to complete Wine initialization, leaving
- * the original thread for the Mac frameworks.
- *
- * Invoked as a CFRunLoopSource perform callback.
- */
-static void apple_create_wine_thread( void *arg )
-{
-    pthread_t thread;
-    pthread_attr_t attr;
-
-    pthread_attr_init( &attr );
-    pthread_attr_setdetachstate( &attr, PTHREAD_CREATE_JOINABLE );
-    if (pthread_create( &thread, &attr, apple_wine_thread, NULL )) exit(1);
-    pthread_attr_destroy( &attr );
-}
-
-
-/***********************************************************************
- *           apple_main_thread
- *
- * Park the process's original thread in a Core Foundation run loop for
- * use by the Mac frameworks, especially receiving and handling
- * distributed notifications.  Spin off a new thread for the rest of the
- * Wine initialization.
- */
 static void apple_main_thread(void)
 {
-    CFRunLoopSourceContext source_context = { 0 };
-    CFRunLoopSourceRef source;
-
     if (!pthread_main_np()) return;
 
 #pragma clang diagnostic push
@@ -2052,19 +2015,6 @@ static void apple_main_thread(void)
      * center scheduled on this thread's run loop.  In theory, it's scheduled
      * in the first thread to ask for it. */
     CFNotificationCenterGetDistributedCenter();
-
-    /* We use this run loop source for two purposes.  First, a run loop exits
-     * if it has no more sources scheduled.  So, we need at least one source
-     * to keep the run loop running.  Second, although it's not critical, it's
-     * preferable for the Wine initialization to not proceed until we know
-     * the run loop is running.  So, we signal our source immediately after
-     * adding it and have its callback spin off the Wine thread. */
-    source_context.perform = apple_create_wine_thread;
-    source = CFRunLoopSourceCreate( NULL, 0, &source_context );
-    CFRunLoopAddSource( CFRunLoopGetCurrent(), source, kCFRunLoopCommonModes );
-    CFRunLoopSourceSignal( source );
-    CFRelease( source );
-    CFRunLoopRun(); /* Should never return, except on error. */
 }
 #endif  /* __APPLE__ */
 

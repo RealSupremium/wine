@@ -29,7 +29,27 @@
 
 #include "unix_private.h"
 
+#ifdef __APPLE__
+
+#include <CoreFoundation/CoreFoundation.h>
+
+void sched_run(void)
+{
+/*
+    CFRunLoopSourceRef source = CFRunLoopSourceCreate( NULL, 0, NULL );
+    CFRunLoopAddSource( CFRunLoopGetCurrent(), source, kCFRunLoopCommonModes );
+    CFRelease( source );
+*/
+
+    CFRunLoopRun(); /* Should never return, except on error. */
+    assert( 0 );
+}
+
+#else
+
 void sched_run(void)
 {
     for (;;) poll( NULL, 0, -1 );
 }
+
+#endif
