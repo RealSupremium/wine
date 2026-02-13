@@ -39,6 +39,7 @@ struct process
     struct object       *sync;            /* sync object for wait/signal */
     struct list          entry;           /* entry in system-wide process list */
     process_id_t         parent_id;       /* parent process id (at the time of creation) */
+    struct thread       *sched_thread;    /* sched / unix main thread */
     struct list          thread_list;     /* thread list */
     struct debug_obj    *debug_obj;       /* debug object debugging this process */
     struct debug_event  *debug_event;     /* debug event being sent to debugger */
@@ -101,7 +102,9 @@ extern struct process *create_process( int fd, struct process *parent, unsigned 
                                        const struct startup_info_data *info,
                                        const struct security_descriptor *sd, const obj_handle_t *handles,
                                        unsigned int handle_count, struct token *token );
+extern void init_process_done( struct process *process );
 extern data_size_t get_process_startup_info_size( struct process *process );
+extern struct security_descriptor *get_first_thread_info( struct process *process, unsigned int *flags );
 extern struct thread *get_process_first_thread( struct process *process );
 extern struct process *get_process_from_id( process_id_t id );
 extern struct process *get_process_from_handle( obj_handle_t handle, unsigned int access );

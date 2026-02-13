@@ -506,9 +506,9 @@ struct thread *create_thread( int fd, struct process *process, unsigned int flag
 {
     struct desktop *desktop;
     struct thread *thread;
-    int request_pipe[2];
+    int is_sched, request_pipe[2];
 
-    if (fd == -1)
+    if ((is_sched = (fd == -1)))
     {
         if (pipe( request_pipe ) == -1)
         {
@@ -540,13 +540,16 @@ struct thread *create_thread( int fd, struct process *process, unsigned int flag
 
     init_thread_structure( thread );
 
+    thread->is_sched = is_sched;
     thread->process = (struct process *)grab_object( process );
     thread->desktop = 0;
     thread->affinity = process->affinity;
     thread->disable_boost = process->disable_boost;
     if (!current) current = thread;
 
-    list_add_tail( &thread_list, &thread->entry );
+    /* avoid adding kernel threads to the global thread list */
+    if (thread->is_sched) list_init( &thread->entry );
+    else list_add_tail( &thread_list, &thread->entry );
 
     if (sd && !set_sd_defaults_from_token( &thread->obj, sd,
                                            OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
@@ -567,7 +570,7 @@ struct thread *create_thread( int fd, struct process *process, unsigned int flag
     if (!(thread->sync = create_internal_sync( 1, 0 ))) goto error;
     if (get_inproc_device_fd() >= 0 && !(thread->alert_sync = create_inproc_internal_sync( 1, 0 ))) goto error;
 
-    if (process->desktop)
+    if (!thread->is_sched && process->desktop)
     {
         if (!(desktop = get_desktop_obj( process, process->desktop, 0 ))) clear_error();  /* ignore errors */
         else
@@ -578,7 +581,8 @@ struct thread *create_thread( int fd, struct process *process, unsigned int flag
     }
 
     set_fd_events( thread->request_fd, POLLIN );  /* start listening to events */
-    add_process_thread( thread->process, thread );
+    if (is_sched) process->sched_thread = (struct thread *)grab_object( thread );
+    else add_process_thread( process, thread );
 
     if (flags & THREAD_CREATE_FLAGS_CREATE_SUSPENDED) thread->suspend++;
     thread->dbg_hidden = !!(flags & THREAD_CREATE_FLAGS_HIDE_FROM_DEBUGGER);
@@ -756,7 +760,11 @@ struct thread *get_thread_from_id( thread_id_t id )
 {
     struct object *obj = get_ptid_entry( id );
 
-    if (obj && obj->ops == &thread_ops) return (struct thread *)grab_object( obj );
+    if (obj && obj->ops == &thread_ops)
+    {
+        struct thread *thread = (struct thread *)obj;
+        if (!thread->is_sched) return (struct thread *)grab_object( thread );
+    }
     set_error( STATUS_INVALID_CID );
     return NULL;
 }
@@ -1612,6 +1620,7 @@ int thread_get_inflight_fd( struct thread *thread, int client )
 /* kill a thread on the spot */
 void kill_thread( struct thread *thread, int violent_death )
 {
+    struct process *process = thread->process;
     if (thread->state == TERMINATED) return;  /* already killed */
     thread->state = TERMINATED;
     thread->exit_time = current_time;
@@ -1631,7 +1640,8 @@ void kill_thread( struct thread *thread, int violent_death )
     signal_sync( thread->sync );
     if (violent_death) send_thread_signal( thread, SIGQUIT );
     cleanup_thread( thread );
-    remove_process_thread( thread->process, thread );
+    if (thread->is_sched) kill_process( process, violent_death );
+    else remove_process_thread( process, thread );
     release_object( thread );
 }
 
@@ -1664,9 +1674,10 @@ DECL_HANDLER(new_thread)
     struct thread *thread;
     struct process *process;
     struct unicode_str name;
-    const struct security_descriptor *sd;
+    const struct security_descriptor *sd, *first_sd;
     const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, NULL );
     int request_fd = thread_get_inflight_fd( current, req->request_fd );
+    unsigned int flags = req->flags;
 
     if (!(process = get_process_from_handle( req->process, 0 )))
     {
@@ -1693,7 +1704,10 @@ DECL_HANDLER(new_thread)
         goto done;
     }
 
-    if ((thread = create_thread( request_fd, process, req->flags, sd )))
+    /* if first thread, use security descriptor from startup info */
+    if ((first_sd = get_first_thread_info( process, &flags ))) sd = first_sd;
+
+    if ((thread = create_thread( request_fd, process, flags, sd )))
     {
         thread->system_regs = current->system_regs;
         reply->tid = get_thread_id( thread );
@@ -1740,8 +1754,8 @@ static int init_thread( struct thread *thread, int reply_fd, int wait_fd )
     return 0;
 }
 
-/* initialize the first thread of a new process */
-DECL_HANDLER(init_first_thread)
+/* initialize a new process */
+DECL_HANDLER(init_process)
 {
     struct process *process = current->process;
     int fd;
@@ -1750,6 +1764,7 @@ DECL_HANDLER(init_first_thread)
 
     current->unix_pid = process->unix_pid = req->unix_pid;
     current->unix_tid = req->unix_tid;
+    process->start_time = current_time;
 
     if (!process->parent_id)
         process->affinity = current->affinity = get_thread_affinity( current );
@@ -1778,6 +1793,7 @@ DECL_HANDLER(init_first_thread)
 /* initialize a new thread */
 DECL_HANDLER(init_thread)
 {
+    struct thread *first_thread = get_process_first_thread( current->process );
     if (!init_thread( current, req->reply_fd, req->wait_fd )) return;
 
     if (!is_valid_address(req->teb))
@@ -1792,11 +1808,13 @@ DECL_HANDLER(init_thread)
     current->entry_point = req->entry;
 
     init_thread_context( current );
-    generate_debug_event( current, DbgCreateThreadStateChange, &req->entry );
+    if (current == first_thread) generate_startup_debug_events( current->process );
+    else generate_debug_event( current, DbgCreateThreadStateChange, &req->entry );
     set_thread_base_priority( current, current->base_priority );
     set_thread_affinity( current, current->affinity );
 
     reply->suspend = (is_thread_suspended( current ) || current->context != NULL);
+    if (current == first_thread) init_process_done( current->process );
 }
 
 /* terminate a thread */

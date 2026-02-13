@@ -1873,7 +1873,7 @@ static void start_main_thread(void)
     load_ntdll();
     load_wow64_ntdll( main_image_info.Machine );
     load_apiset_dll();
-    server_init_process_done();
+    server_start_main_thread();
 }
 
 #ifdef __ANDROID__

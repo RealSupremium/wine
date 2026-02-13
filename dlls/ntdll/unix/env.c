@@ -68,6 +68,7 @@ PEB *peb = NULL;
 WOW_PEB *wow_peb = NULL;
 USHORT *uctable = NULL, *lctable = NULL;
 BOOL is_prefix_bootstrap = FALSE;
+LONG init_redirect = FALSE;
 
 static const WCHAR bootstrapW[] = {'W','I','N','E','B','O','O','T','S','T','R','A','P','M','O','D','E'};
 
@@ -1990,6 +1991,7 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
 
     get_initial_console( params );
 
+    init_redirect = NtCurrentTeb64() && NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR];
     return params;
 }
 

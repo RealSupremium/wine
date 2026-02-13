@@ -1147,15 +1147,8 @@ typedef volatile struct
 @END
 
 
-/* Signal the end of the process initialization */
-@REQ(init_process_done)
-@REPLY
-    int          suspend;      /* is process suspended? */
-@END
-
-
-/* Initialize the first thread of a new process */
-@REQ(init_first_thread)
+/* Initialize a new process */
+@REQ(init_process)
     int          unix_pid;     /* Unix pid of new process */
     int          unix_tid;     /* Unix tid of new thread */
     int          debug_level;  /* new debug level */
