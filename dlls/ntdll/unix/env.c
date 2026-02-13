@@ -2008,18 +2008,11 @@ void init_startup_info( SIZE_T info_size )
     UNICODE_STRING nt_name;
     USHORT machine;
 
-    if (!info_size)
-    {
-        params = build_initial_params( &module );
-        init_peb( params, module );
-        return;
-    }
-
-    info = malloc( info_size );
+    info = info_size ? malloc( info_size ) : NULL;
 
     SERVER_START_REQ( get_startup_info )
     {
-        wine_server_set_reply( req, info, info_size );
+        if (info) wine_server_set_reply( req, info, info_size );
         status = wine_server_call( req );
         machine = reply->machine;
         info_size = reply->info_size;
@@ -2027,6 +2020,13 @@ void init_startup_info( SIZE_T info_size )
     }
     SERVER_END_REQ;
     assert( !status );
+
+    if (!info)
+    {
+        params = build_initial_params( &module );
+        init_peb( params, module );
+        return;
+    }
 
     env = malloc( env_size * sizeof(WCHAR) );
     memcpy( env, (char *)info + info_size, env_size * sizeof(WCHAR) );
