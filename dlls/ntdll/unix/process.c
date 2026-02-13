@@ -823,7 +823,8 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         req->token          = wine_server_obj_handle( token );
         req->debug          = wine_server_obj_handle( debug );
         req->parent_process = wine_server_obj_handle( parent );
-        req->flags          = process_flags;
+        req->process_flags  = process_flags;
+        req->thread_flags   = thread_flags;
         req->socket_fd      = socketfd[1];
         req->access         = process_access;
         req->machine        = machine;

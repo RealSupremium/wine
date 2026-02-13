@@ -1202,7 +1202,7 @@ DECL_HANDLER(new_process)
 
     /* If a job further in the job chain does not permit breakaway process creation
      * succeeds and the process which is trying to breakaway is assigned to that job. */
-    if (parent->job && (req->flags & PROCESS_CREATE_FLAGS_BREAKAWAY) &&
+    if (parent->job && (req->process_flags & PROCESS_CREATE_FLAGS_BREAKAWAY) &&
         !(parent->job->limit_flags & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)))
     {
         set_error( STATUS_ACCESS_DENIED );
@@ -1320,18 +1320,19 @@ DECL_HANDLER(new_process)
         goto done;
     }
 
-    if (!(process = create_process( socket_fd, parent, req->flags, info->data, sd,
+    if (!(process = create_process( socket_fd, parent, req->process_flags, info->data, sd,
                                     handles, req->handles_size / sizeof(*handles), token )))
         goto done;
 
     process->machine = req->machine;
     process->startup_info = (struct startup_info *)grab_object( info );
+    process->thread_flags = req->thread_flags;
 
     job = parent->job;
     while (job)
     {
         if (!(job->limit_flags & JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
-                && !(req->flags & PROCESS_CREATE_FLAGS_BREAKAWAY
+                && !(req->process_flags & PROCESS_CREATE_FLAGS_BREAKAWAY
                 && job->limit_flags & JOB_OBJECT_LIMIT_BREAKAWAY_OK))
         {
             add_job_process( job, process );
@@ -1361,7 +1362,7 @@ DECL_HANDLER(new_process)
         info->data->console = duplicate_handle( parent, info->data->console, process,
                                                 0, 0, DUPLICATE_SAME_ACCESS );
 
-    if (!(req->flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES) && info->data->console != 1)
+    if (!(req->process_flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES) && info->data->console != 1)
     {
         info->data->hstdin  = duplicate_handle( parent, info->data->hstdin, process,
                                                 0, 0, DUPLICATE_SAME_ACCESS | DUPLICATE_SAME_ATTRIBUTES );
@@ -1378,7 +1379,7 @@ DECL_HANDLER(new_process)
     if (debug_obj)
     {
         process->debug_obj = debug_obj;
-        process->debug_children = !(req->flags & PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT);
+        process->debug_children = !(req->process_flags & PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT);
     }
     else if (parent->debug_children)
     {
