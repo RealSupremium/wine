@@ -1087,7 +1087,8 @@ typedef volatile struct
     obj_handle_t token;          /* process token */
     obj_handle_t debug;          /* process debug object */
     obj_handle_t parent_process; /* parent process */
-    unsigned int flags;          /* process creation flags */
+    unsigned int process_flags;  /* process creation flags */
+    unsigned int thread_flags;   /* main thread creation flags */
     int          socket_fd;      /* file descriptor for process socket */
     unsigned int access;         /* access rights for process object */
     unsigned short machine;      /* architecture that the new process will use */
