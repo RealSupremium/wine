@@ -690,8 +690,8 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     unsigned int status;
     BOOL success = FALSE;
     HANDLE file_handle, process_info = 0, process_handle = 0, thread_handle = 0;
-    struct object_attributes *objattr;
-    data_size_t attr_len;
+    struct object_attributes *objattr, *thread_objattr;
+    data_size_t attr_len, thread_attr_len;
     char *winedebug = NULL;
     char *unix_name = NULL;
     struct startup_info_data *startup_info = NULL;
@@ -782,6 +782,11 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     env_size = get_env_size( params, &winedebug );
 
     if ((status = alloc_object_attributes( process_attr, &objattr, &attr_len ))) goto done;
+    if ((status = alloc_object_attributes( thread_attr, &thread_objattr, &thread_attr_len )))
+    {
+        free( thread_objattr );
+        goto done;
+    }
 
     if ((status = alloc_handle_list( handles_attr, &handles, &handles_size )))
     {
@@ -831,9 +836,11 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         req->info_size      = startup_info_size;
         req->handles_size   = handles_size;
         req->jobs_size      = jobs_size;
+        req->sd_len         = thread_objattr ? thread_objattr->sd_len : 0;
         wine_server_add_data( req, objattr, attr_len );
         wine_server_add_data( req, handles, handles_size );
         wine_server_add_data( req, jobs, jobs_size );
+        wine_server_add_data( req, thread_objattr + 1, req->sd_len );
         wine_server_add_data( req, startup_info, startup_info_size );
         wine_server_add_data( req, params->Environment, env_size );
         if (!(status = wine_server_call( req )))
@@ -845,6 +852,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     }
     SERVER_END_REQ;
     close( socketfd[1] );
+    free( thread_objattr );
     free( objattr );
     free( handles );
     free( jobs );
