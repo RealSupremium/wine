@@ -1137,6 +1137,8 @@ typedef volatile struct
 
 /* Retrieve the new process startup info */
 @REQ(get_startup_info)
+    client_ptr_t teb;          /* TEB of new thread (in process address space) */
+    client_ptr_t peb;          /* PEB of new process (in process address space) */
 @REPLY
     data_size_t  info_size;    /* size of startup info */
     unsigned short machine;    /* architecture for the new process */
@@ -1147,8 +1149,6 @@ typedef volatile struct
 
 /* Signal the end of the process initialization */
 @REQ(init_process_done)
-    client_ptr_t teb;          /* TEB of new thread (in process address space) */
-    client_ptr_t peb;          /* PEB of new process (in process address space) */
 @REPLY
     int          suspend;      /* is process suspended? */
 @END

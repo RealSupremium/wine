@@ -2004,6 +2004,7 @@ void init_startup_info( SIZE_T info_size )
     unsigned int status;
     SIZE_T size, env_size, env_pos;
     RTL_USER_PROCESS_PARAMETERS *params = NULL;
+    const TEB64 *teb64 = NtCurrentTeb64();
     struct startup_info_data *info;
     UNICODE_STRING nt_name;
     USHORT machine;
@@ -2012,6 +2013,9 @@ void init_startup_info( SIZE_T info_size )
 
     SERVER_START_REQ( get_startup_info )
     {
+        /* always send the native PEB / TEB */
+        req->peb = teb64 ? teb64->Peb : wine_server_client_ptr( peb );
+        req->teb = wine_server_client_ptr( teb64 ? (void *)teb64 : NtCurrentTeb() );
         if (info) wine_server_set_reply( req, info, info_size );
         status = wine_server_call( req );
         machine = reply->machine;
