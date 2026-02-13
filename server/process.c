@@ -1496,6 +1496,7 @@ DECL_HANDLER(get_startup_info)
 
     current->teb = req->teb;
     process->peb = req->peb;
+    init_process_tracing( process );
 
     if (!info) return;
 
@@ -1521,8 +1522,6 @@ DECL_HANDLER(init_process_done)
     }
 
     process->start_time = current_time;
-
-    init_process_tracing( process );
     generate_startup_debug_events( process );
     set_process_startup_state( process, STARTUP_DONE );
 

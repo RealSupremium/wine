@@ -1656,6 +1656,9 @@ size_t server_init_process(void)
     /* work around Ubuntu's ptrace breakage */
     if (server_pid != -1) prctl( 0x59616d61 /* PR_SET_PTRACER */, server_pid );
 #endif
+#ifdef __APPLE__
+    send_server_task_port();
+#endif
 
     /* ignore SIGPIPE so that we get an EPIPE error instead  */
     sig_act.sa_handler = SIG_IGN;
@@ -1739,10 +1742,6 @@ void server_init_process_done(void)
     if (!get_device_info( initial_cwd, &info ) && (info.Characteristics & FILE_REMOVABLE_MEDIA))
         chdir( "/" );
     close( initial_cwd );
-
-#ifdef __APPLE__
-    send_server_task_port();
-#endif
 
     /* Install signal handlers; this cannot be done earlier, since we cannot
      * send exceptions to the debugger before the create process event that
