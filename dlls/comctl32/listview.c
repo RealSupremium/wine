@@ -2499,8 +2499,14 @@ static void LISTVIEW_GetItemMetrics(const LISTVIEW_INFO *infoPtr, const LVITEMW 
 		uFormat = oversizedBox ? LV_FL_DT_FLAGS : LV_ML_DT_FLAGS;
 	    else
 		uFormat = LV_SL_DT_FLAGS;
-	    
-    	    DrawTextW (hdc, lpLVItem->pszText, -1, &rcText, uFormat | DT_CALCRECT);
+
+	    if (!lpLVItem->pszText || lpLVItem->pszText[0] == L'\0')
+	    {
+		static WCHAR dummy[] = L" ";
+		DrawTextW(hdc, dummy, -1, &rcText, uFormat | DT_CALCRECT);
+	    }
+	    else
+		DrawTextW(hdc, lpLVItem->pszText, -1, &rcText, uFormat | DT_CALCRECT);
 
 	    if (rcText.right != rcText.left)
 	        labelSize.cx = min(rcText.right - rcText.left + TRAILING_LABEL_PADDING, infoPtr->nItemWidth);
@@ -2560,7 +2566,11 @@ calc_label:
 	    SelectBox.bottom = Box.bottom;
 
 	    if (labelSize.cx)
-	        SelectBox.right = min(Label.left + labelSize.cx, Label.right);
+	    {
+		SelectBox.right = min(Label.left + labelSize.cx, Label.right);
+		if (!lpLVItem->pszText || lpLVItem->pszText[0] == L'\0')
+		    SelectBox.right = min(Label.left + MAX_EMPTYTEXT_SELECT_WIDTH, Label.right);
+	    }
 	    else
 	        SelectBox.right = min(Label.left + MAX_EMPTYTEXT_SELECT_WIDTH, Label.right);
 	}
