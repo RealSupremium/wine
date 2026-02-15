@@ -279,6 +279,41 @@ void putsamples(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, f
         putieee32(dsb, i * channels * sizeof(float), channel, values[i]);
 }
 
+void putsamples_mono(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values)
+{
+    int i;
+    for (i = 0; i < count; ++i)
+        putieee32(dsb, i * sizeof(float), channel, values[i]);
+}
+
+void putsamples_stereo(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values)
+{
+    int i;
+    for (i = 0; i < count; ++i)
+        putieee32(dsb, i * 2 * sizeof(float), channel, values[i]);
+}
+
+void putsamples_quad(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values)
+{
+    int i;
+    for (i = 0; i < count; ++i)
+        putieee32(dsb, i * 4 * sizeof(float), channel, values[i]);
+}
+
+void putsamples_surround51(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values)
+{
+    int i;
+    for (i = 0; i < count; ++i)
+        putieee32(dsb, i * 6 * sizeof(float), channel, values[i]);
+}
+
+void putsamples_surround71(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values)
+{
+    int i;
+    for (i = 0; i < count; ++i)
+        putieee32(dsb, i * 8 * sizeof(float), channel, values[i]);
+}
+
 void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values)
 {
     int i;

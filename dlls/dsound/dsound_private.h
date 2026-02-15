@@ -175,6 +175,11 @@ struct IDirectSoundBufferImpl
 };
 
 void putsamples(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values);
+void putsamples_mono(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values);
+void putsamples_stereo(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values);
+void putsamples_quad(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values);
+void putsamples_surround51(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values);
+void putsamples_surround71(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values);
 void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
 void putsamples_mono2quad(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
 void putsamples_stereo2quad(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);

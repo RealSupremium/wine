@@ -151,6 +151,17 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 	dsb->get = ieee ? getbpp[4] : getbpp[dsb->pwfx->wBitsPerSample/8 - 1];
 	dsb->put = putsamples;
 
+	if (ochannels == 1)
+		dsb->put = putsamples_mono;
+	else if (ochannels == 2)
+		dsb->put = putsamples_stereo;
+	else if (ochannels == 4)
+		dsb->put = putsamples_quad;
+	else if (ochannels == 6)
+		dsb->put = putsamples_surround51;
+	else if (ochannels == 8)
+		dsb->put = putsamples_surround71;
+
 	if (ichannels == ochannels)
 	{
 		dsb->mix_channels = ichannels;
