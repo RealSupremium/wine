@@ -318,7 +318,7 @@ static inline void get_samples(const IDirectSoundBufferImpl *dsb, BYTE *buffer, 
     }
 }
 
-static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, float *vols, UINT count)
+static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, float *buffer, float *vols, UINT count)
 {
     UINT istride = dsb->pwfx->nBlockAlign;
     UINT committed_samples = 0;
@@ -357,7 +357,8 @@ static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, float *vols, UINT 
     }
 
     for (channel = 0; channel < dsb->mix_channels; channel++)
-        dsb->put(dsb, vols[channel], channel, count, intermediate + channel * count);
+        dsb->put(dsb, (BYTE *)buffer, vols[channel], channel, count,
+                intermediate + channel * count);
 
     return count;
 }
@@ -798,7 +799,8 @@ static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq
     }
 }
 
-static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, float *vols, UINT count, LONG64 *freqAccNum)
+static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, float *buffer, float *vols, UINT count,
+        LONG64 *freqAccNum)
 {
     UINT channel;
     UINT istride = dsb->pwfx->nBlockAlign;
@@ -859,19 +861,21 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, float *vols, UINT co
                 output + channel * (FIR_WIDTH - 1 + count));
 
     for (channel = 0; channel < channels; channel++)
-        dsb->put(dsb, vols[channel], channel, count, output + channel * (FIR_WIDTH - 1 + count));
+        dsb->put(dsb, (BYTE *)buffer, vols[channel], channel, count,
+                output + channel * (FIR_WIDTH - 1 + count));
 
     return max_ipos;
 }
 
-static void cp_fields(IDirectSoundBufferImpl *dsb, float *vols, UINT count, LONG64 *freqAccNum)
+static void cp_fields(IDirectSoundBufferImpl *dsb, float *buffer, float *vols, UINT count,
+        LONG64 *freqAccNum)
 {
     DWORD ipos, adv;
 
     if (dsb->freqAdjustNum == dsb->freqAdjustDen)
-        adv = cp_fields_noresample(dsb, vols, count); /* *freqAccNum is unmodified */
+        adv = cp_fields_noresample(dsb, buffer, vols, count); /* *freqAccNum is unmodified */
     else
-        adv = cp_fields_resample(dsb, vols, count, freqAccNum);
+        adv = cp_fields_resample(dsb, buffer, vols, count, freqAccNum);
 
     ipos = dsb->sec_mixpos + adv * dsb->pwfx->nBlockAlign;
     if (ipos >= dsb->buflen) {
@@ -908,11 +912,10 @@ static inline DWORD DSOUND_BufPtrDiff(DWORD buflen, DWORD ptr1, DWORD ptr2)
 	}
 }
 /**
- * Mix at most the given amount of data into the allocated temporary buffer
- * of the given secondary buffer, starting from the dsb's first currently
- * unsampled frame (writepos), translating frequency (pitch), stereo/mono
- * and bits-per-sample so that it is ideal for the primary buffer.
- * Doesn't perform any mixing - this is a straight copy/convert operation.
+ * Mix at most the given amount of data into the given buffer, starting from the
+ * dsb's first currently unsampled frame (writepos), translating frequency
+ * (pitch), stereo/mono and bits-per-sample so that it is ideal for the primary
+ * buffer.
  *
  * dsb = the secondary buffer
  * writepos = Starting position of changed buffer
@@ -920,22 +923,26 @@ static inline DWORD DSOUND_BufPtrDiff(DWORD buflen, DWORD ptr1, DWORD ptr2)
  *
  * NOTE: writepos + len <= buflen. When called by mixer, MixOne makes sure of this.
  */
-static void DSOUND_MixToTemporary(IDirectSoundBufferImpl *dsb, float *vols, DWORD frames)
+static void DSOUND_MixToBuffer(IDirectSoundBufferImpl *dsb, float *mix_buffer, float *vols,
+        DWORD frames)
 {
 	UINT size_bytes = frames * sizeof(float) * dsb->device->pwfx->nChannels;
 	HRESULT hr;
 	int i;
+
+	if (!dsb->num_filters) {
+		cp_fields(dsb, mix_buffer, vols, frames, &dsb->freqAccNum);
+		return;
+	}
 
 	if (dsb->device->tmp_buffer_len < size_bytes || !dsb->device->tmp_buffer)
 	{
 		dsb->device->tmp_buffer_len = size_bytes;
 		dsb->device->tmp_buffer = realloc(dsb->device->tmp_buffer, size_bytes);
 	}
-	if(dsb->put == putsamples_surround512stereo || dsb->put == putsamples_surround712stereo ||
-	   dsb->put == putsamples_quad2stereo)
-		memset(dsb->device->tmp_buffer, 0, dsb->device->tmp_buffer_len);
+	memset(dsb->device->tmp_buffer, 0, dsb->device->tmp_buffer_len);
 
-	cp_fields(dsb, vols, frames, &dsb->freqAccNum);
+	cp_fields(dsb, dsb->device->tmp_buffer, vols, frames, &dsb->freqAccNum);
 
 	if (size_bytes > 0) {
 		for (i = 0; i < dsb->num_filters; i++) {
@@ -948,6 +955,8 @@ static void DSOUND_MixToTemporary(IDirectSoundBufferImpl *dsb, float *vols, DWOR
 				WARN("filter %u has no inplace object - unsupported\n", i);
 		}
 	}
+
+	mixieee32(dsb->device->tmp_buffer, mix_buffer, frames * dsb->device->pwfx->nChannels);
 }
 
 static void DSOUND_MixerVol(const IDirectSoundBufferImpl *dsb, float *vols)
@@ -991,7 +1000,6 @@ static void DSOUND_MixerVol(const IDirectSoundBufferImpl *dsb, float *vols)
 static DWORD DSOUND_MixInBuffer(IDirectSoundBufferImpl *dsb, float *mix_buffer, DWORD frames)
 {
 	float vols[32];
-	float *ibuf;
 	DWORD oldpos;
 
 	TRACE("sec_mixpos=%ld/%ld\n", dsb->sec_mixpos, dsb->buflen);
@@ -999,14 +1007,8 @@ static DWORD DSOUND_MixInBuffer(IDirectSoundBufferImpl *dsb, float *mix_buffer, 
 
 	DSOUND_MixerVol(dsb, vols);
 
-	/* Resample buffer to temporary buffer specifically allocated for this purpose, if needed */
 	oldpos = dsb->sec_mixpos;
-	DSOUND_MixToTemporary(dsb, vols, frames);
-	ibuf = dsb->device->tmp_buffer;
-
-	if (secondarybuffer_is_audible(dsb)) {
-		mixieee32(ibuf, mix_buffer, frames * dsb->device->pwfx->nChannels);
-	}
+	DSOUND_MixToBuffer(dsb, mix_buffer, vols, frames);
 
 	/* check for notification positions */
 	if (dsb->dsbd.dwFlags & DSBCAPS_CTRLPOSITIONNOTIFY) {
