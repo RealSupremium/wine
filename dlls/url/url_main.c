@@ -67,14 +67,14 @@ DWORD WINAPI AddMIMEFileTypesPS(VOID * unknown1, LPPROPSHEETHEADERA lppsh)
 BOOL WINAPI InetIsOffline(DWORD flags)
 {
     ULONG Size = 0;
-    GetAdaptersAddresses(AF_UNSPEC, 0, NULL, &Size);
+    GetAdaptersAddresses(AF_UNSPEC, 0, NULL, NULL, &Size);
 
     PIP_ADAPTER_ADDRESSES Adapters = (PIP_ADAPTER_ADDRESSES)HeapAlloc(GetProcessHeap(), 0, Size);
 
     if (!Adapters)
         return TRUE;
 
-    GetAdaptersAddresses(AF_UNSPEC, 0, Adapters, &Size);
+    GetAdaptersAddresses(AF_UNSPEC, 0, NULL, Adapters, &Size);
 
     PIP_ADAPTER_ADDRESSES Current = Adapters;
 
