@@ -320,8 +320,8 @@ static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgai
         int opos = (int)(opos_num >> 32) - fir_width;
 
         UINT idx = ~(DWORD)opos_num >> (32 - fir_step_shift) << fir_width_shift;
-        UINT rem_num = ~(DWORD)opos_num << fir_step_shift;
-        float rem = rem_num * (1.0f / (1ll << 32));
+        int rem_num = ~(DWORD)opos_num << fir_step_shift >> 1;
+        float rem = rem_num * (1.0f / (1ll << 31));
 
         float input_value = input[j] * firgain;
         float input_value0 = (1.0f - rem) * input_value;
@@ -343,8 +343,8 @@ static void upsample(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, fl
         UINT ipos = ipos_num >> 32;
 
         UINT idx = ~(DWORD)ipos_num >> (32 - fir_step_shift) << fir_width_shift;
-        UINT rem_num = (DWORD)ipos_num << fir_step_shift;
-        float rem_inv = rem_num * (1.0f / (1ll << 32));
+        int rem_num = (DWORD)ipos_num << fir_step_shift >> 1;
+        float rem_inv = rem_num * (1.0f / (1ll << 31));
         float rem = 1.0f - rem_inv;
 
         int j;
