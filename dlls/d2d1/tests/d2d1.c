@@ -17858,6 +17858,123 @@ static void test_glyph_run_world_bounds(BOOL d3d11)
     release_test_context(&ctx);
 }
 
+static void test_draw_svg_document(BOOL d3d11)
+{
+    ID2D1DeviceContext6 *context = NULL;
+    ID2D1DeviceContext6 *ctx6 = NULL;
+    ID2D1Factory1 *factory = NULL;
+    IDXGIDevice *dxgi_device = NULL;
+    ID3D11Device *d3d_device = NULL;
+    ID2D1Device *device = NULL;
+    ID2D1Bitmap1 *target = NULL;
+    ID2D1SvgDocument *svg = NULL;
+    IStream *stream = NULL;
+    D2D1_BITMAP_PROPERTIES1 props;
+    D2D1_SIZE_F viewport;
+    D2D1_SIZE_U pixel_size;
+    LARGE_INTEGER zero = {0};
+    HRESULT hr;
+
+    static const char svg_data[] =
+        "<svg width=\"100\" height=\"100\" "
+        "xmlns=\"http://www.w3.org/2000/svg\">"
+        "<rect width=\"100\" height=\"100\" fill=\"red\"/>"
+        "</svg>";
+
+    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
+            &IID_ID2D1Factory1, NULL, (void **)&factory);
+    ok(hr == S_OK, "Failed to create factory, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL,
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT, NULL, 0,
+            D3D11_SDK_VERSION, &d3d_device, NULL, NULL);
+    ok(hr == S_OK, "Failed to create D3D11 device, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = ID3D11Device_QueryInterface(d3d_device,
+            &IID_IDXGIDevice, (void **)&dxgi_device);
+    ok(hr == S_OK, "Failed to get IDXGIDevice, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = ID2D1Factory1_CreateDevice(factory, dxgi_device, &device);
+    ok(hr == S_OK, "Failed to create D2D device, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = ID2D1Device_CreateDeviceContext(device,
+            D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
+            (ID2D1DeviceContext **)&context);
+    if (FAILED(hr) || !context)
+    {
+        skip("ID2D1DeviceContext6 not available.\n");
+        goto done;
+    }
+    /* Verify ID2D1DeviceContext6 is actually supported*/
+    hr = ID2D1DeviceContext_QueryInterface((ID2D1DeviceContext *)context,
+            &IID_ID2D1DeviceContext6, (void **)&ctx6);
+    ID2D1DeviceContext6_Release(context);
+    context = NULL;
+    if(FAILED(hr))
+    {
+        skip("ID2D1DeviceContext6 not available.\n");
+        goto done;
+    }
+    context = ctx6;
+    /* Create a bitmap render target */
+    pixel_size.width = 100;
+    pixel_size.height = 100;
+    memset(&props, 0, sizeof(props));
+    props.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    props.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+    props.bitmapOptions = D2D1_BITMAP_OPTIONS_TARGET;
+    hr = ID2D1DeviceContext6_CreateBitmap(context, pixel_size, NULL, 0,
+            &props, &target);
+    ok(hr == S_OK, "Failed to create bitmap, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    ID2D1DeviceContext6_SetTarget(context, (ID2D1Image *)target);
+
+    /* Create SVG stream */
+    hr = CreateStreamOnHGlobal(NULL, TRUE, &stream);
+    ok(hr == S_OK, "Failed to create stream, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = IStream_Write(stream, svg_data, sizeof(svg_data) - 1, NULL);
+    ok(hr == S_OK, "Failed to write SVG data, hr %#lx.\n", hr);
+
+    IStream_Seek(stream, zero, STREAM_SEEK_SET, NULL);
+
+    viewport.width = 100.0f;
+    viewport.height = 100.0f;
+
+    hr = ID2D1DeviceContext6_CreateSvgDocument(context, stream, viewport, &svg);
+    if (hr == E_NOTIMPL || hr == E_NOINTERFACE)
+    {
+    skip("CreateSvgDocument not available.\n");
+    goto done;
+    }
+    ok(hr == S_OK, "Failed to create SVG document, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    ok(svg != NULL, "Expected valid SVG document.\n");
+
+    ID2D1DeviceContext6_BeginDraw(context);
+    ID2D1DeviceContext6_DrawSvgDocument(context, svg);
+    hr = ID2D1DeviceContext6_EndDraw(context, NULL, NULL);
+    ok(hr == S_OK || hr == D2DERR_RECREATE_TARGET,
+            "Unexpected EndDraw hr %#lx.\n", hr);
+
+done:
+    if (svg) ID2D1Resource_Release((ID2D1Resource *)svg);
+    if (target) ID2D1Bitmap1_Release(target);
+    if (stream) IStream_Release(stream);
+    if (context) ID2D1DeviceContext6_Release(context);
+    if (device) ID2D1Device_Release(device);
+    if (dxgi_device) IDXGIDevice_Release(dxgi_device);
+    if (d3d_device) ID3D11Device_Release(d3d_device);
+    if (factory) ID2D1Factory1_Release(factory);
+}
+
 START_TEST(d2d1)
 {
     HMODULE d2d1_dll = GetModuleHandleA("d2d1.dll");
@@ -17981,6 +18098,6 @@ START_TEST(d2d1)
     queue_d3d10_test(test_path_geometry_stream);
     queue_d3d10_test(test_transformed_geometry);
     queue_d3d10_test(test_glyph_run_world_bounds);
-
+    queue_test(test_draw_svg_document);
     run_queued_tests();
 }

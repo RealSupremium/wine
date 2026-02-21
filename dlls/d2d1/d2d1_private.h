@@ -36,6 +36,7 @@
 #endif
 #include "dwrite_2.h"
 
+
 enum d2d_brush_type
 {
     D2D_BRUSH_TYPE_SOLID,
@@ -223,6 +224,7 @@ struct d2d_device_context
     struct d2d_indexed_objects vertex_buffers;
 };
 
+
 HRESULT d2d_d3d_create_render_target(struct d2d_device *device, IDXGISurface *surface, IUnknown *outer_unknown,
         const struct d2d_device_context_ops *ops, const D2D1_RENDER_TARGET_PROPERTIES *desc,
         void **render_target);
@@ -247,6 +249,19 @@ struct d2d_wic_render_target
     unsigned int height;
     unsigned int bpp;
 };
+
+struct d2d_svg_document{
+    ID2D1Resource ID2D1Resource_iface;
+    LONG refcount;
+    ID2D1Factory *factory;
+    void *rsvg_handle;
+    D2D1_SIZE_F viewport_size;
+};
+
+static inline struct d2d_svg_document *impl_from_ID2D1Resource(ID2D1Resource *iface)
+{
+    return CONTAINING_RECORD(iface, struct d2d_svg_document, ID2D1Resource_iface);
+}
 
 HRESULT d2d_wic_render_target_init(struct d2d_wic_render_target *render_target, ID2D1Factory1 *factory,
         ID3D10Device1 *d3d_device, IWICBitmap *bitmap, const D2D1_RENDER_TARGET_PROPERTIES *desc);
@@ -631,6 +646,9 @@ void d2d_transformed_geometry_init(struct d2d_geometry *geometry, ID2D1Factory *
         ID2D1Geometry *src_geometry, const D2D_MATRIX_3X2_F *transform);
 HRESULT d2d_geometry_group_init(struct d2d_geometry *geometry, ID2D1Factory *factory,
         D2D1_FILL_MODE fill_mode, ID2D1Geometry **src_geometries, unsigned int geometry_count);
+HRESULT d2d_svg_document_create(struct d2d_device_context *context, IStream *stream,
+        D2D1_SIZE_F viewport_size, ID2D1SvgDocument **document);
+
 struct d2d_geometry *unsafe_impl_from_ID2D1Geometry(ID2D1Geometry *iface);
 
 struct d2d_geometry_realization
