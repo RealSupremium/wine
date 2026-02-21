@@ -1,8 +1,8 @@
 MODULE    = opengl32.dll
 UNIXLIB   = opengl32.so
-EXTRADEFS = -D_OPENGL32_
+EXTRADEFS = -D_OPENGL32_ $(MESA_PE_CFLAGS)
 IMPORTLIB = opengl32
-IMPORTS   = user32 gdi32 advapi32 win32u
+IMPORTS   = $(MESA_PE_LIBS) user32 gdi32 advapi32 win32u
 DELAYIMPORTS = glu32
 UNIX_LIBS    = -lwin32u
 
