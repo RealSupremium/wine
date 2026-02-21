@@ -1581,6 +1581,7 @@ print OUT "/* Automatically generated from http://www.opengl.org/registry files;
 print OUT "#ifndef __WINE_OPENGL32_UNIXLIB_H\n";
 print OUT "#define __WINE_OPENGL32_UNIXLIB_H\n\n";
 
+print OUT "#ifndef ENABLE_MESA\n";
 print OUT "#include <stdarg.h>\n";
 print OUT "#include <stddef.h>\n\n";
 
@@ -1665,6 +1666,7 @@ print OUT "};\n\n";
 
 print OUT "#define UNIX_CALL( func, params ) WINE_UNIX_CALL( unix_ ## func, params )\n\n";
 
+print OUT "#endif /* ENABLE_MESA */\n";
 print OUT "#endif /* __WINE_OPENGL32_UNIXLIB_H */\n";
 close OUT;
 
@@ -1674,6 +1676,7 @@ close OUT;
 open OUT, ">thunks.c" or die "cannot create thunks.c";
 print OUT "/* Automatically generated from http://www.opengl.org/registry files; DO NOT EDIT! */\n\n";
 
+print OUT "#ifndef ENABLE_MESA\n";
 print OUT "#include <stdarg.h>\n";
 print OUT "#include <stddef.h>\n\n";
 
@@ -1726,6 +1729,7 @@ foreach (sort keys %ext_functions)
 }
 print OUT "};\n";
 
+print OUT "#endif /* ENABLE_MESA */\n";
 close OUT;
 
 #
@@ -1785,6 +1789,7 @@ print OUT "#if 0\n";
 print OUT "#pragma makedep unix\n";
 print OUT "#endif\n\n";
 
+print OUT "#ifndef ENABLE_MESA\n";
 print OUT "#include <stdarg.h>\n";
 print OUT "#include <stddef.h>\n\n";
 
@@ -1947,4 +1952,5 @@ foreach (sort keys %ext_functions)
 }
 print OUT "};\n";
 
+print OUT "#endif /* ENABLE_MESA */\n";
 close OUT;
