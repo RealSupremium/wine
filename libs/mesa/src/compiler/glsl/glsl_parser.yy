@@ -84,6 +84,8 @@ static bool match_layout_qualifier(const char *s1, const char *s2,
 
 %define api.pure
 %define parse.error verbose
+%define api.prefix {_mesa_glsl_}
+%define api.location.type {_MESA_GLSL_LTYPE}
 
 %locations
 %initial-action {

@@ -35,6 +35,9 @@
 #include "mesa/main/config.h"
 #include "mesa/main/menums.h" /* for gl_api */
 
+#define YYLTYPE _MESA_GLSL_LTYPE
+#define YYSTYPE _MESA_GLSL_STYPE
+
 /* THIS is a macro defined somewhere deep in the Windows MSVC header files.
  * Undefine it here to avoid collision with the lexer's THIS token.
  */

@@ -35,6 +35,9 @@
 
 #include "util/string_buffer.h"
 
+#define YYLTYPE GLCPP_PARSER_LTYPE
+#define YYSTYPE GLCPP_PARSER_STYPE
+
 struct gl_context;
 
 #define yyscan_t void*

@@ -1,3 +1,6 @@
+%top {
+#include <cstdint>
+}
 %{
 /*
  * Copyright © 2008, 2009 Intel Corporation

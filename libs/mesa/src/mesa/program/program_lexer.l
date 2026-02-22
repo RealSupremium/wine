@@ -169,6 +169,7 @@ sat    (_SAT)?
 
 %option prefix="_mesa_program_lexer_"
 %option bison-bridge bison-locations reentrant noyywrap
+%option never-interactive
 %%
 
 "!!ARBvp1.0"              { return ARBvp_10; }
