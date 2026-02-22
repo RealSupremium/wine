@@ -25,7 +25,7 @@ AC_ARG_ENABLE(maintainer-mode, AS_HELP_STRING([--enable-maintainer-mode],[enable
 AC_ARG_ENABLE(sast,  AS_HELP_STRING([--enable-sast],[enable static application security testing using Clang]))
 AC_ARG_ENABLE(silent-rules, AS_HELP_STRING([--enable-silent-rules],[use silent build rules (override: "make V=1")]))
 AC_ARG_ENABLE(werror, AS_HELP_STRING([--enable-werror],[treat compilation warnings as errors]))
-AC_ARG_ENABLE(mesa, AS_HELP_STRING([--enable-mesa],[enable OpenGL over Vulkan with Zink and Mesa built as PE]))
+AC_ARG_ENABLE(mesa, AS_HELP_STRING([--disable-mesa],[enable OpenGL over Vulkan with Zink and Mesa built as PE]))
 
 AC_ARG_WITH(alsa,      AS_HELP_STRING([--without-alsa],[do not use the Alsa sound support]))
 AC_ARG_WITH(capi,      AS_HELP_STRING([--without-capi],[do not use CAPI (ISDN support)]))
