@@ -2420,6 +2420,48 @@ Window create_client_window( HWND hwnd, RECT client_rect, const XVisualInfo *vis
     return ret;
 }
 
+/**********************************************************************
+ *		sync_ghost_shape
+ *
+ * Helper to manage X11 Input Shapes for "Ghost" windows
+ */
+
+static void sync_ghost_shape( struct x11drv_win_data *data )
+{
+#ifdef HAVE_LIBXSHAPE
+    /* Standard XShape logic:
+       If the window is Layered (Visual) AND Transparent (Input),
+       we physically remove it from X11 input handling by setting an empty input shape.
+    */
+    DWORD ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
+    BOOL is_layered = (ex_style & WS_EX_LAYERED);
+    BOOL is_transparent = (ex_style & WS_EX_TRANSPARENT);
+    
+    /* Check: Some apps set LWA_ALPHA without WS_EX_LAYERED in style bits initially */
+    if (!is_layered)
+    {
+        COLORREF key;
+        BYTE alpha;
+        DWORD flags;
+        if (NtUserGetLayeredWindowAttributes( data->hwnd, &key, &alpha, &flags ))
+            is_layered = TRUE;
+    }
+
+    if (is_layered && is_transparent)
+    {
+        /* CLICK-THROUGH: Set empty input region */
+        static XRectangle empty_rect;
+        TRACE("Setting EMPTY Input Region for %p (Ghost Mode)\n", data->hwnd);
+        XShapeCombineRectangles( data->display, data->whole_window, ShapeInput, 0, 0, &empty_rect, 0, ShapeSet, Unsorted );
+    }
+    else
+    {
+        /* INTERACTIVE: Reset input region to default (matches window bounds) */
+        /* Only reset if we previously ghosted it, or to ensure consistency */
+        XShapeCombineMask( data->display, data->whole_window, ShapeInput, 0, 0, None, ShapeSet );
+    }
+#endif
+}
 
 /**********************************************************************
  *		create_whole_window
@@ -2510,6 +2552,7 @@ static void create_whole_window( struct x11drv_win_data *data )
     /* Note: variable 'layered_flags' is reused/set at the top of this function now */
     sync_window_opacity( data->display, data->whole_window, alpha, layered_flags );
     sync_window_input_shape( data );
+    sync_ghost_shape( data ); /* Apply Ghost Shape on Creation */
 
     XFlush( data->display );  /* make sure the window exists before we start painting to it */
 
@@ -3369,6 +3412,12 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     {
         if (swp_flags & (SWP_FRAMECHANGED | SWP_STATECHANGED)) set_wm_hints( data );
         update_net_wm_states( data );
+    }
+
+    /* Dynamic Ghost Update */
+    if (data->whole_window)
+    {
+        sync_ghost_shape( data );
     }
 
     /* if window was fullscreen and is being hidden, release cursor clipping */
