@@ -22,9 +22,9 @@
  */
 #if defined(__sun)
 #define PIPE_ATOMIC_OS_SOLARIS
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) && !defined(__clang__)
 #define PIPE_ATOMIC_MSVC_INTRINSIC
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) || defined(__clang__)
 #define PIPE_ATOMIC_GCC_INTRINSIC
 #else
 #error "Unsupported platform"

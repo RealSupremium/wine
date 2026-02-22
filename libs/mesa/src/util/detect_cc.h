@@ -43,7 +43,7 @@
  * Compiler
  */
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) || defined(__clang__)
 #define DETECT_CC_GCC 1
 #define DETECT_CC_GCC_VERSION (__GNUC__ * 100 + __GNUC_MINOR__)
 #endif

@@ -36,6 +36,12 @@
 
 #if defined(_MSC_VER)
 #include <intrin.h>
+#elif defined(__WINE_PE_BUILD)
+#include <stddef.h>
+#include <stdarg.h>
+#include <windef.h>
+#include <winbase.h>
+#include <winnt.h>
 #endif
 
 #if defined(__POPCNT__)
@@ -57,7 +63,8 @@ extern "C" {
  */
 #ifdef HAVE___BUILTIN_FFS
 #define ffs __builtin_ffs
-#elif defined(_MSC_VER) && (_M_IX86 || _M_ARM || _M_AMD64 || _M_IA64)
+#elif (defined(_MSC_VER) && (_M_IX86 || _M_ARM || _M_AMD64 || _M_IA64)) || \
+      (defined(__WINE_PE_BUILD) && (defined(__i386__) || defined(__x86_64__)))
 static inline
 int ffs(int i)
 {
@@ -74,7 +81,8 @@ int ffs(int i);
 
 #ifdef HAVE___BUILTIN_FFSLL
 #define ffsll __builtin_ffsll
-#elif defined(_MSC_VER) && (_M_AMD64 || _M_ARM64 || _M_IA64)
+#elif (defined(_MSC_VER) && (_M_AMD64 || _M_ARM64 || _M_IA64)) || \
+      (defined(__WINE_PE_BUILD) && (defined(__x86_64__) || defined(__aarch64__) || defined(__GNUC__)))
 static inline int
 ffsll(long long int i)
 {
@@ -253,7 +261,8 @@ util_last_bit(unsigned u)
 {
 #if defined(HAVE___BUILTIN_CLZ)
    return u == 0 ? 0 : 32 - __builtin_clz(u);
-#elif defined(_MSC_VER) && (_M_IX86 || _M_ARM || _M_AMD64 || _M_IA64)
+#elif (defined(_MSC_VER) && (_M_IX86 || _M_ARM || _M_AMD64 || _M_IA64)) || \
+      (defined(__WINE_PE_BUILD) && (defined(__i386__) || defined(__x86_64__)))
    unsigned long index;
    if (_BitScanReverse(&index, u))
       return index + 1;
@@ -279,7 +288,8 @@ util_last_bit64(uint64_t u)
 {
 #if defined(HAVE___BUILTIN_CLZLL)
    return u == 0 ? 0 : 64 - __builtin_clzll(u);
-#elif defined(_MSC_VER) && (_M_AMD64 || _M_ARM64 || _M_IA64)
+#elif (defined(_MSC_VER) && (_M_AMD64 || _M_ARM64 || _M_IA64)) || \
+      (defined(__WINE_PE_BUILD) && (defined(__x86_64__) || defined(__aarch64__)))
    unsigned long index;
    if (_BitScanReverse64(&index, u))
       return index + 1;

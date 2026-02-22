@@ -4406,7 +4406,7 @@ XXH_mult32to64(xxh_u64 x, xxh_u64 y)
 {
    return (x & 0xFFFFFFFF) * (y & 0xFFFFFFFF);
 }
-#elif defined(_MSC_VER) && defined(_M_IX86)
+#elif defined(_MSC_VER) && defined(_M_IX86) && !defined(__WINE_PE_BUILD)
 #    define XXH_mult32to64(x, y) __emulu((unsigned)(x), (unsigned)(y))
 #else
 /*

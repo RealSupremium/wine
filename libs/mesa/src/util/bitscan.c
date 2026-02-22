@@ -29,7 +29,8 @@
 #include "bitscan.h"
 
 #ifdef HAVE___BUILTIN_FFS
-#elif defined(_MSC_VER) && (_M_IX86 || _M_ARM || _M_AMD64 || _M_IA64)
+#elif (defined(_MSC_VER) && (_M_IX86 || _M_ARM || _M_AMD64 || _M_IA64)) || \
+      (defined(__WINE_PE_BUILD) && (defined(__i386__) || defined(__x86_64__)))
 #else
 int
 ffs(int i)
@@ -60,7 +61,8 @@ ffs(int i)
 #endif
 
 #ifdef HAVE___BUILTIN_FFSLL
-#elif defined(_MSC_VER) && (_M_AMD64 || _M_ARM64 || _M_IA64)
+#elif (defined(_MSC_VER) && (_M_AMD64 || _M_ARM64 || _M_IA64)) || \
+      (defined(__WINE_PE_BUILD) && (defined(__x86_64__) || defined(__aarch64__) || defined(__GNUC__)))
 #else
 int
 ffsll(long long int val)

@@ -29,7 +29,11 @@
 #define _C99_ALLOCA_H_
 
 
-#if defined(_MSC_VER)
+#if defined(__WINE_PE_BUILD)
+
+#  include <malloc.h>
+
+#elif defined(_MSC_VER)
 
 #  include <malloc.h>
 
