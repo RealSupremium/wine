@@ -1868,7 +1868,7 @@ static void start_main_thread(void)
     init_startup_info( info_size );
     *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
     set_load_order_app_name( main_wargv[0] );
-    init_thread_stack( teb, 0, 0, 0 );
+    init_thread_stack( teb, 0, 0, 0, TRUE );
     NtCreateKeyedEvent( &keyed_event, GENERIC_READ | GENERIC_WRITE, NULL, 0 );
     load_ntdll();
     load_wow64_ntdll( main_image_info.Machine );
