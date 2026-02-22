@@ -212,6 +212,29 @@ void wayland_surface_destroy(struct wayland_surface *surface)
 
     wayland_surface_clear_role(surface);
 
+    /* Tear down cross-process bonds only on absolute surface destruction.
+     * This ensures the zxdg_imported_v2 bond survives transient SW_HIDE toggles. */
+    if (surface->zxdg_exported_v2)
+    {
+        WCHAR prop_name[] = {'W','a','y','l','a','n','d','H','a','n','d','l','e',0};
+        HANDLE prop = NtUserRemoveProp(surface->hwnd, prop_name);
+        if (prop)
+        {
+            RTL_ATOM atom = (RTL_ATOM)(ULONG_PTR)prop;
+            NtDeleteAtom(atom);
+            TRACE("Deleted exported atom %x for hwnd %p\n", atom, surface->hwnd);
+        }
+
+        zxdg_exported_v2_destroy(surface->zxdg_exported_v2);
+        surface->zxdg_exported_v2 = NULL;
+    }
+
+    if (surface->zxdg_imported_v2)
+    {
+        zxdg_imported_v2_destroy(surface->zxdg_imported_v2);
+        surface->zxdg_imported_v2 = NULL;
+    }
+
     if (surface->wp_viewport)
     {
         wp_viewport_destroy(surface->wp_viewport);
@@ -241,6 +264,60 @@ void wayland_surface_destroy(struct wayland_surface *surface)
     free(surface);
 }
 
+/* Helper to store Wayland string handle as a global 16-bit Atom */
+static RTL_ATOM add_global_atom(const char *str)
+{
+    RTL_ATOM atom = 0;
+    size_t len = strlen(str);
+    WCHAR *wstr = malloc((len + 1) * sizeof(WCHAR));
+    if (!wstr) return 0;
+    for (size_t i = 0; i < len; i++) wstr[i] = str[i];
+    wstr[len] = 0;
+    NtAddAtom(wstr, len * sizeof(WCHAR), &atom);
+    free(wstr);
+    return atom;
+}
+
+/* Helper to retrieve the Wayland string handle from the Atom Table */
+char *get_global_atom_name(RTL_ATOM atom)
+{
+    ATOM_BASIC_INFORMATION *info;
+    ULONG size = 1024;
+    char *str = NULL;
+    int i, len;
+
+    if (!(info = malloc(size))) return NULL;
+    if (!NtQueryInformationAtom(atom, AtomBasicInformation, info, size, NULL))
+    {
+        len = info->NameLength / sizeof(WCHAR);
+        if ((str = malloc(len + 1)))
+        {
+            for (i = 0; i < len; i++) str[i] = (char)info->Name[i];
+            str[len] = 0;
+        }
+    }
+    free(info);
+    return str;
+}
+
+/* Callback triggered by compositor when surface export is successful */
+static void zxdg_exported_v2_handle(void *data, struct zxdg_exported_v2 *exported, const char *handle)
+{
+    struct wayland_surface *surface = data;
+    RTL_ATOM atom = add_global_atom(handle);
+    if (atom)
+    {
+        /* Attach the 16-bit Atom to the Game's HWND as a window property */
+        WCHAR prop_name[] = {'W','a','y','l','a','n','d','H','a','n','d','l','e',0};
+        NtUserSetProp(surface->hwnd, prop_name, (HANDLE)(ULONG_PTR)atom);
+        TRACE("Exported surface %p (hwnd %p) with handle %s (atom %x)\n", surface, surface->hwnd, handle, atom);
+    }
+}
+
+static const struct zxdg_exported_v2_listener zxdg_exported_v2_listener = {
+    zxdg_exported_v2_handle
+};
+
 /**********************************************************************
  *          wayland_surface_make_toplevel
  *
@@ -249,6 +326,8 @@ void wayland_surface_destroy(struct wayland_surface *surface)
 void wayland_surface_make_toplevel(struct wayland_surface *surface)
 {
     WCHAR text[1024];
+    HWND owner_hwnd;
+    WCHAR prop_name[] = {'W','a','y','l','a','n','d','H','a','n','d','l','e',0};
 
     TRACE("surface=%p\n", surface);
 
@@ -266,6 +345,34 @@ void wayland_surface_make_toplevel(struct wayland_surface *surface)
     surface->xdg_toplevel = xdg_surface_get_toplevel(surface->xdg_surface);
     if (!surface->xdg_toplevel) goto err;
     xdg_toplevel_add_listener(surface->xdg_toplevel, &xdg_toplevel_listener, surface->hwnd);
+
+    /* CROSS-PROCESS HIERARCHY: xdg_foreign Import / Export Routing */
+    owner_hwnd = NtUserGetWindowRelative(surface->hwnd, GW_OWNER);
+    
+    /* Restore global import/export for all standard owned windows and overlays */
+    if (owner_hwnd && process_wayland.zxdg_importer_v2)
+    {
+        HANDLE prop = NtUserGetProp(owner_hwnd, prop_name);
+        if (prop)
+        {
+            RTL_ATOM atom = (RTL_ATOM)(ULONG_PTR)prop;
+            char *handle_str = get_global_atom_name(atom);
+            if (handle_str)
+            {
+                TRACE("Importing surface %p (hwnd %p) to parent %p via handle %s\n", surface, surface->hwnd, owner_hwnd, handle_str);
+                surface->zxdg_imported_v2 = zxdg_importer_v2_import_toplevel(
+                    process_wayland.zxdg_importer_v2, handle_str);
+                zxdg_imported_v2_set_parent_of(surface->zxdg_imported_v2, surface->wl_surface);
+                free(handle_str);
+            }
+        }
+    }
+    else if (!owner_hwnd && process_wayland.zxdg_exporter_v2)
+    {
+        surface->zxdg_exported_v2 = zxdg_exporter_v2_export_toplevel(
+            process_wayland.zxdg_exporter_v2, surface->wl_surface);
+        zxdg_exported_v2_add_listener(surface->zxdg_exported_v2, &zxdg_exported_v2_listener, surface);
+    }
 
     if (process_name)
         xdg_toplevel_set_app_id(surface->xdg_toplevel, process_name);
@@ -344,6 +451,17 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
         break;
 
     case WAYLAND_SURFACE_ROLE_TOPLEVEL:
+        if (surface->zxdg_exported_v2)
+        {
+            zxdg_exported_v2_destroy(surface->zxdg_exported_v2);
+            surface->zxdg_exported_v2 = NULL;
+        }
+        if (surface->zxdg_imported_v2)
+        {
+            zxdg_imported_v2_destroy(surface->zxdg_imported_v2);
+            surface->zxdg_imported_v2 = NULL;
+        }
+
         if (surface->xdg_toplevel_icon)
         {
             xdg_toplevel_icon_manager_v1_set_icon(

@@ -455,6 +455,7 @@ static BOOL wayland_window_surface_flush(struct window_surface *window_surface, 
     BOOL layered = (ex_style & WS_EX_LAYERED) != 0;
     BOOL layered_transparent = (ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT);
     BOOL inherently_transparent = FALSE;
+    BOOL zxdg_imported = FALSE;
     BOOL dwm_active = FALSE;
     BOOL has_color_key = FALSE;
     BOOL has_client = FALSE;
@@ -468,6 +469,14 @@ static BOOL wayland_window_surface_flush(struct window_surface *window_surface, 
         margins = data->margins;
         dwm_active = (dwm_mode != WAYLAND_DWM_EXTEND_NONE);
         has_client = data->client_surface != NULL;
+
+        /* Detect cross-process parent bond.
+         * Once established, we MUST use ARGB buffers to ensure transparency. */
+        if (data->wayland_surface && data->wayland_surface->zxdg_imported_v2)
+        {
+            zxdg_imported = TRUE;
+        }
+
         TRACE("surface_flush dwm_mode: %d\n", dwm_mode);
         wayland_win_data_release(data);
     }
@@ -490,8 +499,9 @@ static BOOL wayland_window_surface_flush(struct window_surface *window_surface, 
      * This includes DWM, all layered windows (per-pixel alpha, colorkey), and shaped windows. */
     inherently_transparent = dwm_active || layered || shape_bits != NULL;
 
-    /* Allocate an ARGB buffer if the window is inherently transparent */
-    needs_alpha = inherently_transparent;
+    /* Allocate an ARGB buffer if the window is inherently transparent, 
+     * or if it is bound cross-process via zxdg_imported (e.g., popups on overlays). */
+    needs_alpha = inherently_transparent || zxdg_imported;
 
     /* Decouple GDI alpha correction from the Wayland buffer format.
      * Standard GDI dialogs/popups output 0x00 alpha pixels and must be forced opaque.

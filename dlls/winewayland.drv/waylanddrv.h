@@ -38,6 +38,7 @@
 #include "xdg-shell-client-protocol.h"
 #include "wlr-data-control-unstable-v1-client-protocol.h"
 #include "xdg-toplevel-icon-v1-client-protocol.h"
+#include "xdg-foreign-unstable-v2-client-protocol.h"
 
 #include "windef.h"
 #include "winbase.h"
@@ -193,6 +194,8 @@ struct wayland
     struct wl_data_device_manager *wl_data_device_manager;
     struct xdg_toplevel_icon_manager_v1 *xdg_toplevel_icon_manager_v1;
     struct wp_cursor_shape_manager_v1 *wp_cursor_shape_manager_v1;
+    struct zxdg_exporter_v2 *zxdg_exporter_v2;
+    struct zxdg_importer_v2 *zxdg_importer_v2;
     struct wayland_seat seat;
     struct wayland_keyboard keyboard;
     struct wayland_pointer pointer;
@@ -291,6 +294,8 @@ struct wayland_surface
             struct xdg_surface *xdg_surface;
             struct xdg_toplevel *xdg_toplevel;
             struct xdg_toplevel_icon_v1 *xdg_toplevel_icon;
+            struct zxdg_exported_v2 *zxdg_exported_v2;
+            struct zxdg_imported_v2 *zxdg_imported_v2;
         };
         struct
         {
@@ -354,6 +359,8 @@ static inline BOOL wayland_surface_is_toplevel(struct wayland_surface *surface)
 {
     return surface->role == WAYLAND_SURFACE_ROLE_TOPLEVEL && surface->xdg_toplevel;
 }
+
+char *get_global_atom_name(RTL_ATOM atom);
 
 /**********************************************************************
  *          Wayland SHM buffer
