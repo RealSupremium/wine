@@ -1505,8 +1505,18 @@ static void update_net_wm_states( struct x11drv_win_data *data )
         new_state |= (1 << NET_WM_STATE_MAXIMIZED);
 
     ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
-    if (ex_style & WS_EX_TOPMOST)
+
+    /* Logic: 
+       1. Standard behavior: If WS_EX_TOPMOST is set, set _NET_WM_STATE_ABOVE.
+       2. Strict Overlay behavior: If "Glass Mode" (-1) is active AND it is Transparent/Layered, 
+          FORCE _NET_WM_STATE_ABOVE even if the app omits WS_EX_TOPMOST at creation.
+    */
+    if ((ex_style & WS_EX_TOPMOST) || 
+        (data->dwm_glass_state && (ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT)))
+    {
         new_state |= (1 << NET_WM_STATE_ABOVE);
+    }
+
     if (!data->add_taskbar)
     {
         if (data->skip_taskbar || (ex_style & WS_EX_NOACTIVATE)
@@ -3590,6 +3600,12 @@ BOOL X11DRV_SetWindowDwmConfig( HWND hwnd, INT command, const void *data )
            margins->cyTopHeight, margins->cyBottomHeight );
 
     if (!(data_ptr = get_win_data( hwnd ))) return FALSE;
+
+    /* Store the intent so update_net_wm_states can see it later */
+    if (margins->cxLeftWidth == -1) 
+        data_ptr->dwm_glass_state = TRUE;
+    else 
+        data_ptr->dwm_glass_state = FALSE;
 
     /* Runtime Visual Upgrade */
     /* If the app requests "Sheet of Glass" (-1) but we are still using the default 

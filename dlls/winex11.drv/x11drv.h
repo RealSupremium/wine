@@ -694,6 +694,8 @@ struct x11drv_win_data
     unsigned long wm_normal_hints_serial;/* serial of last pending WM_NORMAL_HINTS request */
     unsigned long configure_serial;    /* serial of last pending configure request */
     unsigned long net_wm_icon_serial;  /* serial of last pending _NET_WM_ICON request */
+    
+    BOOL        dwm_glass_state;       /* Tracks if DwmExtendFrame(-1) is active */
 };
 
 extern struct x11drv_win_data *get_win_data( HWND hwnd );
