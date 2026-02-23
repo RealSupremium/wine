@@ -298,6 +298,11 @@ static void wayland_surface_update_state_toplevel(struct wayland_surface *surfac
 static void wayland_win_data_update_wayland_state(struct wayland_win_data *data)
 {
     struct wayland_surface *surface = data->wayland_surface;
+    struct wayland_client_surface *client = data->client_surface;
+    DWORD ex_style = NtUserGetWindowLongW(data->hwnd, GWL_EXSTYLE);
+    struct wl_region *opaque_region = NULL;
+    RECT rect;
+    int center_w, center_h;
 
     switch (surface->role)
     {
@@ -315,6 +320,39 @@ static void wayland_win_data_update_wayland_state(struct wayland_win_data *data)
         surface->processing.processed = TRUE;
         break;
     }
+
+    /* GLOBAL SCISSOR: Opaque Region Calculation */
+    
+    /* Full Surface Alpha: DWM Glass or explicit click-through overlays */
+    if (data->dwm_mode == WAYLAND_DWM_EXTEND_GLASS || ((ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT)))
+    {
+        opaque_region = NULL; 
+    }
+    /* Partial Surface Alpha: DWM Margins */
+    else if (data->dwm_mode == WAYLAND_DWM_EXTEND_MARGINS)
+    {
+        NtUserGetClientRect(data->hwnd, &rect, NtUserGetDpiForWindow(data->hwnd));
+        center_w = rect.right - data->margins.cxLeftWidth - data->margins.cxRightWidth;
+        center_h = rect.bottom - data->margins.cyTopHeight - data->margins.cyBottomHeight;
+
+        opaque_region = wl_compositor_create_region(process_wayland.wl_compositor);
+        if (center_w > 0 && center_h > 0)
+        {
+            wl_region_add(opaque_region, data->margins.cxLeftWidth, data->margins.cyTopHeight, center_w, center_h);
+        }
+    }
+    /* Standard Opaque */
+    else
+    {
+        opaque_region = wl_compositor_create_region(process_wayland.wl_compositor);
+        NtUserGetWindowRect(data->hwnd, &rect, NtUserGetDpiForWindow(data->hwnd));
+        wl_region_add(opaque_region, 0, 0, rect.right, rect.bottom);
+    }
+
+    wl_surface_set_opaque_region(surface->wl_surface, opaque_region);
+    if (client && client->wl_surface) wl_surface_set_opaque_region(client->wl_surface, opaque_region);
+
+    if (opaque_region) wl_region_destroy(opaque_region);
 
     wl_display_flush(process_wayland.wl_display);
 }
@@ -646,6 +684,66 @@ void WAYLAND_SetLayeredWindowAttributes(HWND hwnd, COLORREF key, BYTE alpha, DWO
     if (!(data = wayland_win_data_get(hwnd))) return;
     data->layered_attribs_set = TRUE;
     wayland_win_data_release(data);
+}
+
+/*****************************************************************
+ *		WAYLAND_SetWindowDwmConfig
+ */
+BOOL WAYLAND_SetWindowDwmConfig(HWND hwnd, INT command, const void *data)
+{
+    struct wayland_win_data *data_ptr;
+    const struct wayland_dwm_margins *margins = data;
+    int mode = WAYLAND_DWM_EXTEND_NONE;
+    int width, height;
+    RECT rect;
+
+    /* DWM_CONFIG_OPAQUE_REGION (1) is passed by NtUserSetWindowDwmConfig */
+    if (command != 1 || !margins) return FALSE;
+    if (!(data_ptr = wayland_win_data_get(hwnd))) return FALSE;
+
+    NtUserGetClientRect(hwnd, &rect, NtUserGetDpiForWindow(hwnd));
+    width = rect.right - rect.left;
+    height = rect.bottom - rect.top;
+
+    /* GLASS MODE: Full-surface composition.
+     * 1. 'Sheet of Glass': Triggered by the -1 magic value; DWM manages full coverage.
+     * 2. 'Saturated Margins': Manual insets that meet or exceed client dimensions, 
+     * effectively covering the entire surface. */
+    if (margins->cxLeftWidth == -1 || 
+       (width > 0 && height > 0 && 
+        margins->cxLeftWidth + margins->cxRightWidth >= width && 
+        margins->cyTopHeight + margins->cyBottomHeight >= height))
+    {
+        mode = WAYLAND_DWM_EXTEND_GLASS;
+    }
+    /* MARGINS MODE: Partial-surface composition.
+     * Triggered when at least one margin is non-zero, creating a partial 
+     * glass frame, sidebar, or 'slice' while leaving the center opaque. */
+    else if (margins->cxLeftWidth > 0  || margins->cxRightWidth > 0 || 
+             margins->cyTopHeight > 0 || margins->cyBottomHeight > 0)
+    {
+        mode = WAYLAND_DWM_EXTEND_MARGINS;
+    }
+
+    /* State Sync & Invalidation
+     * Only trigger visual flushes if the DWM state has actually changed. */
+    if (data_ptr->dwm_mode != mode || memcmp(&data_ptr->margins, margins, sizeof(struct wayland_dwm_margins)))
+    {
+        TRACE("hwnd %p setting dwm_mode %d\n", hwnd, mode);
+        data_ptr->dwm_mode = mode;
+        data_ptr->margins = *margins;
+
+        /* Invalidate to force a surface flush/re-creation with the new format 
+         * and hardware blanking path (if transitioning to/from ARGB). */
+        NtUserRedrawWindow(hwnd, NULL, 0, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
+        
+        /* Immediately recalculate Wayland protocol regions (opaque_region) */
+        if (data_ptr->wayland_surface)
+            wayland_win_data_update_wayland_state(data_ptr);
+    }
+
+    wayland_win_data_release(data_ptr);
+    return TRUE;
 }
 
 static enum xdg_toplevel_resize_edge hittest_to_resize_edge(WPARAM hittest)

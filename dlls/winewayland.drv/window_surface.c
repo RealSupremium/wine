@@ -46,6 +46,7 @@ struct wayland_window_surface
     struct window_surface header;
     struct wayland_buffer_queue *wayland_buffer_queue;
     BOOL layered;
+    int dwm_mode;
 };
 
 static struct wayland_window_surface *wayland_window_surface_cast(
@@ -245,18 +246,22 @@ RGNDATA *get_region_data(HRGN region)
  */
 static void copy_pixel_region(const char *src_pixels, RECT *src_rect,
                               char *dst_pixels, RECT *dst_rect,
-                              HRGN region, BOOL force_opaque)
+                              HRGN region, BOOL force_opaque,
+                              int dwm_mode, const struct wayland_dwm_margins *margins,
+                              BOOL has_color_key, COLORREF color_key, BOOL layered_transparent,
+                              BOOL has_client)
 {
     static const int bpp = WINEWAYLAND_BYTES_PER_PIXEL;
     RGNDATA *rgndata = get_region_data(region);
-    RECT *rgn_rect;
-    RECT *rgn_rect_end;
-    int src_stride, dst_stride;
+    RECT *rgn_rect, *rgn_rect_end;
+    int src_stride, dst_stride, win_w, win_h;
 
     if (!rgndata) return;
 
     src_stride = (src_rect->right - src_rect->left) * bpp;
     dst_stride = (dst_rect->right - dst_rect->left) * bpp;
+    win_w = src_rect->right - src_rect->left;
+    win_h = src_rect->bottom - src_rect->top;
 
     rgn_rect = (RECT *)rgndata->Buffer;
     rgn_rect_end = rgn_rect + rgndata->rdh.nCount;
@@ -278,7 +283,57 @@ static void copy_pixel_region(const char *src_pixels, RECT *src_rect,
         width = rc.right - rc.left;
         height = rc.bottom - rc.top;
 
-        /* Fast path for full width rectangles. */
+        /* Only enter the Alpha Matrix if transparency manipulation is explicitly required. */
+        if (dwm_mode != WAYLAND_DWM_EXTEND_NONE || has_color_key || layered_transparent)
+        {
+            int rel_x, rel_y;
+            UINT32 pixel, rgb;
+            const UINT32 *src_ptr;
+            UINT32 *dst_ptr;
+
+            for (y = 0; y < height; y++)
+            {
+                src_ptr = (const UINT32 *)src;
+                dst_ptr = (UINT32 *)dst;
+                rel_y = rc.top + y - src_rect->top;
+
+                for (x = 0; x < width; x++)
+                {
+                    pixel = src_ptr[x];
+                    rgb = pixel & 0x00FFFFFF;
+                    rel_x = rc.left + x - src_rect->left;
+
+                    if (dwm_mode == WAYLAND_DWM_EXTEND_MARGINS && margins)
+                    {
+                        BOOL in_margin = (rel_y < margins->cyTopHeight || rel_y >= win_h - margins->cyBottomHeight ||
+                                          rel_x < margins->cxLeftWidth || rel_x >= win_w - margins->cxRightWidth);
+
+                        if (in_margin)       dst_ptr[x] = 0;                  /* Punch hole: yield center to GL subsurface */
+                        else if (has_client) dst_ptr[x] = pixel | 0xFF000000; /* Opaque GDI borders/titlebar */
+                        else                 dst_ptr[x] = pixel | 0xFF000000; /* Standard opaque GDI backing plate */
+                    }
+                    else if (dwm_mode == WAYLAND_DWM_EXTEND_GLASS)
+                    {
+                        if (has_client)      dst_ptr[x] = 0;                  /* Punch hole: yield entire surface to GL */
+                        else if (rgb == 0)   dst_ptr[x] = 0;                  /* Transparent GDI Glass pixel */
+                        else                 dst_ptr[x] = pixel | 0xFF000000; /* Opaque GDI Glass pixel */
+                    }
+                    else if (layered_transparent || (has_color_key && rgb == (color_key & 0x00FFFFFF)))
+                    {
+                        dst_ptr[x] = 0;                                       /* Fully transparent layered or color-keyed pixel */
+                    }
+                    else
+                    {
+                        dst_ptr[x] = pixel | 0xFF000000;                      /* Fallback: standard opaque GDI pixel */
+                    }
+                }
+                src += src_stride;
+                dst += dst_stride;
+            }
+            return; /* Exit after matrix processing */
+        }
+
+        /* Standard Opaque Fast Paths */
         if (width * bpp == src_stride && src_stride == dst_stride)
         {
             if (force_opaque)
@@ -315,26 +370,34 @@ static void copy_pixel_region(const char *src_pixels, RECT *src_rect,
 }
 
 /**********************************************************************
- *          wayland_shm_buffer_copy_data
+ *      wayland_shm_buffer_copy_data
  */
 static void wayland_shm_buffer_copy_data(struct wayland_shm_buffer *buffer,
                                          const char *bits, RECT *rect,
-                                         HRGN region, BOOL force_opaque)
+                                         HRGN region, BOOL force_opaque,
+                                         int dwm_mode, const struct wayland_dwm_margins *margins,
+                                         BOOL has_color_key, COLORREF color_key, BOOL layered_transparent,
+                                         BOOL has_client)
 {
     RECT buffer_rect = {0, 0, buffer->width, buffer->height};
     TRACE("buffer=%p bits=%p rect=%s\n", buffer, bits, wine_dbgstr_rect(rect));
-    copy_pixel_region(bits, rect, buffer->map_data, &buffer_rect, region, force_opaque);
+    copy_pixel_region(bits, rect, buffer->map_data, &buffer_rect, region, force_opaque, 
+                      dwm_mode, margins, has_color_key, color_key, layered_transparent, has_client);
 }
 
 static void wayland_shm_buffer_copy(struct wayland_shm_buffer *src,
                                     struct wayland_shm_buffer *dst,
-                                    HRGN region)
+                                    HRGN region,
+                                    int dwm_mode, const struct wayland_dwm_margins *margins,
+                                    BOOL has_color_key, COLORREF color_key, BOOL layered_transparent,
+                                    BOOL has_client)
 {
     RECT src_rect = {0, 0, src->width, src->height};
     RECT dst_rect = {0, 0, dst->width, dst->height};
+    BOOL force_opaque = (src->format == WL_SHM_FORMAT_XRGB8888 && dst->format == WL_SHM_FORMAT_ARGB8888);
     TRACE("src=%p dst=%p\n", src, dst);
-    copy_pixel_region(src->map_data, &src_rect, dst->map_data, &dst_rect, region,
-                      src->format == WL_SHM_FORMAT_XRGB8888 && dst->format == WL_SHM_FORMAT_ARGB8888);
+    copy_pixel_region(src->map_data, &src_rect, dst->map_data, &dst_rect, region, force_opaque, 
+                      dwm_mode, margins, has_color_key, color_key, layered_transparent, has_client);
 }
 
 /**********************************************************************
@@ -372,13 +435,48 @@ static BOOL wayland_window_surface_flush(struct window_surface *window_surface, 
                                          const BITMAPINFO *color_info, const void *color_bits, BOOL shape_changed,
                                          const BITMAPINFO *shape_info, const void *shape_bits)
 {
-    RECT surface_rect = {.right = color_info->bmiHeader.biWidth, .bottom = abs(color_info->bmiHeader.biHeight)};
     struct wayland_window_surface *wws = wayland_window_surface_cast(window_surface);
     struct wayland_shm_buffer *shm_buffer = NULL, *latest_buffer;
+    struct wayland_win_data *data;
     BOOL flushed = FALSE;
     HRGN surface_damage_region = NULL;
-    HRGN copy_from_window_region;
+    HRGN copy_from_window_region = NULL;
     uint32_t buffer_format;
+    RECT surface_rect = {.right = color_info->bmiHeader.biWidth, .bottom = abs(color_info->bmiHeader.biHeight)};
+
+    DWORD ex_style = NtUserGetWindowLongW(window_surface->hwnd, GWL_EXSTYLE);
+    DWORD layered_flags = 0;
+    COLORREF color_key = 0;
+    BYTE alpha = 0;
+
+    int dwm_mode = WAYLAND_DWM_EXTEND_NONE;
+    struct wayland_dwm_margins margins = {0};
+
+    BOOL layered = (ex_style & WS_EX_LAYERED) != 0;
+    BOOL layered_transparent = (ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT);
+    BOOL inherently_transparent = FALSE;
+    BOOL dwm_active = FALSE;
+    BOOL has_color_key = FALSE;
+    BOOL has_client = FALSE;
+    BOOL needs_alpha = FALSE;
+    BOOL force_opaque = FALSE;
+
+    /* Sync DWM and Client state */
+    if ((data = wayland_win_data_get(window_surface->hwnd)))
+    {
+        dwm_mode = data->dwm_mode;
+        margins = data->margins;
+        dwm_active = (dwm_mode != WAYLAND_DWM_EXTEND_NONE);
+        has_client = data->client_surface != NULL;
+        TRACE("surface_flush dwm_mode: %d\n", dwm_mode);
+        wayland_win_data_release(data);
+    }
+
+    /* Extract Layered Attributes to detect LWA_COLORKEY */
+    if (layered && NtUserGetLayeredWindowAttributes(window_surface->hwnd, &color_key, &alpha, &layered_flags))
+    {
+        has_color_key = (layered_flags & LWA_COLORKEY) != 0;
+    }
 
     surface_damage_region = NtGdiCreateRectRgn(rect->left + dirty->left, rect->top + dirty->top,
                                                rect->left + dirty->right, rect->top + dirty->bottom);
@@ -388,7 +486,20 @@ static BOOL wayland_window_surface_flush(struct window_surface *window_surface, 
         goto done;
     }
 
-    buffer_format = (shape_bits || wws->layered) ? WL_SHM_FORMAT_ARGB8888 : WL_SHM_FORMAT_XRGB8888;
+    /* Inherently transparent windows natively generate or handle an alpha channel. 
+     * This includes DWM, all layered windows (per-pixel alpha, colorkey), and shaped windows. */
+    inherently_transparent = dwm_active || layered || shape_bits != NULL;
+
+    /* Allocate an ARGB buffer if the window is inherently transparent */
+    needs_alpha = inherently_transparent;
+
+    /* Decouple GDI alpha correction from the Wayland buffer format.
+     * Standard GDI dialogs/popups output 0x00 alpha pixels and must be forced opaque.
+     * Inherently transparent windows bypass this to preserve their native alpha. */
+    force_opaque = !inherently_transparent;
+
+    buffer_format = needs_alpha ? WL_SHM_FORMAT_ARGB8888 : WL_SHM_FORMAT_XRGB8888;
+
     if (wws->wayland_buffer_queue->format != buffer_format)
     {
         int width = wws->wayland_buffer_queue->width;
@@ -422,8 +533,8 @@ static BOOL wayland_window_surface_flush(struct window_surface *window_surface, 
             }
             NtGdiCombineRgn(copy_from_latest_region, shm_buffer->damage_region,
                             surface_damage_region, RGN_DIFF);
-            wayland_shm_buffer_copy(latest_buffer,
-                                    shm_buffer, copy_from_latest_region);
+            wayland_shm_buffer_copy(latest_buffer, shm_buffer, copy_from_latest_region, 
+                                    dwm_mode, &margins, has_color_key, color_key, layered_transparent, has_client);
             NtGdiDeleteObjectApp(copy_from_latest_region);
         }
         /* ... and use the window_surface as the source of pixel data contained
@@ -439,8 +550,9 @@ static BOOL wayland_window_surface_flush(struct window_surface *window_surface, 
         copy_from_window_region = shm_buffer->damage_region;
     }
 
-    wayland_shm_buffer_copy_data(shm_buffer, color_bits, &surface_rect, copy_from_window_region,
-                                 shape_bits && !wws->layered);
+    wayland_shm_buffer_copy_data(shm_buffer, color_bits, &surface_rect, copy_from_window_region, force_opaque, 
+                                 dwm_mode, &margins, has_color_key, color_key, layered_transparent, has_client);
+
     if (shape_bits) wayland_shm_buffer_copy_shape(shm_buffer, rect, shape_info, shape_bits);
 
     NtGdiSetRectRgn(shm_buffer->damage_region, 0, 0, 0, 0);
@@ -498,10 +610,13 @@ static struct window_surface *wayland_window_surface_create(HWND hwnd, const REC
 
     if ((window_surface = window_surface_create(sizeof(*wws), &wayland_window_surface_funcs, hwnd, rect, info, 0)))
     {
+        DWORD ex_style = NtUserGetWindowLongW(hwnd, GWL_EXSTYLE);
+        BOOL layered_transparent = (ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT);
+
         struct wayland_window_surface *wws = wayland_window_surface_cast(window_surface);
         wws->wayland_buffer_queue =
             wayland_buffer_queue_create(width, height,
-                                        layered ? WL_SHM_FORMAT_ARGB8888 :
+                                        (layered || layered_transparent) ? WL_SHM_FORMAT_ARGB8888 :
                                                   WL_SHM_FORMAT_XRGB8888);
         wws->layered = layered;
     }

@@ -84,6 +84,21 @@ enum wayland_surface_role
     WAYLAND_SURFACE_ROLE_SUBSURFACE,
 };
 
+enum wayland_dwm_extend_mode
+{
+    WAYLAND_DWM_EXTEND_NONE = 0,
+    WAYLAND_DWM_EXTEND_MARGINS = 1,
+    WAYLAND_DWM_EXTEND_GLASS = 2
+};
+
+struct wayland_dwm_margins
+{
+    int cxLeftWidth;
+    int cxRightWidth;
+    int cyTopHeight;
+    int cyBottomHeight;
+};
+
 struct wayland_keyboard
 {
     struct wl_keyboard *wl_keyboard;
@@ -372,6 +387,8 @@ struct wayland_win_data
     BOOL is_fullscreen;
     BOOL managed;
     BOOL layered_attribs_set;
+    struct wayland_dwm_margins margins;
+    int dwm_mode;
 };
 
 struct wayland_win_data *wayland_win_data_get(HWND hwnd);
@@ -446,6 +463,7 @@ BOOL WAYLAND_SetIMECompositionRect(HWND hwnd, RECT rect);
 void WAYLAND_SetCursor(HWND hwnd, HCURSOR hcursor);
 BOOL WAYLAND_SetCursorPos(INT x, INT y);
 void WAYLAND_SetLayeredWindowAttributes(HWND hwnd, COLORREF key, BYTE alpha, DWORD flags);
+BOOL WAYLAND_SetWindowDwmConfig(HWND hwnd, INT command, const void *data);
 void WAYLAND_SetWindowIcons(HWND hwnd, HICON icon, const ICONINFO *ii, HICON icon_small, const ICONINFO *ii_small);
 void WAYLAND_SetWindowStyle(HWND hwnd, INT offset, STYLESTRUCT *style);
 void WAYLAND_SetWindowText(HWND hwnd, LPCWSTR text);
