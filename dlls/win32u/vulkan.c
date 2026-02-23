@@ -143,6 +143,7 @@ struct surface
     struct vulkan_surface obj;
     struct client_surface *client;
     HWND hwnd;
+    BOOL dwm_alpha;
 };
 
 static struct surface *surface_from_handle( VkSurfaceKHR handle )
@@ -156,6 +157,7 @@ struct swapchain
     struct vulkan_swapchain obj;
     struct surface *surface;
     VkExtent2D extents;
+    BOOL dwm_alpha;
 };
 
 static struct swapchain *swapchain_from_handle( VkSwapchainKHR handle )
@@ -1616,6 +1618,21 @@ static VkResult win32u_vkGetPhysicalDeviceSurfaceCapabilitiesKHR( VkPhysicalDevi
     res = instance->p_vkGetPhysicalDeviceSurfaceCapabilitiesKHR( physical_device->host.physical_device,
                                                        surface->obj.host.surface, capabilities );
     if (!res) adjust_surface_capabilities( instance, surface, capabilities );
+
+    /* Sync target state via asynchronous driver callback */
+    if (!res && driver_funcs->p_get_vulkan_surface_alpha_state)
+    {
+        surface->dwm_alpha = driver_funcs->p_get_vulkan_surface_alpha_state(surface->hwnd);
+
+        /* Advertise transparency support if DWM Glass is requested */
+        if (surface->dwm_alpha)
+        {
+            capabilities->supportedCompositeAlpha |= VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR | 
+                                                     VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+            TRACE("Advertising supportedCompositeAlpha for HWND %p.\n", surface->hwnd);
+        }
+    }
+
     return res;
 }
 
@@ -1642,6 +1659,21 @@ static VkResult win32u_vkGetPhysicalDeviceSurfaceCapabilities2KHR( VkPhysicalDev
     res = instance->p_vkGetPhysicalDeviceSurfaceCapabilities2KHR( physical_device->host.physical_device,
                                                                      &surface_info_host, capabilities );
     if (!res) adjust_surface_capabilities( instance, surface, &capabilities->surfaceCapabilities );
+
+    /* Sync target state via asynchronous driver callback */
+    if (!res && driver_funcs->p_get_vulkan_surface_alpha_state)
+    {
+        surface->dwm_alpha = driver_funcs->p_get_vulkan_surface_alpha_state(surface->hwnd);
+
+        /* Advertise transparency support if DWM Glass is requested */
+        if (surface->dwm_alpha)
+        {
+            capabilities->surfaceCapabilities.supportedCompositeAlpha |= VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR | 
+                                                                         VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+            TRACE("Advertising v2 supportedCompositeAlpha for HWND %p.\n", surface->hwnd);
+        }
+    }
+
     return res;
 }
 
@@ -1763,7 +1795,7 @@ static VkResult win32u_vkGetPhysicalDeviceSurfaceFormatsKHR( VkPhysicalDevice cl
     struct vulkan_instance *instance = physical_device->instance;
 
     return instance->p_vkGetPhysicalDeviceSurfaceFormatsKHR( physical_device->host.physical_device,
-                                                                surface->obj.host.surface, format_count, formats );
+                                                             surface->obj.host.surface, format_count, formats );
 }
 
 static VkResult win32u_vkGetPhysicalDeviceSurfaceFormats2KHR( VkPhysicalDevice client_physical_device, const VkPhysicalDeviceSurfaceInfo2KHR *surface_info,
@@ -1787,7 +1819,7 @@ static VkResult win32u_vkGetPhysicalDeviceSurfaceFormats2KHR( VkPhysicalDevice c
         surface_formats = calloc( *format_count, sizeof(*surface_formats) );
         if (!surface_formats) return VK_ERROR_OUT_OF_HOST_MEMORY;
 
-        res = win32u_vkGetPhysicalDeviceSurfaceFormatsKHR( client_physical_device, surface_info->surface, format_count, surface_formats );
+        res = win32u_vkGetPhysicalDeviceSurfaceFormatsKHR( client_physical_device, surface_info->surface, format_count, surface_formats ); 
         if (!res || res == VK_INCOMPLETE) for (i = 0; i < *format_count; i++) formats[i].surfaceFormat = surface_formats[i];
 
         free( surface_formats );
@@ -1797,7 +1829,7 @@ static VkResult win32u_vkGetPhysicalDeviceSurfaceFormats2KHR( VkPhysicalDevice c
     surface_info_host.surface = surface->obj.host.surface;
 
     return instance->p_vkGetPhysicalDeviceSurfaceFormats2KHR( physical_device->host.physical_device,
-                                                                 &surface_info_host, format_count, formats );
+                                                              &surface_info_host, format_count, formats );
 }
 
 static VkBool32 win32u_vkGetPhysicalDeviceWin32PresentationSupportKHR( VkPhysicalDevice client_physical_device, uint32_t queue )
@@ -1855,6 +1887,27 @@ static VkResult win32u_vkCreateSwapchainKHR( VkDevice client_device, const VkSwa
         create_info_host.pNext = &scaling;
     }
 
+    /* Sync target state via asynchronous driver callback during creation */
+    if (driver_funcs->p_get_vulkan_surface_alpha_state)
+    {
+        surface->dwm_alpha = driver_funcs->p_get_vulkan_surface_alpha_state(surface->hwnd);
+    }
+
+    /* Force transparent composite alpha for Wayland overlay */
+    if (surface->dwm_alpha && create_info_host.compositeAlpha == VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+    {
+        if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
+        {
+            create_info_host.compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+            TRACE("Upgraded swapchain compositeAlpha from OPAQUE to PRE_MULTIPLIED for HWND %p.\n", surface->hwnd);
+        }
+        else if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR)
+        {
+            create_info_host.compositeAlpha = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+            TRACE("Upgraded swapchain compositeAlpha from OPAQUE to POST_MULTIPLIED for HWND %p.\n", surface->hwnd);
+        }
+    }
+
     if (!(swapchain = calloc( 1, sizeof(*swapchain) ))) return VK_ERROR_OUT_OF_HOST_MEMORY;
 
     if ((res = device->p_vkCreateSwapchainKHR( device->host.device, &create_info_host, NULL, &host_swapchain )))
@@ -1866,6 +1919,10 @@ static VkResult win32u_vkCreateSwapchainKHR( VkDevice client_device, const VkSwa
     vulkan_object_init( &swapchain->obj.obj, host_swapchain );
     swapchain->surface = surface;
     swapchain->extents = create_info->imageExtent;
+
+    /* Track if this swapchain was successfully built with alpha */
+    swapchain->dwm_alpha = (create_info_host.compositeAlpha != VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR);
+
     instance->p_insert_object( instance, &swapchain->obj.obj );
 
     *ret = swapchain->obj.client.swapchain;
@@ -1927,12 +1984,26 @@ static VkResult win32u_vkAcquireNextImageKHR( VkDevice client_device, VkSwapchai
     RECT client_rect;
     VkResult res;
 
+    /* Evaluate driver state without synchronous IPC blocking.
+     * The driver func should read an atomic flag or cached window state updated asynchronously. */
+    if (!swapchain->dwm_alpha && driver_funcs->p_get_vulkan_surface_alpha_state)
+    {
+        surface->dwm_alpha = driver_funcs->p_get_vulkan_surface_alpha_state(surface->hwnd);
+    }
+
+    /* Force DXVK to recreate swapchain if DWM transparency was late-bound */
+    if (surface->dwm_alpha != swapchain->dwm_alpha)
+    {
+        TRACE("DWM alpha mismatch detected for HWND %p. Requesting recreation.\n", surface->hwnd);
+        return VK_ERROR_OUT_OF_DATE_KHR;
+    }
+
     res = device->p_vkAcquireNextImageKHR( device->host.device, swapchain->obj.host.swapchain, timeout,
                                               semaphore ? semaphore->host.semaphore : 0, fence ? fence->host.fence : 0,
                                               image_index );
 
     if (!res && get_surface_rect( surface->hwnd, &client_rect, NtUserGetDpiForWindow( surface->hwnd ) ) &&
-        !extents_equals( &swapchain->extents, &client_rect ))
+         !extents_equals( &swapchain->extents, &client_rect ))
     {
         WARN( "Swapchain size %dx%d does not match client rect %s, returning VK_SUBOPTIMAL_KHR\n",
               swapchain->extents.width, swapchain->extents.height, wine_dbgstr_rect( &client_rect ) );

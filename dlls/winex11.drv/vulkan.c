@@ -94,12 +94,28 @@ static void X11DRV_map_device_extensions( struct vulkan_device_extensions *exten
     if (extensions->has_VK_KHR_external_fence_fd) extensions->has_VK_KHR_external_fence_win32 = 1;
 }
 
+static BOOL x11_vulkan_get_surface_alpha_state(HWND hwnd)
+{
+    struct x11drv_win_data *data;
+    BOOL is_alpha = FALSE;
+
+    if ((data = get_win_data(hwnd)))
+    {
+        is_alpha = data->dwm_glass_state;
+        release_win_data(data);
+    }
+
+    return is_alpha;
+}
+
+
 static const struct vulkan_driver_funcs x11drv_vulkan_driver_funcs =
 {
     .p_vulkan_surface_create = X11DRV_vulkan_surface_create,
     .p_get_physical_device_presentation_support = X11DRV_get_physical_device_presentation_support,
     .p_map_instance_extensions = X11DRV_map_instance_extensions,
     .p_map_device_extensions = X11DRV_map_device_extensions,
+    .p_get_vulkan_surface_alpha_state = x11_vulkan_get_surface_alpha_state,
 };
 
 UINT X11DRV_VulkanInit( UINT version, void *vulkan_handle, const struct vulkan_driver_funcs **driver_funcs )

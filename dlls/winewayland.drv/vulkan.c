@@ -97,12 +97,27 @@ static void wayland_map_device_extensions(struct vulkan_device_extensions *exten
     if (extensions->has_VK_KHR_external_fence_fd) extensions->has_VK_KHR_external_fence_win32 = 1;
 }
 
+static BOOL wayland_vulkan_get_surface_alpha_state(HWND hwnd)
+{
+    struct wayland_win_data *data;
+    BOOL is_alpha = FALSE;
+
+    if ((data = wayland_win_data_get(hwnd)))
+    {
+        is_alpha = (data->dwm_mode == WAYLAND_DWM_EXTEND_GLASS);
+        wayland_win_data_release(data);
+    }
+
+    return is_alpha;
+}
+
 static const struct vulkan_driver_funcs wayland_vulkan_driver_funcs =
 {
     .p_vulkan_surface_create = wayland_vulkan_surface_create,
     .p_get_physical_device_presentation_support = wayland_get_physical_device_presentation_support,
     .p_map_instance_extensions = wayland_map_instance_extensions,
     .p_map_device_extensions = wayland_map_device_extensions,
+    .p_get_vulkan_surface_alpha_state = wayland_vulkan_get_surface_alpha_state,
 };
 
 /**********************************************************************
