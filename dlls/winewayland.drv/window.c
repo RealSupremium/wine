@@ -187,6 +187,71 @@ static void reapply_cursor_clipping(void)
     NtUserSetThreadDpiAwarenessContext(context);
 }
 
+static void wayland_win_data_update_input_region(struct wayland_win_data *data)
+{
+    struct wayland_surface *surface = data->wayland_surface;
+    struct wayland_client_surface *client = data->client_surface;
+    struct wl_region *region = NULL;
+    DWORD ex_style;
+    RECT rect;
+    int width, height;
+
+    if (!surface || !surface->wl_surface) return;
+
+    ex_style = NtUserGetWindowLongW(data->hwnd, GWL_EXSTYLE);
+    
+    /* Ghost Mode (WS_EX_TRANSPARENT)
+     * Empty input region so all clicks pass through to underlying windows. */
+    if ((ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT))
+    {
+        region = wl_compositor_create_region(process_wayland.wl_compositor);
+    }
+    /* DWM Region Mode (Physical Cutout)
+     * Margins are physically click-through. Center client area remains solid. */
+    else if (data->dwm_mode == WAYLAND_DWM_EXTEND_MARGINS)
+    {
+        int top, bottom, left, right, center_w, center_h;
+
+        NtUserGetClientRect(data->hwnd, &rect, NtUserGetDpiForWindow(data->hwnd));
+        width = rect.right;
+        height = rect.bottom;
+
+        top = data->margins.cyTopHeight;
+        bottom = data->margins.cyBottomHeight;
+        left = data->margins.cxLeftWidth;
+        right = data->margins.cxRightWidth;
+
+        center_w = width - left - right;
+        center_h = height - top - bottom;
+
+        region = wl_compositor_create_region(process_wayland.wl_compositor);
+        
+        if (center_w > 0 && center_h > 0)
+        {
+            wl_region_add(region, left, top, center_w, center_h);
+        }
+    }
+    /* Standard / DWM Glass defaults to NULL (Full Surface Input) */
+
+    wl_surface_set_input_region(surface->wl_surface, region);
+    
+    /* Safely commit to apply dynamic toggles. Gate behind current.serial to 
+     * prevent committing unmapped surfaces during initial window creation. */
+    if (surface->current.serial || surface->role == WAYLAND_SURFACE_ROLE_SUBSURFACE)
+    {
+        wl_surface_commit(surface->wl_surface);
+    }
+
+    /* Synchronize to client surface. */
+    if (region && client && client->wl_surface)
+    {
+        wl_surface_set_input_region(client->wl_surface, region);
+        wl_surface_commit(client->wl_surface);
+    }
+
+    if (region) wl_region_destroy(region);
+}
+
 static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *data, struct wayland_surface *toplevel_surface)
 {
     struct wayland_client_surface *client = data->client_surface;
@@ -194,7 +259,6 @@ static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *dat
     enum wayland_surface_role role;
     BOOL visible;
     DWORD exstyle = NtUserGetWindowLongW(data->hwnd, GWL_EXSTYLE);
-    struct wl_region *input_region;
 
     TRACE("hwnd=%p\n", data->hwnd);
 
@@ -215,14 +279,6 @@ static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *dat
 
     if (!(surface = data->wayland_surface) && !(surface = wayland_surface_create(data->hwnd))) return FALSE;
 
-    /* Pass through mouse events for layered, transparent windows, to match
-     * Windows behavior. */
-    input_region = ((exstyle & WS_EX_TRANSPARENT) && (exstyle & WS_EX_LAYERED)) ?
-                   wl_compositor_create_region(process_wayland.wl_compositor) :
-                   NULL;
-    wl_surface_set_input_region(surface->wl_surface, input_region);
-    if (input_region) wl_region_destroy(input_region);
-
     /* If the window is a visible toplevel make it a wayland
      * xdg_toplevel. Otherwise keep it role-less to avoid polluting the
      * compositor with empty xdg_toplevels. */
@@ -241,6 +297,9 @@ static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *dat
 
     if (visible && client) wayland_client_surface_attach(client, data->hwnd);
     wayland_win_data_get_config(data, &surface->window);
+
+    /* Apply initial Input Region */
+    wayland_win_data_update_input_region(data);
 
     /* Size/position changes affect the effective pointer constraint, so update
      * it as needed. */
@@ -353,6 +412,12 @@ static void wayland_win_data_update_wayland_state(struct wayland_win_data *data)
     if (client && client->wl_surface) wl_surface_set_opaque_region(client->wl_surface, opaque_region);
 
     if (opaque_region) wl_region_destroy(opaque_region);
+
+    /* Force a reconfigure to ack any pending compositor configures. */
+    wayland_surface_reconfigure(surface);
+
+    /* Update Input Region to sync with DWM state changes */
+    wayland_win_data_update_input_region(data);
 
     wl_display_flush(process_wayland.wl_display);
 }
@@ -799,9 +864,20 @@ void WAYLAND_SetWindowStyle(HWND hwnd, INT offset, STYLESTRUCT *style)
     if (hwnd == NtUserGetDesktopWindow()) return;
     if (!(data = wayland_win_data_get(hwnd))) return;
 
-    /* Changing WS_EX_LAYERED resets attributes */
-    if (offset == GWL_EXSTYLE && (changed & WS_EX_LAYERED))
-        data->layered_attribs_set = FALSE;
+    if (offset == GWL_EXSTYLE)
+    {
+        /* Changing WS_EX_LAYERED resets attributes */
+        if (changed & WS_EX_LAYERED)
+            data->layered_attribs_set = FALSE;
+
+        /* If transparency flags changed, immediately recalculate the input region */
+        if (data->wayland_surface && (changed & (WS_EX_LAYERED | WS_EX_TRANSPARENT)))
+        {
+            TRACE("Transparency style changed, updating input region.\n");
+            wayland_win_data_update_input_region(data);
+            wl_display_flush(process_wayland.wl_display);
+        }
+    }
 
     wayland_win_data_release(data);
 }
