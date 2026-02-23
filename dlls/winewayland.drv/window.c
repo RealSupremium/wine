@@ -258,23 +258,39 @@ static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *dat
     struct wayland_surface *surface;
     enum wayland_surface_role role;
     BOOL visible;
-    DWORD exstyle = NtUserGetWindowLongW(data->hwnd, GWL_EXSTYLE);
+    DWORD style = NtUserGetWindowLongW(data->hwnd, GWL_STYLE);
+    DWORD ex_style = NtUserGetWindowLongW(data->hwnd, GWL_EXSTYLE);
+    BOOL layered_transparent = (ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT);
 
     TRACE("hwnd=%p\n", data->hwnd);
 
-    visible = ((NtUserGetWindowLongW(data->hwnd, GWL_STYLE) & WS_VISIBLE) == WS_VISIBLE) &&
-               (!(exstyle & WS_EX_LAYERED) || data->layered_attribs_set);
+    visible = ((style & WS_VISIBLE) == WS_VISIBLE) || layered_transparent;
+
+    if (!layered_transparent)
+        visible = visible && (!(ex_style & WS_EX_LAYERED) || data->layered_attribs_set);
 
     if (!visible) role = WAYLAND_SURFACE_ROLE_NONE;
-    else if (toplevel_surface) role = WAYLAND_SURFACE_ROLE_SUBSURFACE;
+    /* GATE: Overlays MUST remain TOPLEVEL to sustain the zxdg_foreign handle.
+     * Never allow a downgrade to SUBSURFACE even if Win32 parenting suggests it. */
+    else if (toplevel_surface && !layered_transparent) role = WAYLAND_SURFACE_ROLE_SUBSURFACE;
     else role = WAYLAND_SURFACE_ROLE_TOPLEVEL;
 
     /* we can temporarily clear the role of a surface but cannot assign a different one after it's set */
     if ((surface = data->wayland_surface) && role && surface->role && surface->role != role)
     {
-        if (client) wayland_client_surface_attach(client, NULL);
-        wayland_surface_destroy(data->wayland_surface);
-        data->wayland_surface = NULL;
+        /* If an overlay already has a Toplevel role, refuse to clear it.
+         * This preserves the active parent bond during style/visibility toggles. */
+        if (layered_transparent && surface->role == WAYLAND_SURFACE_ROLE_TOPLEVEL)
+        {
+            TRACE("Preserving established Toplevel role for overlay %p\n", data->hwnd);
+            role = WAYLAND_SURFACE_ROLE_TOPLEVEL;
+        }
+        else
+        {
+            if (client) wayland_client_surface_attach(client, NULL);
+            wayland_surface_destroy(data->wayland_surface);
+            data->wayland_surface = NULL;
+        }
     }
 
     if (!(surface = data->wayland_surface) && !(surface = wayland_surface_create(data->hwnd))) return FALSE;
@@ -358,8 +374,12 @@ static void wayland_win_data_update_wayland_state(struct wayland_win_data *data)
 {
     struct wayland_surface *surface = data->wayland_surface;
     struct wayland_client_surface *client = data->client_surface;
-    DWORD ex_style = NtUserGetWindowLongW(data->hwnd, GWL_EXSTYLE);
     struct wl_region *opaque_region = NULL;
+    
+    DWORD ex_style = NtUserGetWindowLongW(data->hwnd, GWL_EXSTYLE);
+    BOOL layered = (ex_style & WS_EX_LAYERED) != 0;
+    BOOL layered_transparent = (ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT);
+    
     RECT rect;
     int center_w, center_h;
 
@@ -369,6 +389,61 @@ static void wayland_win_data_update_wayland_state(struct wayland_win_data *data)
         break;
     case WAYLAND_SURFACE_ROLE_TOPLEVEL:
         if (!surface->xdg_surface) break; /* surface role has been cleared */
+        
+        /* Dynamic Late-ARGB / Overlay Transition Handling
+         * Only execute for explicit DWM Glass requests */
+        if (data->dwm_mode == WAYLAND_DWM_EXTEND_GLASS && !surface->zxdg_imported_v2 && process_wayland.zxdg_importer_v2)
+        {
+            HWND owner_hwnd = NtUserGetWindowRelative(surface->hwnd, GW_OWNER);
+            static int latch_retries = 0; 
+            
+            /* Latch the target parent window */
+            if (!owner_hwnd && latch_retries < 60)
+            {
+                if (!surface->dynamic_owner)
+                {
+                    HWND next_hwnd = NtUserGetWindowRelative(surface->hwnd, GW_HWNDNEXT);
+                    
+                    /* Strict Guard: Must be a valid window, not ourselves, and not the desktop root */
+                    if (next_hwnd && next_hwnd != surface->hwnd && next_hwnd != NtUserGetDesktopWindow())
+                    {
+                        surface->dynamic_owner = next_hwnd;
+                        latch_retries = 0; 
+                    }
+                }
+                owner_hwnd = surface->dynamic_owner;
+                latch_retries++;
+            }
+            
+            if (owner_hwnd)
+            {
+                WCHAR prop_name[] = {'W','a','y','l','a','n','d','H','a','n','d','l','e',0};
+                HANDLE prop = NtUserGetProp(owner_hwnd, prop_name);
+                if (prop)
+                {
+                    RTL_ATOM atom = (RTL_ATOM)(ULONG_PTR)prop;
+                    char *handle_str = get_global_atom_name(atom);
+                    if (handle_str)
+                    {
+                        TRACE("LATCHED: Dynamically importing surface %p to parent %p (retry %d)\n", surface, owner_hwnd, latch_retries);
+                        surface->zxdg_imported_v2 = zxdg_importer_v2_import_toplevel(
+                            process_wayland.zxdg_importer_v2, handle_str);
+                        zxdg_imported_v2_set_parent_of(surface->zxdg_imported_v2, surface->wl_surface);
+                        free(handle_str);
+
+                        /* Force protocol state commit to map the overlay without requiring a geometry resize */
+                        wl_surface_commit(surface->wl_surface);
+                    }
+                }
+                else if (latch_retries < 60)
+                {
+                    /* ASYNC RACE FIX: The target exists, but hasn't exported its handle yet.
+                     * Clear the latch so we try again on the next frame flush. */
+                    surface->dynamic_owner = NULL;
+                }
+            }
+        }
+        
         wayland_surface_update_state_toplevel(surface);
         break;
     case WAYLAND_SURFACE_ROLE_SUBSURFACE:
@@ -383,7 +458,7 @@ static void wayland_win_data_update_wayland_state(struct wayland_win_data *data)
     /* GLOBAL SCISSOR: Opaque Region Calculation */
     
     /* Full Surface Alpha: DWM Glass or explicit click-through overlays */
-    if (data->dwm_mode == WAYLAND_DWM_EXTEND_GLASS || ((ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT)))
+    if (data->dwm_mode == WAYLAND_DWM_EXTEND_GLASS || layered || layered_transparent )
     {
         opaque_region = NULL; 
     }

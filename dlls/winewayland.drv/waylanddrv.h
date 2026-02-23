@@ -280,6 +280,7 @@ struct wayland_shm_buffer
 struct wayland_surface
 {
     HWND hwnd;
+    HWND dynamic_owner; /* Inferred parent for overlays lacking GW_OWNER */
 
     struct wl_surface *wl_surface;
     struct wp_viewport *wp_viewport;
