@@ -1095,9 +1095,11 @@ typedef volatile struct
     data_size_t  info_size;      /* size of startup info */
     data_size_t  handles_size;   /* length of explicit handles list */
     data_size_t  jobs_size;      /* length of jobs list */
+    data_size_t  sd_len;         /* size of security descriptor */
     VARARG(objattr,object_attributes);   /* object attributes */
     VARARG(handles,uints,handles_size);  /* handles list */
     VARARG(jobs,uints,jobs_size);        /* jobs list */
+    VARARG(sd,security_descriptor,sd_len); /* thread security descriptor */
     VARARG(info,startup_info,info_size); /* startup information */
     VARARG(env,unicode_str);     /* environment for new process */
 @REPLY

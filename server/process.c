@@ -676,6 +676,7 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     process->exit_code       = STILL_ACTIVE;
     process->running_threads = 0;
     process->thread_flags    = 0;
+    process->thread_sd       = NULL;
     process->priority        = PROCESS_PRIOCLASS_NORMAL;
     process->base_priority   = 8;
     process->disable_boost   = 0;
@@ -802,6 +803,7 @@ static void process_destroy( struct object *obj )
     free( process->rawinput_devices );
     free( process->dir_cache );
     free( process->image );
+    free( process->thread_sd );
 }
 
 /* dump a process on stdout for debugging purposes */
@@ -1153,7 +1155,7 @@ DECL_HANDLER(new_process)
     struct startup_info *info;
     const void *info_ptr;
     struct unicode_str name, desktop_path = {0};
-    const struct security_descriptor *sd;
+    const struct security_descriptor *sd, *thread_sd = NULL;
     const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, NULL );
     struct process *process = NULL;
     struct token *token = NULL;
@@ -1256,6 +1258,24 @@ DECL_HANDLER(new_process)
         info_ptr = (const char *)info_ptr + req->jobs_size;
         info->data_size -= req->jobs_size;
     }
+    if (req->sd_len > info->data_size)
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        close( socket_fd );
+        goto done;
+    }
+    if (req->sd_len)
+    {
+        thread_sd = info_ptr;
+        info_ptr = (const char *)thread_sd + req->sd_len;
+        info->data_size -= req->sd_len;
+    }
+    if (thread_sd && !sd_is_valid( thread_sd, req->sd_len ))
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        close( socket_fd );
+        goto done;
+    }
 
     job_handle_count = req->jobs_size / sizeof(*handles);
     for (i = 0; i < job_handle_count; ++i)
@@ -1328,6 +1348,7 @@ DECL_HANDLER(new_process)
     process->machine = req->machine;
     process->startup_info = (struct startup_info *)grab_object( info );
     process->thread_flags = req->thread_flags;
+    if (thread_sd && !(process->thread_sd = memdup( thread_sd, req->sd_len ))) goto done;
 
     job = parent->job;
     while (job)
