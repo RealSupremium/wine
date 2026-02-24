@@ -1720,15 +1720,6 @@ static BOOL win32u_wglSetPixelFormatWINE( HDC hdc, int format )
     return TRUE;
 }
 
-static PROC win32u_wglGetProcAddress( const char *name )
-{
-    PROC ret;
-    if (!strncmp( name, "wgl", 3 )) return NULL;
-    ret = driver_funcs->p_get_proc_address( name );
-    TRACE( "%s -> %p\n", debugstr_a(name), ret );
-    return ret;
-}
-
 static void win32u_init_extensions( BOOLEAN extensions[GL_EXTENSION_COUNT] )
 {
     memcpy( extensions, global_extensions, sizeof(global_extensions) );
@@ -2685,7 +2676,6 @@ static void display_funcs_init(void)
     ALL_GL_EXT_FUNCS
 #undef USE_GL_FUNC
 
-    display_funcs.p_wglGetProcAddress = win32u_wglGetProcAddress;
     display_funcs.p_init_extensions = win32u_init_extensions;
     display_funcs.p_get_pixel_formats = win32u_get_pixel_formats;
 
@@ -2705,24 +2695,11 @@ static void display_funcs_init(void)
     display_funcs.p_context_destroy = win32u_context_destroy;
     display_funcs.p_context_reset = win32u_context_reset;
 
-    global_extensions[WGL_ARB_multisample] = 1;
-
-    global_extensions[WGL_ARB_pixel_format] = 1;
-    display_funcs.p_wglChoosePixelFormatARB      = (void *)1; /* never called */
-    display_funcs.p_wglGetPixelFormatAttribfvARB = (void *)1; /* never called */
-    display_funcs.p_wglGetPixelFormatAttribivARB = (void *)1; /* never called */
-
     if (display_egl.has_EGL_EXT_pixel_format_float)
     {
         global_extensions[WGL_ARB_pixel_format_float] = 1;
         global_extensions[WGL_ATI_pixel_format_float] = 1;
     }
-
-    global_extensions[WGL_ARB_extensions_string] = 1;
-    display_funcs.p_wglGetExtensionsStringARB = (void *)1 /* never called */;
-
-    global_extensions[WGL_EXT_extensions_string] = 1;
-    display_funcs.p_wglGetExtensionsStringEXT = (void *)1 /* never called */;
 
     /* In WineD3D we need the ability to set the pixel format more than once (e.g. after a device reset).
      * The default wglSetPixelFormat doesn't allow this, so add our own which allows it.
@@ -2736,7 +2713,6 @@ static void display_funcs_init(void)
     display_funcs.p_wglCreateContextAttribsARB = (void *)1; /* never called */
 
     global_extensions[WGL_ARB_make_current_read] = 1;
-    display_funcs.p_wglGetCurrentReadDCARB   = (void *)1;  /* never called */
     display_funcs.p_wglMakeContextCurrentARB = win32u_wglMakeContextCurrentARB;
 
     global_extensions[WGL_ARB_pbuffer] = 1;

@@ -14,7 +14,7 @@
 #include "wingdi.h"
 #include "ntuser.h"
 
-#include "wine/wgl.h"
+#include "wine/opengl_driver.h"
 #include "wine/unixlib.h"
 
 struct process_attach_params
@@ -50,13 +50,6 @@ struct wglGetPixelFormat_params
     TEB *teb;
     HDC hdc;
     int ret;
-};
-
-struct wglGetProcAddress_params
-{
-    TEB *teb;
-    LPCSTR lpszProc;
-    PROC ret;
 };
 
 struct wglMakeCurrent_params
@@ -25846,7 +25839,6 @@ enum unix_funcs
     unix_wglCreateContext,
     unix_wglDeleteContext,
     unix_wglGetPixelFormat,
-    unix_wglGetProcAddress,
     unix_wglMakeCurrent,
     unix_wglSetPixelFormat,
     unix_wglShareLists,

@@ -316,6 +316,11 @@ static struct handle_entry *alloc_client_context(void)
         return NULL;
     }
 
+    context->base.extensions[WGL_ARB_extensions_string] = TRUE;
+    context->base.extensions[WGL_ARB_multisample] = TRUE;
+    context->base.extensions[WGL_ARB_pixel_format] = TRUE;
+    context->base.extensions[WGL_EXT_extensions_string] = TRUE;
+
     return ptr;
 }
 
@@ -1326,17 +1331,13 @@ int WINAPI wglGetLayerPaletteEntries( HDC hdc, int plane, int start, int count, 
  */
 PROC WINAPI wglGetProcAddress( LPCSTR name )
 {
-    struct wglGetProcAddress_params args = { .teb = NtCurrentTeb(), .lpszProc = name };
     struct context *ctx;
     const void *proc;
-    NTSTATUS status;
 
     if (!name) return NULL;
     if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
 
-    if ((status = UNIX_CALL( wglGetProcAddress, &args )))
-        WARN( "wglGetProcAddress %s returned %#lx\n", debugstr_a(name), status );
-    if (args.ret == (void *)-1) return NULL;
+    if (!(proc = get_proc_address( name, &ctx->base ))) return NULL;
 
     if (!strncmp( name, "wglGetExtensionsString", 22 ))
     {
@@ -1345,7 +1346,6 @@ PROC WINAPI wglGetProcAddress( LPCSTR name )
         LeaveCriticalSection( &wgl_cs );
     }
 
-    proc = extension_procs[(UINT_PTR)args.ret];
     TRACE( "returning %s -> %p\n", name, proc );
     return proc;
 }
