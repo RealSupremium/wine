@@ -284,20 +284,35 @@ void DSOUND_CheckEvent(const IDirectSoundBufferImpl *dsb, DWORD playpos, int len
     }
 }
 
-static inline float get_current_sample(const IDirectSoundBufferImpl *dsb,
-        BYTE *buffer, DWORD buflen, DWORD mixpos, DWORD channel)
+static inline void get_samples(const IDirectSoundBufferImpl *dsb, BYTE *buffer, DWORD buflen,
+        DWORD mixpos, DWORD channel, DWORD count, float *dst)
 {
-    if (mixpos >= buflen && !(dsb->playflags & DSBPLAY_LOOPING))
-        return 0.0f;
-    return dsb->get(dsb, buffer + (mixpos % buflen), channel);
+    UINT istride = dsb->pwfx->nBlockAlign;
+    DWORD advance;
+    DWORD pos = 0;
+
+    advance = min((buflen - mixpos) / istride, count);
+    dsb->get(dsb, buffer + mixpos, channel, advance, dst);
+    pos += advance;
+
+    if (!(dsb->playflags & DSBPLAY_LOOPING)) {
+        memset(dst + pos, 0, (count - pos) * sizeof(float));
+        return;
+    }
+
+    while (pos < count) {
+        advance = min(buflen / istride, count - pos);
+        dsb->get(dsb, buffer, channel, advance, dst + pos);
+        pos += advance;
+    }
 }
 
 static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, UINT count)
 {
     UINT istride = dsb->pwfx->nBlockAlign;
-    float *intermediate, *itmp;
     UINT committed_samples = 0;
-    DWORD channel, i;
+    float *intermediate;
+    DWORD channel;
 
     DWORD len = count * dsb->mix_channels;
     len *= sizeof(float);
@@ -320,14 +335,14 @@ static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, UINT count)
         committed_samples = committed_samples <= count ? committed_samples : count;
     }
 
-    itmp = intermediate;
-    for (channel = 0; channel < dsb->mix_channels; channel++) {
-        for (i = 0; i < committed_samples; i++)
-            *(itmp++) = get_current_sample(dsb, dsb->committedbuff,
-                dsb->writelead, dsb->committed_mixpos + i * istride, channel);
-        for (; i < count; i++)
-            *(itmp++) = get_current_sample(dsb, dsb->buffer->memory,
-                    dsb->buflen, dsb->sec_mixpos + i * istride, channel);
+    for (channel = 0; channel < dsb->mix_channels; channel++)
+    {
+        get_samples(dsb, dsb->committedbuff, dsb->writelead, dsb->committed_mixpos, channel,
+                committed_samples, intermediate + channel * count);
+        if (count > committed_samples)
+            get_samples(dsb, dsb->buffer->memory, dsb->buflen,
+                    dsb->sec_mixpos + committed_samples * istride, channel,
+                    count - committed_samples, intermediate + channel * count + committed_samples);
     }
 
     for (channel = 0; channel < dsb->mix_channels; channel++)
@@ -774,7 +789,7 @@ static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq
 
 static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *freqAccNum)
 {
-    UINT i, channel;
+    UINT channel;
     UINT istride = dsb->pwfx->nBlockAlign;
     UINT committed_samples = 0;
 
@@ -786,7 +801,7 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *
     UINT required_input = max(
             (freqAcc_start + (count - 1) * dsb->freqAdjustNum) / dsb->freqAdjustDen + FIR_WIDTH,
             (freqAcc_start + (count - 1 + FIR_WIDTH) * dsb->freqAdjustNum) / dsb->freqAdjustDen);
-    float *intermediate, *output, *itmp;
+    float *intermediate, *output;
 
     DWORD len = required_input * channels;
     len += FIR_WIDTH - 1 + (count + FIR_WIDTH - 1) * channels;
@@ -817,14 +832,14 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *
      * if you want -msse3 to have any effect.
      * This is good for CPU cache effects, too.
      */
-    itmp = intermediate;
     for (channel = 0; channel < channels; channel++) {
-        for (i = 0; i < committed_samples; i++)
-            *(itmp++) = get_current_sample(dsb, dsb->committedbuff,
-                dsb->writelead, dsb->committed_mixpos + i * istride, channel);
-        for (; i < required_input; i++)
-            *(itmp++) = get_current_sample(dsb, dsb->buffer->memory,
-                    dsb->buflen, dsb->sec_mixpos + i * istride, channel);
+        get_samples(dsb, dsb->committedbuff, dsb->writelead, dsb->committed_mixpos, channel,
+                committed_samples, intermediate + channel * required_input);
+        if (required_input > committed_samples)
+            get_samples(dsb, dsb->buffer->memory, dsb->buflen,
+                    dsb->sec_mixpos + committed_samples * istride, channel,
+                    required_input - committed_samples,
+                    intermediate + channel * required_input + committed_samples);
     }
 
     for (channel = 0; channel < channels; channel++)
