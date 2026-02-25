@@ -310,18 +310,18 @@ static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, UINT count)
     return count;
 }
 
-static void downsample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq_acc_start,
-        float firgain, UINT required_input, float *input, float *output)
+static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
+        UINT required_input, float *input, float *output)
 {
     int j;
 
     for (j = 0; j < required_input; ++j) {
-        LONG64 opos_num = freq_adjust_den - freq_acc_start + j * freq_adjust_den + freq_adjust_num - 1;
-        int opos = opos_num / freq_adjust_num - fir_width;
+        LONG64 opos_num = freq_adjust_den - freq_acc_start + j * (LONG64)freq_adjust_den + ~0u;
+        int opos = (int)(opos_num >> 32) - fir_width;
 
-        UINT idx_num = (freq_adjust_num - 1 - opos_num % freq_adjust_num) << fir_step_shift;
-        UINT idx = (idx_num / freq_adjust_num) << fir_width_shift;
-        float rem = idx_num % freq_adjust_num / (float)freq_adjust_num;
+        UINT idx = ~(DWORD)opos_num >> (32 - fir_step_shift) << fir_width_shift;
+        UINT rem_num = ~(DWORD)opos_num << fir_step_shift;
+        float rem = rem_num * (1.0f / (1ll << 32));
 
         float input_value = input[j] * firgain;
         float input_value0 = (1.0f - rem) * input_value;
@@ -333,18 +333,18 @@ static void downsample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 fr
     }
 }
 
-static void upsample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq_acc_start,
-        UINT count, float *input, float *output)
+static void upsample(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+        float *output)
 {
     UINT i;
 
     for(i = 0; i < count; ++i) {
-        LONG64 ipos_num = freq_acc_start + i * freq_adjust_num;
-        UINT ipos = ipos_num / freq_adjust_den;
+        LONG64 ipos_num = freq_acc_start + i * (LONG64)freq_adjust_num;
+        UINT ipos = ipos_num >> 32;
 
-        UINT idx_num = (ipos_num % freq_adjust_den) << fir_step_shift;
-        UINT idx = (fir_step - 1 - idx_num / freq_adjust_den) << fir_width_shift;
-        float rem_inv = idx_num % freq_adjust_den / (float)freq_adjust_den;
+        UINT idx = ~(DWORD)ipos_num >> (32 - fir_step_shift) << fir_width_shift;
+        UINT rem_num = (DWORD)ipos_num << fir_step_shift;
+        float rem_inv = rem_num * (1.0f / (1ll << 32));
         float rem = 1.0f - rem_inv;
 
         int j;
@@ -361,11 +361,17 @@ static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq
         float firgain, UINT required_input, UINT count, float *input, float *output)
 {
     if (freq_adjust_num > freq_adjust_den) {
+        DWORD freq_adjust_fixed_den = (freq_adjust_den << 32) / freq_adjust_num;
+        DWORD freq_acc_fixed_start = freq_acc_start * freq_adjust_fixed_den / freq_adjust_den;
+
         memset(output, 0, count * sizeof(float));
-        downsample(freq_adjust_num, freq_adjust_den, freq_acc_start, firgain, required_input,
-                input, output);
+        downsample(freq_adjust_fixed_den, freq_acc_fixed_start, firgain, required_input, input,
+                output);
     } else {
-        upsample(freq_adjust_num, freq_adjust_den, freq_acc_start, count, input, output);
+        DWORD freq_adjust_fixed_num = (freq_adjust_num << 32) / freq_adjust_den;
+        DWORD freq_acc_fixed_start = (freq_acc_start << 32) / freq_adjust_den;
+
+        upsample(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
     }
 }
 
