@@ -770,6 +770,13 @@ static LRESULT WINAPI parent_wnd_proc(HWND hwnd, UINT message, WPARAM wParam, LP
                       ok(dispinfo->item.cchTextMax == 260 ||
                          broken(dispinfo->item.cchTextMax == 264) /* NT4 reports aligned size */,
                       "buffer size %d\n", dispinfo->item.cchTextMax);
+
+                  if (dispinfo->item.mask & LVIF_COLUMNS)
+                  {
+                      dispinfo->item.cColumns = 2;
+                      dispinfo->item.puColumns[0] = 7;
+                      dispinfo->item.puColumns[1] = 6;
+                  }
               }
               break;
           case LVN_DELETEITEM:
@@ -2382,6 +2389,205 @@ static void test_customdraw_background(BOOL v6)
         }
     }
 }
+
+static void test_tileview_columns_info(BOOL v6)
+{
+    /* There are two ways to set and get tile info for columns, with LVM_GETITEMA
+     * messages and the LVIF_COLUMNS; and with LVM_GETTILEINFO messages.
+     * Both support passing NULL as the puColumns to request that the correct cColumns
+     * field is set; but only LVM_GETITEMA provides cromulent errors when the buffer
+     * is undersized. */
+    HWND hwnd;
+    LVITEMA item;
+    DWORD r;
+    static UINT puColumns[2] = {1,2};
+    static UINT puColumnsNext[3] = {3,2,1};
+
+    /* Providing a buffer large enough to hold all the values */
+    static UINT OVERSIZED = 4;
+    UINT puColumnsReturn[4] = {9,9,9,9};
+    LVTILEINFO tvi = {0};
+
+    hwnd = create_listview_control(LVS_REPORT);
+    ok(hwnd != NULL, "failed to create a listview window\n");
+
+    memset(&item, 0, sizeof(item));
+    item.mask = LVIF_COLUMNS;
+    item.iItem = 0;
+    item.cColumns = 2;
+    item.puColumns = puColumns;
+    r = SendMessageA(hwnd, LVM_INSERTITEMA, 0, (LPARAM)&item);
+    expect(0, r);
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    /* Ensure the List View has its own copy by changing puColumns */
+    puColumns[0] = 8;
+
+    memset(&item, 0, sizeof(item));
+    item.iItem = 0;
+    item.mask = LVIF_COLUMNS;
+    item.cColumns = OVERSIZED;
+    item.puColumns = puColumnsReturn;
+    r = SendMessageA(hwnd, LVM_GETITEMA, 0, (LPARAM)&item);
+    ok(r, "LVM_GETITEMA should return OK for correct Column get.\n");
+    expect(2, item.cColumns);
+
+    ok(item.puColumns == puColumnsReturn, "Should write to passed pointer, not change the pointer.\n");
+    if (item.puColumns != NULL) {
+        expect(1, item.puColumns[0]);
+        expect(2, item.puColumns[1]);
+    }
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    memset(&item, 0, sizeof(item));
+    item.iItem = 0;
+    item.mask = LVIF_COLUMNS;
+    item.cColumns = 1;
+    item.puColumns = puColumnsReturn;
+    r = SendMessageA(hwnd, LVM_GETITEMA, 0, (LPARAM)&item);
+    ok(!r, "LVM_GETITEMA returns Error if buffer is undersized.\n");
+    expect(1, item.cColumns);
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    memset(&item, 0, sizeof(item));
+    item.iItem = 0;
+    item.mask = LVIF_COLUMNS;
+    item.cColumns = 0;
+    item.puColumns = NULL;
+    r = SendMessageA(hwnd, LVM_GETITEMA, 0, (LPARAM)&item);
+    ok(r, "LVM_GETITEMA return OK for Query Style (no buffer supplied).\n");
+    expect(2, item.cColumns);
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    memset(&tvi, 0, sizeof(tvi));
+
+    tvi.cbSize = sizeof(tvi);
+    tvi.iItem = 0;
+    tvi.cColumns = 3;
+    tvi.puColumns = puColumnsNext;
+
+    r = SendMessageA(hwnd, LVM_SETTILEINFO, 0, (LPARAM)&tvi);
+    ok(r, "Failed to set item tile info.\n");
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    /* Again, ensure Ownership */
+    puColumnsNext[0] = 8;
+
+    /* Good LVM_GETTILEINFO get with buffer and large enough size */
+    tvi.cColumns = OVERSIZED;
+    tvi.puColumns = puColumnsReturn;
+    r = SendMessageA(hwnd, LVM_GETTILEINFO, 0, (LPARAM)&tvi);
+    ok(r, "LVM_GETTILEINFO Should retrieve info when parameters are ok.\n");
+    expect(3, tvi.cColumns);
+
+    ok(tvi.puColumns == puColumnsReturn, "Should write to passed pointer, not change the pointer.\n");
+    if (tvi.puColumns != NULL) {
+        expect(3, tvi.puColumns[0]);
+        expect(2, tvi.puColumns[1]);
+        expect(1, tvi.puColumns[2]);
+        // Shouldn't touch, beyound reach.
+        expect(9, tvi.puColumns[3]);
+    }
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    /* Reset return buffer */
+    puColumnsReturn[0] = 9;
+    puColumnsReturn[1] = 9;
+    puColumnsReturn[2] = 9;
+
+    /* Undersized get with buffer */
+    tvi.cColumns = 1;
+    tvi.puColumns = puColumnsReturn;
+    r = SendMessageA(hwnd, LVM_GETTILEINFO, 0, (LPARAM)&tvi);
+    ok(r, "LVM_GETTILEINFO returns OK with bad results\n");
+    expect(1, tvi.cColumns);
+    ok(tvi.puColumns == puColumnsReturn, "Should write to passed pointer, not change the pointer.\n");
+    if (tvi.puColumns != NULL) {
+        // Shouldn't touch
+        expect(9, tvi.puColumns[0]);
+        expect(9, tvi.puColumns[1]);
+        expect(9, tvi.puColumns[2]);
+        expect(9, tvi.puColumns[3]);
+    }
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    /* Undersized get without buffer */
+    tvi.cColumns = 1;
+    tvi.puColumns = NULL;
+    r = SendMessageA(hwnd, LVM_GETTILEINFO, 0, (LPARAM)&tvi);
+    ok(r, "LVM_GETTILEINFO returns OK with size Query\n");
+    expect(3, tvi.cColumns);
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    /* Set with Callback Question */
+    tvi.cbSize = sizeof(tvi);
+    tvi.iItem = 0;
+    tvi.cColumns = I_COLUMNSCALLBACK;
+    tvi.puColumns = NULL;
+
+    r = SendMessageA(hwnd, LVM_SETTILEINFO, 0, (LPARAM)&tvi);
+    ok(r, "Failed to set item tile info.\n");
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    /* Good LVM_GETTILEINFO get callback */
+    tvi.cColumns = OVERSIZED;
+    tvi.puColumns = NULL;
+    r = SendMessageA(hwnd, LVM_GETTILEINFO, 0, (LPARAM)&tvi);
+    ok(r, "LVM_GETTILEINFO Should retrieve info from callback function.\n");
+    expect(LVIF_COLUMNS, g_itema.mask);
+    expect(OVERSIZED, g_itema.cColumns);
+    ok(g_itema.puColumns != NULL, "Callback should receive write location.\n");
+    expect(2, tvi.cColumns);
+
+    ok_sequence(sequences, PARENT_SEQ_INDEX, single_getdispinfo_parent_seq,
+                "get cCallback dispinfo", FALSE);
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+
+    DestroyWindow(hwnd);
+}
+
+static void test_get_set_tileview_info(void)
+{
+    HWND hwnd;
+    DWORD r;
+
+    LVTILEVIEWINFO tvi = {0};
+    SIZE size = { 100, 50 };
+
+    hwnd = create_listview_control(LVS_REPORT);
+    ok(hwnd != NULL, "failed to create a listview window\n");
+
+    memset(&tvi, 0, sizeof(tvi));
+
+    tvi.cbSize = sizeof(tvi);
+    tvi.cLines = 3;
+    tvi.sizeTile = size;
+    tvi.dwFlags = LVTVIF_FIXEDSIZE;
+    tvi.dwMask = LVTVIM_COLUMNS | LVTVIM_TILESIZE;
+    r = SendMessageA(hwnd, LVM_SETTILEVIEWINFO, 0, (LPARAM)&tvi);
+    ok(r, "Failed to set item tile info.\n");
+
+    tvi.cLines = 0;
+    tvi.sizeTile.cx = 0;
+    tvi.sizeTile.cy = 0;
+
+    r = SendMessageA(hwnd, LVM_GETTILEVIEWINFO, 0, (LPARAM)&tvi);
+    ok(r, "Failed to set item tile info.\n");
+    expect(3, tvi.cLines);
+    expect(100, tvi.sizeTile.cx);
+    expect(50, tvi.sizeTile.cy);
+
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    DestroyWindow(hwnd);
+}
+
 
 static void test_icon_spacing(void)
 {
@@ -7916,6 +8122,8 @@ START_TEST(listview)
     test_LVM_GETHOTCURSOR();
     test_LVM_GETORIGIN(TRUE);
     test_customdraw_background(TRUE);
+    test_tileview_columns_info(TRUE);
+    test_get_set_tileview_info();
     test_WM_PAINT();
 
     uninit_winevent_hook();
