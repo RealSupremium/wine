@@ -1634,6 +1634,95 @@ static void test_folder_flags(void)
     destroy_interfaces(desktop, shellview);
 }
 
+static void test_FolderView2_GetSelection(void)
+{
+    IShellFolder *desktop;
+    IShellView *view;
+    IFolderView2 *fv2;
+    HWND hwnd_view, hwnd_list;
+    FOLDERSETTINGS settings = { FVM_ICON, 0 };
+    RECT rc = { 0, 0, 100, 100 };
+    IShellBrowser *browser;
+    HRESULT hr;
+    int itemCount = 0;
+    DWORD count;
+    IShellItemArray *psia = (void*)0xdeadbeef;
+    IShellItemArray *psia1 = NULL;
+    IShellItemArray *psia2 = NULL;
+
+    create_interfaces(&desktop, &view);
+
+    hr = IShellView_QueryInterface(view, &IID_IFolderView2, (void**)&fv2);
+    if (hr != S_OK) {
+        win_skip("IFolderView2 not supported by desktop folder\n");
+        destroy_interfaces(desktop, view);
+        return;
+    }
+
+    browser = IShellBrowserImpl_Construct();
+
+    hwnd_view = (HWND)0xdeadbeef;
+    hr = IShellView_CreateViewWindow(view, NULL, &settings, browser, &rc, &hwnd_view);
+    ok(hr == S_OK, "got (0x%08lx)\n", hr);
+    ok(IsWindow(hwnd_view), "got %p\n", hwnd_view);
+
+    hwnd_list = subclass_listview(hwnd_view);
+    if (!hwnd_list)
+    {
+        win_skip("Failed to subclass ListView control\n");
+        IShellBrowser_Release(browser);
+        IFolderView2_Release(fv2);
+        destroy_interfaces(desktop, view);
+        return;
+    }
+
+    hr = IFolderView2_GetSelection(fv2, TRUE, NULL);
+    ok(hr == E_INVALIDARG, "GetSelection with NULL array returned %08lx\n", hr);
+
+    SendMessageA(hwnd_list, LVM_SETSELECTIONMARK, 0, -1);
+
+    hr = IFolderView2_GetSelection(fv2, FALSE, &psia);
+    ok(hr == S_OK, "GetSelection(FALSE) returned %08lx\n", hr);
+    ok(psia == NULL, "Expected NULL array, got %p\n", psia);
+
+    hr = IFolderView2_GetSelection(fv2, TRUE, &psia1);
+    ok(hr == S_OK, "GetSelection(TRUE) returned %08lx\n", hr);
+    ok(psia1 != NULL, "Expected non-NULL array\n");
+    if (psia1)
+    {
+        IShellItemArray_Release(psia1);
+    }
+
+    hr = IFolderView2_ItemCount(fv2, SVGIO_ALLVIEW, &itemCount);
+    if (SUCCEEDED(hr) && itemCount > 0)
+    {
+        LVITEMW item = {0};
+        item.state = LVIS_SELECTED;
+        item.stateMask = LVIS_SELECTED;
+        SendMessageW(hwnd_list, LVM_SETITEMSTATE, 0, (LPARAM)&item);
+
+        hr = IFolderView2_GetSelection(fv2, FALSE, &psia2);
+        ok(hr == S_OK, "GetSelection(FALSE) with selection returned %08lx\n", hr);
+        ok(psia2 != NULL, "Expected non-NULL array\n");
+
+        if (psia2)
+        {
+            hr = IShellItemArray_GetCount(psia2, &count);
+            ok(hr == S_OK, "GetCount failed: %08lx\n", hr);
+            ok(count == 1, "Expected 1 selected item, got %lu\n", count);
+            IShellItemArray_Release(psia2);
+        }
+
+        item.state = 0;
+        SendMessageW(hwnd_list, LVM_SETITEMSTATE, 0, (LPARAM)&item);
+    }
+
+    IFolderView2_Release(fv2);
+    IShellView_DestroyViewWindow(view);
+    IShellBrowser_Release(browser);
+    destroy_interfaces(desktop, view);
+}
+
 START_TEST(shlview)
 {
     OleInitialize(NULL);
@@ -1651,6 +1740,7 @@ START_TEST(shlview)
     test_SHCreateShellFolderViewEx();
     test_newmenu();
     test_folder_flags();
+    test_FolderView2_GetSelection();
 
     OleUninitialize();
 }

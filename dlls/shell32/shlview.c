@@ -3032,8 +3032,56 @@ static HRESULT WINAPI FolderView2_GetSelection(IFolderView2 *iface, BOOL none_im
     IShellItemArray **array)
 {
     IShellViewImpl *This = impl_from_IFolderView2(iface);
-    FIXME("(%p)->(%d %p), stub\n", This, none_implies_folder, array);
-    return E_NOTIMPL;
+    HRESULT hr;
+    UINT itemCount;
+    LPITEMIDLIST pidlParent;
+    IShellItem *psi = NULL;
+
+    TRACE("(%p)->(%d %p), stub\n", This, none_implies_folder, array);
+
+    if (!array)
+    {
+        return E_INVALIDARG;
+    }
+
+    *array = NULL;
+    if (!This->hWndList || !This->pSFParent)
+    {
+        return E_FAIL;
+    }
+
+    itemCount = ShellView_GetSelections(This);
+    TRACE("selected items: %d\n", itemCount);
+
+    hr = SHGetIDListFromObject((IUnknown*)This->pSFParent, &pidlParent);
+    if (FAILED(hr))
+    {
+        ERR("SHGetIDListFromObject failed: %#lx\n", hr);
+        return hr;
+    }
+
+    if (itemCount > 0)
+    {
+        hr = SHCreateShellItemArray(pidlParent, This->pSFParent, itemCount,
+                                   (PCUITEMID_CHILD_ARRAY)This->apidl, array);
+    }
+    else if (none_implies_folder)
+    {
+        hr = SHCreateItemFromIDList(pidlParent, &IID_IShellItem, (void**)&psi);
+        if (SUCCEEDED(hr))
+        {
+            hr = SHCreateShellItemArrayFromShellItem(psi, &IID_IShellItemArray, (void**)array);
+            IShellItem_Release(psi);
+        }
+    }
+    else
+    {
+        hr = S_OK;
+    }
+
+    if (pidlParent)
+        ILFree(pidlParent);
+    return hr;
 }
 
 static HRESULT WINAPI FolderView2_GetSelectionState(IFolderView2 *iface, PCUITEMID_CHILD pidl,
