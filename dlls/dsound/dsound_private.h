@@ -44,10 +44,9 @@ typedef struct DirectSoundDevice             DirectSoundDevice;
 
 /* dsound_convert.h */
 typedef float (*bitsgetfunc)(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel);
-typedef void (*bitsputfunc)(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
+typedef void (*bitsputfunc)(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values);
 extern const bitsgetfunc getbpp[5];
 extern const bitsgetfunc getbpp_mono[5];
-void putieee32(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
 void mixieee32(float *src, float *dst, unsigned samples);
 typedef void (*normfunc)(const void *src, void *dst, unsigned samples);
 extern const normfunc normfunctions[4];
@@ -175,14 +174,15 @@ struct IDirectSoundBufferImpl
     struct list entry;
 };
 
-void put_mono2stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
-void put_mono2quad(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
-void put_stereo2quad(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
-void put_mono2surround51(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
-void put_stereo2surround51(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
-void put_surround512stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
-void put_surround712stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
-void put_quad2stereo(const IDirectSoundBufferImpl *dsb, DWORD pos, DWORD channel, float value);
+void putsamples(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *values);
+void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
+void putsamples_mono2quad(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
+void putsamples_stereo2quad(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
+void putsamples_mono2surround51(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
+void putsamples_stereo2surround51(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
+void putsamples_surround512stereo(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
+void putsamples_surround712stereo(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
+void putsamples_quad2stereo(const IDirectSoundBufferImpl *dsb, DWORD channel, DWORD count, float *value);
 
 HRESULT secondarybuffer_create(DirectSoundDevice *device, const DSBUFFERDESC *dsbd,
         IDirectSoundBuffer **buffer);

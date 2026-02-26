@@ -149,7 +149,7 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 		dsb->freqAccNum = (dsb->freqAccNum * dsb->freqAdjustDen + oldFreqAdjustDen / 2) / oldFreqAdjustDen;
 
 	dsb->get = ieee ? getbpp[4] : getbpp[dsb->pwfx->wBitsPerSample/8 - 1];
-	dsb->put = putieee32;
+	dsb->put = putsamples;
 
 	if (ichannels == ochannels)
 	{
@@ -164,11 +164,11 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 		dsb->mix_channels = 1;
 
 		if (ochannels == 2)
-			dsb->put = put_mono2stereo;
+			dsb->put = putsamples_mono2stereo;
 		else if (ochannels == 4)
-			dsb->put = put_mono2quad;
+			dsb->put = putsamples_mono2quad;
 		else if (ochannels == 6)
-			dsb->put = put_mono2surround51;
+			dsb->put = putsamples_mono2surround51;
 	}
 	else if (ochannels == 1)
 	{
@@ -178,27 +178,27 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 	else if (ichannels == 2 && ochannels == 4)
 	{
 		dsb->mix_channels = 2;
-		dsb->put = put_stereo2quad;
+		dsb->put = putsamples_stereo2quad;
 	}
 	else if (ichannels == 2 && ochannels == 6)
 	{
 		dsb->mix_channels = 2;
-		dsb->put = put_stereo2surround51;
+		dsb->put = putsamples_stereo2surround51;
 	}
 	else if (ichannels == 6 && ochannels == 2)
 	{
 		dsb->mix_channels = 6;
-		dsb->put = put_surround512stereo;
+		dsb->put = putsamples_surround512stereo;
 	}
 	else if (ichannels == 8 && ochannels == 2)
 	{
 		dsb->mix_channels = 8;
-		dsb->put = put_surround712stereo;
+		dsb->put = putsamples_surround712stereo;
 	}
 	else if (ichannels == 4 && ochannels == 2)
 	{
 		dsb->mix_channels = 4;
-		dsb->put = put_quad2stereo;
+		dsb->put = putsamples_quad2stereo;
 	}
 	else
 	{
@@ -295,27 +295,43 @@ static inline float get_current_sample(const IDirectSoundBufferImpl *dsb,
 static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, UINT count)
 {
     UINT istride = dsb->pwfx->nBlockAlign;
-    UINT ostride = dsb->device->pwfx->nChannels * sizeof(float);
+    float *intermediate, *itmp;
     UINT committed_samples = 0;
     DWORD channel, i;
 
+    DWORD len = count * dsb->mix_channels;
+    len *= sizeof(float);
+
     if (!secondarybuffer_is_audible(dsb))
         return count;
+
+    if (!dsb->device->cp_buffer) {
+        dsb->device->cp_buffer = malloc(len);
+        dsb->device->cp_buffer_len = len;
+    } else if (len > dsb->device->cp_buffer_len) {
+        dsb->device->cp_buffer = realloc(dsb->device->cp_buffer, len);
+        dsb->device->cp_buffer_len = len;
+    }
+
+    intermediate = dsb->device->cp_buffer;
 
     if(dsb->use_committed) {
         committed_samples = (dsb->writelead - dsb->committed_mixpos) / istride;
         committed_samples = committed_samples <= count ? committed_samples : count;
     }
 
-    for (i = 0; i < committed_samples; i++)
-        for (channel = 0; channel < dsb->mix_channels; channel++)
-            dsb->put(dsb, i * ostride, channel, get_current_sample(dsb, dsb->committedbuff,
-                dsb->writelead, dsb->committed_mixpos + i * istride, channel));
+    itmp = intermediate;
+    for (channel = 0; channel < dsb->mix_channels; channel++) {
+        for (i = 0; i < committed_samples; i++)
+            *(itmp++) = get_current_sample(dsb, dsb->committedbuff,
+                dsb->writelead, dsb->committed_mixpos + i * istride, channel);
+        for (; i < count; i++)
+            *(itmp++) = get_current_sample(dsb, dsb->buffer->memory,
+                    dsb->buflen, dsb->sec_mixpos + i * istride, channel);
+    }
 
-    for (; i < count; i++)
-        for (channel = 0; channel < dsb->mix_channels; channel++)
-            dsb->put(dsb, i * ostride, channel, get_current_sample(dsb, dsb->buffer->memory,
-                dsb->buflen, dsb->sec_mixpos + i * istride, channel));
+    for (channel = 0; channel < dsb->mix_channels; channel++)
+        dsb->put(dsb, channel, count, intermediate + channel * count);
 
     return count;
 }
@@ -760,7 +776,6 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *
 {
     UINT i, channel;
     UINT istride = dsb->pwfx->nBlockAlign;
-    UINT ostride = dsb->device->pwfx->nChannels * sizeof(float);
     UINT committed_samples = 0;
 
     LONG64 freqAcc_start = *freqAccNum;
@@ -817,9 +832,8 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, LONG64 *
                 required_input, count, intermediate + channel * required_input,
                 output + channel * (FIR_WIDTH - 1 + count));
 
-    for(i = 0; i < count; ++i)
-        for (channel = 0; channel < channels; channel++)
-            dsb->put(dsb, i * ostride, channel, output[channel * (FIR_WIDTH - 1 + count) + i]);
+    for (channel = 0; channel < channels; channel++)
+        dsb->put(dsb, channel, count, output + channel * (FIR_WIDTH - 1 + count));
 
     return max_ipos;
 }
@@ -891,8 +905,8 @@ static void DSOUND_MixToTemporary(IDirectSoundBufferImpl *dsb, DWORD frames)
 		dsb->device->tmp_buffer_len = size_bytes;
 		dsb->device->tmp_buffer = realloc(dsb->device->tmp_buffer, size_bytes);
 	}
-	if(dsb->put == put_surround512stereo || dsb->put == put_surround712stereo ||
-	   dsb->put == put_quad2stereo)
+	if(dsb->put == putsamples_surround512stereo || dsb->put == putsamples_surround712stereo ||
+	   dsb->put == putsamples_quad2stereo)
 		memset(dsb->device->tmp_buffer, 0, dsb->device->tmp_buffer_len);
 
 	cp_fields(dsb, frames, &dsb->freqAccNum);
