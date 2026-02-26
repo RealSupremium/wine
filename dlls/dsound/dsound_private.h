@@ -43,7 +43,7 @@ typedef struct IDirectSoundBufferImpl        IDirectSoundBufferImpl;
 typedef struct DirectSoundDevice             DirectSoundDevice;
 
 /* dsound_convert.h */
-typedef void (*bitsgetfunc)(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst);
+typedef void (*bitsgetfunc)(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst);
 typedef void (*bitsputfunc)(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values);
 extern const bitsgetfunc getbpp[5];
 extern const bitsgetfunc getbpp_mono[5];

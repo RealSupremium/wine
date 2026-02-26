@@ -55,24 +55,21 @@ WINE_DEFAULT_DEBUG_CHANNEL(dsound);
 #define le32(x) (x)
 #endif
 
-static float get8(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+static float get8(const IDirectSoundBufferImpl *dsb, BYTE *buf)
 {
-    const BYTE *buf = base + channel;
     return (buf[0] - 0x80) / (float)0x80;
 }
 
-static float get16(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+static float get16(const IDirectSoundBufferImpl *dsb, BYTE *buf)
 {
-    const BYTE *buf = base + 2 * channel;
     const SHORT *sbuf = (const SHORT*)(buf);
     SHORT sample = (SHORT)le16(*sbuf);
     return sample / (float)0x8000;
 }
 
-static float get24(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+static float get24(const IDirectSoundBufferImpl *dsb, BYTE *buf)
 {
     LONG sample;
-    const BYTE *buf = base + 3 * channel;
 
     /* The next expression deliberately has an overflow for buf[2] >= 0x80,
        this is how negative values are made.
@@ -81,65 +78,58 @@ static float get24(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
     return sample / (float)0x80000000U;
 }
 
-static float get32(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+static float get32(const IDirectSoundBufferImpl *dsb, BYTE *buf)
 {
-    const BYTE *buf = base + 4 * channel;
     const LONG *sbuf = (const LONG*)(buf);
     LONG sample = le32(*sbuf);
     return sample / (float)0x80000000U;
 }
 
-static float getieee32(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel)
+static float getieee32(const IDirectSoundBufferImpl *dsb, BYTE *buf)
 {
-    const BYTE *buf = base + 4 * channel;
     const float *sbuf = (const float*)(buf);
     /* The value will be clipped later, when put into some non-float buffer */
     return *sbuf;
 }
 
-static void getsamples8(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamples8(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
-    DWORD channels = dsb->pwfx->nChannels;
     int i;
     for (i = 0; i < count; ++i)
-        dst[i] = get8(dsb, base + i * channels, channel);
+        dst[i] = get8(dsb, base + i);
 }
 
-static void getsamples16(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamples16(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
-    DWORD channels = dsb->pwfx->nChannels;
     int i;
     for (i = 0; i < count; ++i)
-        dst[i] = get16(dsb, base + i * channels * 2, channel);
+        dst[i] = get16(dsb, base + i * 2);
 }
 
-static void getsamples24(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamples24(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
-    DWORD channels = dsb->pwfx->nChannels;
     int i;
     for (i = 0; i < count; ++i)
-        dst[i] = get24(dsb, base + i * channels * 3, channel);
+        dst[i] = get24(dsb, base + i * 3);
 }
 
-static void getsamples32(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamples32(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
-    DWORD channels = dsb->pwfx->nChannels;
     int i;
     for (i = 0; i < count; ++i)
-        dst[i] = get32(dsb, base + i * channels * 4, channel);
+        dst[i] = get32(dsb, base + i * 4);
 }
 
-static void getsamplesieee32(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamplesieee32(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
-    DWORD channels = dsb->pwfx->nChannels;
     int i;
     for (i = 0; i < count; ++i)
-        dst[i] = getieee32(dsb, base + i * channels * 4, channel);
+        dst[i] = getieee32(dsb, base + i * 4);
 }
 
 const bitsgetfunc getbpp[5] = {getsamples8, getsamples16, getsamples24, getsamples32, getsamplesieee32};
 
-static void getsamples8_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamples8_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
     DWORD channels = dsb->pwfx->nChannels;
     DWORD c;
@@ -149,13 +139,13 @@ static void getsamples8_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWOR
         float val = 0;
         /* XXX: does Windows include LFE into the mix? */
         for (c = 0; c < channels; c++)
-            val += get8(dsb, base + i * channels, c);
+            val += get8(dsb, base + i * channels + c);
         val /= channels;
         dst[i] = val;
     }
 }
 
-static void getsamples16_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamples16_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
     DWORD channels = dsb->pwfx->nChannels;
     DWORD c;
@@ -165,13 +155,13 @@ static void getsamples16_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWO
         float val = 0;
         /* XXX: does Windows include LFE into the mix? */
         for (c = 0; c < channels; c++)
-            val += get16(dsb, base + i * channels * 2, c);
+            val += get16(dsb, base + (i * channels + c) * 2);
         val /= channels;
         dst[i] = val;
     }
 }
 
-static void getsamples24_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamples24_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
     DWORD channels = dsb->pwfx->nChannels;
     DWORD c;
@@ -181,13 +171,13 @@ static void getsamples24_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWO
         float val = 0;
         /* XXX: does Windows include LFE into the mix? */
         for (c = 0; c < channels; c++)
-            val += get24(dsb, base + i * channels * 3, c);
+            val += get24(dsb, base + (i * channels + c) * 3);
         val /= channels;
         dst[i] = val;
     }
 }
 
-static void getsamples32_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamples32_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
     DWORD channels = dsb->pwfx->nChannels;
     DWORD c;
@@ -197,13 +187,13 @@ static void getsamples32_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWO
         float val = 0;
         /* XXX: does Windows include LFE into the mix? */
         for (c = 0; c < channels; c++)
-            val += get32(dsb, base + i * channels * 4, c);
+            val += get32(dsb, base + (i * channels + c) * 4);
         val /= channels;
         dst[i] = val;
     }
 }
 
-static void getsamplesieee32_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD channel, DWORD count, float *dst)
+static void getsamplesieee32_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
     DWORD channels = dsb->pwfx->nChannels;
     DWORD c;
@@ -213,7 +203,7 @@ static void getsamplesieee32_mono(const IDirectSoundBufferImpl *dsb, BYTE *base,
         float val = 0;
         /* XXX: does Windows include LFE into the mix? */
         for (c = 0; c < channels; c++)
-            val += getieee32(dsb, base + i * channels * 4, c);
+            val += getieee32(dsb, base + (i * channels + c) * 4);
         val /= channels;
         dst[i] = val;
     }

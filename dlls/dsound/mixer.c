@@ -296,14 +296,14 @@ void DSOUND_CheckEvent(const IDirectSoundBufferImpl *dsb, DWORD playpos, int len
 }
 
 static inline void get_samples(const IDirectSoundBufferImpl *dsb, BYTE *buffer, DWORD buflen,
-        DWORD mixpos, DWORD channel, DWORD count, float *dst)
+        DWORD mixpos, DWORD count, float *dst)
 {
-    UINT istride = dsb->pwfx->nBlockAlign;
+    UINT istride = dsb->pwfx->wBitsPerSample / 8;
     DWORD advance;
     DWORD pos = 0;
 
     advance = min((buflen - mixpos) / istride, count);
-    dsb->get(dsb, buffer + mixpos, channel, advance, dst);
+    dsb->get(dsb, buffer + mixpos, advance, dst);
     pos += advance;
 
     if (!(dsb->playflags & DSBPLAY_LOOPING)) {
@@ -313,19 +313,37 @@ static inline void get_samples(const IDirectSoundBufferImpl *dsb, BYTE *buffer, 
 
     while (pos < count) {
         advance = min(buflen / istride, count - pos);
-        dsb->get(dsb, buffer, channel, advance, dst + pos);
+        dsb->get(dsb, buffer, advance, dst + pos);
         pos += advance;
+    }
+}
+
+static void transpose(int width, int height, int input_pitch, float *input, float *output)
+{
+    float *in = input;
+    float *out = output;
+    float *in_column_end = input + height * input_pitch;
+    float *in_end = input + width;
+    for (;;) {
+        *out = *in;
+        ++out;
+        in += input_pitch;
+        if (in < in_column_end)
+            continue;
+        in -= height * input_pitch - 1;
+        if (in >= in_end)
+            break;
     }
 }
 
 static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, float *buffer, float *vols, UINT count)
 {
+    float *intermediate, *intermediate_transposed;
     UINT istride = dsb->pwfx->nBlockAlign;
     UINT committed_samples = 0;
-    float *intermediate;
-    DWORD channel;
+    UINT channel;
 
-    DWORD len = count * dsb->mix_channels;
+    DWORD len = 2 * count * dsb->mix_channels;
     len *= sizeof(float);
 
     if (!secondarybuffer_is_audible(dsb))
@@ -340,25 +358,26 @@ static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, float *buffer, flo
     }
 
     intermediate = dsb->device->cp_buffer;
+    intermediate_transposed = intermediate + count * dsb->mix_channels;
 
     if(dsb->use_committed) {
         committed_samples = (dsb->writelead - dsb->committed_mixpos) / istride;
         committed_samples = committed_samples <= count ? committed_samples : count;
     }
 
-    for (channel = 0; channel < dsb->mix_channels; channel++)
-    {
-        get_samples(dsb, dsb->committedbuff, dsb->writelead, dsb->committed_mixpos, channel,
-                committed_samples, intermediate + channel * count);
-        if (count > committed_samples)
-            get_samples(dsb, dsb->buffer->memory, dsb->buflen,
-                    dsb->sec_mixpos + committed_samples * istride, channel,
-                    count - committed_samples, intermediate + channel * count + committed_samples);
-    }
+    get_samples(dsb, dsb->committedbuff, dsb->writelead, dsb->committed_mixpos,
+            committed_samples * dsb->mix_channels, intermediate);
+    if (count > committed_samples)
+        get_samples(dsb, dsb->buffer->memory, dsb->buflen,
+                dsb->sec_mixpos + committed_samples * istride,
+                (count - committed_samples) * dsb->mix_channels,
+                intermediate + committed_samples * dsb->mix_channels);
+
+    transpose(dsb->mix_channels, count, dsb->mix_channels, intermediate, intermediate_transposed);
 
     for (channel = 0; channel < dsb->mix_channels; channel++)
         dsb->put(dsb, (BYTE *)buffer, vols[channel], channel, count,
-                intermediate + channel * count);
+                intermediate_transposed + channel * count);
 
     return count;
 }
@@ -814,9 +833,9 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, float *buffer, float
     UINT required_input = max(
             (freqAcc_start + (count - 1) * dsb->freqAdjustNum) / dsb->freqAdjustDen + FIR_WIDTH,
             (freqAcc_start + (count - 1 + FIR_WIDTH) * dsb->freqAdjustNum) / dsb->freqAdjustDen);
-    float *intermediate, *output;
+    float *intermediate, *intermediate_transposed, *output;
 
-    DWORD len = required_input * channels;
+    DWORD len = 2 * required_input * channels;
     len += FIR_WIDTH - 1 + (count + FIR_WIDTH - 1) * channels;
     len *= sizeof(float);
 
@@ -834,31 +853,34 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, float *buffer, float
     }
 
     intermediate = dsb->device->cp_buffer;
-    output = intermediate + required_input * channels + FIR_WIDTH - 1;
+    intermediate_transposed = intermediate + required_input * channels;
+    output = intermediate_transposed + required_input * channels + FIR_WIDTH - 1;
 
     if(dsb->use_committed) {
         committed_samples = (dsb->writelead - dsb->committed_mixpos) / istride;
         committed_samples = committed_samples <= required_input ? committed_samples : required_input;
     }
 
-    /* Important: this buffer MUST be non-interleaved
-     * if you want -msse3 to have any effect.
-     * This is good for CPU cache effects, too.
-     */
-    for (channel = 0; channel < channels; channel++) {
-        get_samples(dsb, dsb->committedbuff, dsb->writelead, dsb->committed_mixpos, channel,
-                committed_samples, intermediate + channel * required_input);
-        if (required_input > committed_samples)
-            get_samples(dsb, dsb->buffer->memory, dsb->buflen,
-                    dsb->sec_mixpos + committed_samples * istride, channel,
-                    required_input - committed_samples,
-                    intermediate + channel * required_input + committed_samples);
-    }
+    get_samples(dsb, dsb->committedbuff, dsb->writelead, dsb->committed_mixpos,
+            committed_samples * channels, intermediate);
+    if (required_input > committed_samples)
+        get_samples(dsb, dsb->buffer->memory, dsb->buflen,
+                dsb->sec_mixpos + committed_samples * istride,
+                (required_input - committed_samples) * channels,
+                intermediate + committed_samples * channels);
 
-    for (channel = 0; channel < channels; channel++)
+    if (channels == 1) {
         resample(dsb->freqAdjustNum, dsb->freqAdjustDen, freqAcc_start, dsb->firgain,
-                required_input, count, intermediate + channel * required_input,
-                output + channel * (FIR_WIDTH - 1 + count));
+                required_input, count, intermediate, output);
+    } else {
+        transpose(channels, required_input, channels, intermediate, intermediate_transposed);
+        for (channel = 0; channel < channels; ++channel) {
+            float *channel_intermediate = intermediate_transposed + channel * required_input;
+            float *channel_output = output + channel * (count + FIR_WIDTH - 1);
+            resample(dsb->freqAdjustNum, dsb->freqAdjustDen, freqAcc_start, dsb->firgain,
+                    required_input, count, channel_intermediate, channel_output);
+        }
+    }
 
     for (channel = 0; channel < channels; channel++)
         dsb->put(dsb, (BYTE *)buffer, vols[channel], channel, count,
