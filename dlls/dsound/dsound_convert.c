@@ -253,283 +253,214 @@ static void putieee32(const IDirectSoundBufferImpl *dsb, BYTE *buf, DWORD pos, D
     *fbuf += value;
 }
 
-void putsamples(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
-    DWORD channels = dsb->device->pwfx->nChannels;
+    DWORD channels = dsb->mix_channels;
+    DWORD c;
     int i;
-    for (i = 0; i < count; ++i)
-        putieee32(dsb, buf, i * channels * sizeof(float), channel, values[i] * volume);
+    for (i = 0; i < count / channels; ++i)
+        for (c = 0; c < channels; ++c)
+            putieee32(dsb, buf, i * channels * sizeof(float), c, values[i] * volumes[c]);
 }
 
-void putsamples_mono(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_mono(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
     int i;
     for (i = 0; i < count; ++i)
-        putieee32(dsb, buf, i * sizeof(float), channel, values[i] * volume);
+        putieee32(dsb, buf, i * sizeof(float), 0, values[i] * volume0);
 }
 
-void putsamples_stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
     int i;
-    for (i = 0; i < count; ++i)
-        putieee32(dsb, buf, i * 2 * sizeof(float), channel, values[i] * volume);
+    for (i = 0; i < count / 2; ++i) {
+        putieee32(dsb, buf, i * 2 * sizeof(float), 0, values[i * 2 + 0] * volume0);
+        putieee32(dsb, buf, i * 2 * sizeof(float), 1, values[i * 2 + 1] * volume1);
+    }
 }
 
-void putsamples_quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
+    float volume2 = volumes[2];
+    float volume3 = volumes[3];
     int i;
-    for (i = 0; i < count; ++i)
-        putieee32(dsb, buf, i * 4 * sizeof(float), channel, values[i] * volume);
+    for (i = 0; i < count / 4; ++i) {
+        putieee32(dsb, buf, i * 4 * sizeof(float), 0, values[i * 4 + 0] * volume0);
+        putieee32(dsb, buf, i * 4 * sizeof(float), 1, values[i * 4 + 1] * volume1);
+        putieee32(dsb, buf, i * 4 * sizeof(float), 2, values[i * 4 + 2] * volume2);
+        putieee32(dsb, buf, i * 4 * sizeof(float), 3, values[i * 4 + 3] * volume3);
+    }
 }
 
-void putsamples_surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
+    float volume2 = volumes[2];
+    float volume3 = volumes[3];
+    float volume4 = volumes[4];
+    float volume5 = volumes[5];
     int i;
-    for (i = 0; i < count; ++i)
-        putieee32(dsb, buf, i * 6 * sizeof(float), channel, values[i] * volume);
+    for (i = 0; i < count / 6; ++i) {
+        putieee32(dsb, buf, i * 6 * sizeof(float), 0, values[i * 6 + 0] * volume0);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 1, values[i * 6 + 1] * volume1);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 2, values[i * 6 + 2] * volume2);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 3, values[i * 6 + 3] * volume3);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 4, values[i * 6 + 4] * volume4);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 5, values[i * 6 + 5] * volume5);
+    }
 }
 
-void putsamples_surround71(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_surround71(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
+    float volume2 = volumes[2];
+    float volume3 = volumes[3];
+    float volume4 = volumes[4];
+    float volume5 = volumes[5];
+    float volume6 = volumes[6];
+    float volume7 = volumes[7];
     int i;
-    for (i = 0; i < count; ++i)
-        putieee32(dsb, buf, i * 8 * sizeof(float), channel, values[i] * volume);
+    for (i = 0; i < count / 8; ++i) {
+        putieee32(dsb, buf, i * sizeof(float), 0, values[i * 8 + 0] * volume0);
+        putieee32(dsb, buf, i * sizeof(float), 1, values[i * 8 + 1] * volume1);
+        putieee32(dsb, buf, i * sizeof(float), 2, values[i * 8 + 2] * volume2);
+        putieee32(dsb, buf, i * sizeof(float), 3, values[i * 8 + 3] * volume3);
+        putieee32(dsb, buf, i * sizeof(float), 4, values[i * 8 + 4] * volume4);
+        putieee32(dsb, buf, i * sizeof(float), 5, values[i * 8 + 5] * volume5);
+        putieee32(dsb, buf, i * sizeof(float), 6, values[i * 8 + 6] * volume6);
+        putieee32(dsb, buf, i * sizeof(float), 7, values[i * 8 + 7] * volume7);
+    }
 }
 
-void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
     int i;
     for (i = 0; i < count; ++i)
     {
-        putieee32(dsb, buf, i * 2 * sizeof(float), 0, values[i] * volume);
-        putieee32(dsb, buf, i * 2 * sizeof(float), 1, values[i] * volume);
+        putieee32(dsb, buf, i * 2 * sizeof(float), 0, values[i] * volume0);
+        putieee32(dsb, buf, i * 2 * sizeof(float), 1, values[i] * volume1);
     }
 }
 
-void putsamples_mono2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_mono2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
+    float volume2 = volumes[2];
+    float volume3 = volumes[3];
     int i;
     for (i = 0; i < count; ++i)
     {
-        putieee32(dsb, buf, i * 4 * sizeof(float), 0, values[i] * volume);
-        putieee32(dsb, buf, i * 4 * sizeof(float), 1, values[i] * volume);
-        putieee32(dsb, buf, i * 4 * sizeof(float), 2, values[i] * volume);
-        putieee32(dsb, buf, i * 4 * sizeof(float), 3, values[i] * volume);
+        putieee32(dsb, buf, i * 4 * sizeof(float), 0, values[i] * volume0);
+        putieee32(dsb, buf, i * 4 * sizeof(float), 1, values[i] * volume1);
+        putieee32(dsb, buf, i * 4 * sizeof(float), 2, values[i] * volume2);
+        putieee32(dsb, buf, i * 4 * sizeof(float), 3, values[i] * volume3);
     }
 }
 
-void putsamples_stereo2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_stereo2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
+    float volume2 = volumes[2];
+    float volume3 = volumes[3];
     int i;
-    if (channel == 0) { /* Left */
-        for (i = 0; i < count; ++i)
-        {
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, values[i] * volume); /* Front left */
-            putieee32(dsb, buf, i * 2 * sizeof(float), 2, values[i] * volume); /* Back left */
-        }
-    } else if (channel == 1) { /* Right */
-        for (i = 0; i < count; ++i)
-        {
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, values[i] * volume); /* Front right */
-            putieee32(dsb, buf, i * 2 * sizeof(float), 3, values[i] * volume); /* Back right */
-        }
+    for (i = 0; i < count / 2; ++i)
+    {
+        putieee32(dsb, buf, i * 4 * sizeof(float), 0, values[i * 2 + 0] * volume0); /* Front left */
+        putieee32(dsb, buf, i * 4 * sizeof(float), 1, values[i * 2 + 1] * volume1); /* Front right */
+        putieee32(dsb, buf, i * 4 * sizeof(float), 2, values[i * 2 + 0] * volume2); /* Back left */
+        putieee32(dsb, buf, i * 4 * sizeof(float), 3, values[i * 2 + 1] * volume3); /* Back right */
     }
 }
 
-void putsamples_mono2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_mono2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
+    float volume2 = volumes[2];
+    float volume3 = volumes[3];
+    float volume4 = volumes[4];
+    float volume5 = volumes[5];
     int i;
     for (i = 0; i < count; ++i)
     {
-        putieee32(dsb, buf, i * 6 * sizeof(float), 0, values[i] * volume);
-        putieee32(dsb, buf, i * 6 * sizeof(float), 1, values[i] * volume);
-        putieee32(dsb, buf, i * 6 * sizeof(float), 2, values[i] * volume);
-        putieee32(dsb, buf, i * 6 * sizeof(float), 3, values[i] * volume);
-        putieee32(dsb, buf, i * 6 * sizeof(float), 4, values[i] * volume);
-        putieee32(dsb, buf, i * 6 * sizeof(float), 5, values[i] * volume);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 0, values[i] * volume0);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 1, values[i] * volume1);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 2, values[i] * volume2);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 3, values[i] * volume3);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 4, values[i] * volume4);
+        putieee32(dsb, buf, i * 6 * sizeof(float), 5, values[i] * volume5);
     }
 }
 
-void putsamples_stereo2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_stereo2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
+    float volume4 = volumes[4];
+    float volume5 = volumes[5];
     int i;
-    if (channel == 0) { /* Left */
-        for (i = 0; i < count; ++i)
-        {
-            putieee32(dsb, buf, i * 6 * sizeof(float), 0, values[i] * volume); /* Front left */
-            putieee32(dsb, buf, i * 6 * sizeof(float), 4, values[i] * volume); /* Back left */
-
-            putieee32(dsb, buf, i * 6 * sizeof(float), 2, 0.0f); /* Mute front centre */
-            putieee32(dsb, buf, i * 6 * sizeof(float), 3, 0.0f); /* Mute LFE */
-        }
-    } else if (channel == 1) { /* Right */
-        for (i = 0; i < count; ++i)
-        {
-            putieee32(dsb, buf, i * 6 * sizeof(float), 1, values[i] * volume); /* Front right */
-            putieee32(dsb, buf, i * 6 * sizeof(float), 5, values[i] * volume); /* Back right */
-        }
+    for (i = 0; i < count / 2; ++i)
+    {
+        putieee32(dsb, buf, i * 6 * sizeof(float), 0, values[i * 2 + 0] * volume0); /* Front left */
+        putieee32(dsb, buf, i * 6 * sizeof(float), 1, values[i * 2 + 1] * volume1); /* Front right */
+        putieee32(dsb, buf, i * 6 * sizeof(float), 4, values[i * 2 + 0] * volume4); /* Back left */
+        putieee32(dsb, buf, i * 6 * sizeof(float), 5, values[i * 2 + 1] * volume5); /* Back right */
     }
 }
 
-void putsamples_surround512stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_surround512stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
     int i;
     /* based on analyzing a recording of a dsound downmix */
-    switch(channel){
-
-    case 4: /* surround left */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.24f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-        }
-        break;
-
-    case 0: /* front left */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (1.0f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-        }
-        break;
-
-    case 5: /* surround right */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.24f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
-
-    case 1: /* front right */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (1.0f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
-
-    case 2: /* centre */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.7 * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
-
-    case 3:
-        /* LFE is totally ignored in dsound when downmixing to 2 channels */
-        break;
+    for (i = 0; i < count / 6; ++i)
+    {
+        float left = values[i * 6 + 0] + values[i * 6 + 2] * 0.7f + values[i * 6 + 4] * 0.24f;
+        float right = values[i * 6 + 1] + values[i * 6 + 2] * 0.7f + values[i * 6 + 5] * 0.24f;
+        putieee32(dsb, buf, i * 2 * sizeof(float), 0, left * volume0);
+        putieee32(dsb, buf, i * 2 * sizeof(float), 1, right * volume1);
     }
 }
 
-void putsamples_surround712stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_surround712stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
     int i;
     /* based on analyzing a recording of a dsound downmix */
-    switch(channel){
-
-    case 6: /* back left */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.24f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-        }
-        break;
-
-    case 4: /* surround left */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.24f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-        }
-        break;
-
-    case 0: /* front left */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (1.0f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-        }
-        break;
-
-    case 7: /* back right */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.24f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
-
-    case 5: /* surround right */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.24f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
-
-    case 1: /* front right */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (1.0f * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
-
-    case 2: /* centre */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.7 * volume);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
-
-    case 3:
-        /* LFE is totally ignored in dsound when downmixing to 2 channels */
-        break;
+    for (i = 0; i < count / 8; ++i)
+    {
+        float left = values[i * 8 + 0] + values[i * 8 + 2] * 0.7f + values[i * 8 + 4] * 0.24f + values[i * 8 + 6] * 0.24f;
+        float right = values[i * 8 + 1] + values[i * 8 + 2] * 0.7f + values[i * 8 + 5] * 0.24f + values[i * 8 + 7] * 0.24f;
+        putieee32(dsb, buf, i * 2 * sizeof(float), 0, left * volume0);
+        putieee32(dsb, buf, i * 2 * sizeof(float), 1, right * volume1);
     }
 }
 
-void putsamples_quad2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values)
+void putsamples_quad2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
+    float volume0 = volumes[0];
+    float volume1 = volumes[1];
     int i;
     /* based on pulseaudio's downmix algorithm */
-    switch(channel){
-
-    case 2: /* back left */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.1f * volume); /* (1/9) / (sum of left volumes) */
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-        }
-        break;
-
-    case 0: /* front left */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.9f * volume); /* 1 / (sum of left volumes) */
-            putieee32(dsb, buf, i * 2 * sizeof(float), 0, value);
-        }
-        break;
-
-    case 3: /* back right */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.1f * volume); /* (1/9) / (sum of right volumes) */
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
-
-    case 1: /* front right */
-        for (i = 0; i < count; ++i)
-        {
-            float value = values[i] * (0.9f * volume); /* 1 / (sum of right volumes) */
-            putieee32(dsb, buf, i * 2 * sizeof(float), 1, value);
-        }
-        break;
+    for (i = 0; i < count / 4; ++i)
+    {
+        float left = values[i * 4 + 0] * 0.9f + values[i * 4 + 2] * 0.1f;
+        float right = values[i * 4 + 1] * 0.9f + values[i * 4 + 3] * 0.1f;
+        putieee32(dsb, buf, i * 2 * sizeof(float), 0, left * volume0);
+        putieee32(dsb, buf, i * 2 * sizeof(float), 1, right * volume1);
     }
 }
 

@@ -44,7 +44,7 @@ typedef struct DirectSoundDevice             DirectSoundDevice;
 
 /* dsound_convert.h */
 typedef void (*bitsgetfunc)(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst);
-typedef void (*bitsputfunc)(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values);
+typedef void (*bitsputfunc)(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
 extern const bitsgetfunc getbpp[5];
 extern const bitsgetfunc getbpp_mono[5];
 void mixieee32(float *src, float *dst, unsigned samples);
@@ -174,20 +174,20 @@ struct IDirectSoundBufferImpl
     struct list entry;
 };
 
-void putsamples(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values);
-void putsamples_mono(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values);
-void putsamples_stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values);
-void putsamples_quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values);
-void putsamples_surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values);
-void putsamples_surround71(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *values);
-void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *value);
-void putsamples_mono2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *value);
-void putsamples_stereo2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *value);
-void putsamples_mono2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *value);
-void putsamples_stereo2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *value);
-void putsamples_surround512stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *value);
-void putsamples_surround712stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *value);
-void putsamples_quad2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float volume, DWORD channel, DWORD count, float *value);
+void putsamples(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+void putsamples_mono(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+void putsamples_stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+void putsamples_quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+void putsamples_surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+void putsamples_surround71(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+void putsamples_mono2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+void putsamples_stereo2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+void putsamples_mono2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+void putsamples_stereo2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+void putsamples_surround512stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+void putsamples_surround712stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+void putsamples_quad2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
 
 HRESULT secondarybuffer_create(DirectSoundDevice *device, const DSBUFFERDESC *dsbd,
         IDirectSoundBuffer **buffer);
