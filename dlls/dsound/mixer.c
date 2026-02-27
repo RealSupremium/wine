@@ -55,6 +55,7 @@ static const float __attribute__((used, aligned(32))) one[] =
 
 #ifdef __i386__
 static BOOL sse_supported;
+static BOOL sse2_supported;
 static BOOL fma_supported;
 #endif
 
@@ -150,6 +151,11 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 
 	dsb->get = ieee ? getbpp[4] : getbpp[dsb->pwfx->wBitsPerSample/8 - 1];
 	dsb->put = putsamples;
+
+#ifdef __i386__
+	if (sse2_supported)
+		dsb->get = ieee ? getbpp_sse2[4] : getbpp_sse2[dsb->pwfx->wBitsPerSample/8 - 1];
+#endif
 
 	if (ochannels == 1)
 		dsb->put = putsamples_mono;
@@ -1721,6 +1727,7 @@ DWORD CALLBACK DSOUND_mixthread(void *p)
 
 #ifdef __i386__
 	sse_supported = IsProcessorFeaturePresent(PF_XMMI_INSTRUCTIONS_AVAILABLE);
+	sse2_supported = IsProcessorFeaturePresent(PF_XMMI64_INSTRUCTIONS_AVAILABLE);
 	if (IsProcessorFeaturePresent(PF_AVX_INSTRUCTIONS_AVAILABLE)) {
 		int regs[4];
 		__cpuid(regs, 1);

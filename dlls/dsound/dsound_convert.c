@@ -42,6 +42,7 @@
 #include "winbase.h"
 #include "mmsystem.h"
 #include "wine/debug.h"
+#include "wine/asm.h"
 #include "dsound.h"
 #include "dsound_private.h"
 
@@ -54,6 +55,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(dsound);
 #define le16(x) (x)
 #define le32(x) (x)
 #endif
+
+static const float __attribute__((used)) get16_factor = 1.0f / 0x8000;
 
 static float get8(const IDirectSoundBufferImpl *dsb, BYTE *buf)
 {
@@ -99,6 +102,44 @@ static void getsamples8(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD cou
         dst[i] = get8(dsb, base + i);
 }
 
+#ifdef __i386__
+
+void getsamples16_sse2(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst);
+__ASM_GLOBAL_FUNC( getsamples16_sse2,
+        "movss " __ASM_NAME("get16_factor") ", %xmm0\n\t"
+        "shufps $0, %xmm0, %xmm0\n\t"
+
+        "movl 0x08(%esp), %eax\n\t"
+
+        "movl 0x0c(%esp), %ecx\n\t"
+        "leal (%eax,%ecx,2), %ecx\n\t"
+
+        "movl 0x10(%esp), %edx\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"getsamples16_sse2.L2:\n\t"
+        "movdqu (%eax), %xmm1\n\t"
+        "addl $16, %eax\n\t"
+        "addl $32, %edx\n\t"
+        "movdqa %xmm1, %xmm2\n\t"
+        "movdqa %xmm1, %xmm3\n\t"
+        "psraw $15, %xmm1\n\t"
+        "punpcklwd %xmm1, %xmm2\n\t"
+        "punpckhwd %xmm1, %xmm3\n\t"
+        "cvtdq2ps %xmm2, %xmm2\n\t"
+        "cvtdq2ps %xmm3, %xmm3\n\t"
+        "mulps %xmm0, %xmm2\n\t"
+        "mulps %xmm0, %xmm3\n\t"
+        "movups %xmm2, -32(%edx)\n\t"
+        "movups %xmm3, -16(%edx)\n\t"
+        "cmpl %ecx, %eax\n\t"
+        "jl getsamples16_sse2.L2\n\t"
+
+        "ret" )
+
+#endif
+
 static void getsamples16(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {
     int i;
@@ -128,6 +169,9 @@ static void getsamplesieee32(const IDirectSoundBufferImpl *dsb, BYTE *base, DWOR
 }
 
 const bitsgetfunc getbpp[5] = {getsamples8, getsamples16, getsamples24, getsamples32, getsamplesieee32};
+#ifdef __i386__
+const bitsgetfunc getbpp_sse2[5] = {getsamples8, getsamples16_sse2, getsamples24, getsamples32, getsamplesieee32};
+#endif
 
 static void getsamples8_mono(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst)
 {

@@ -46,6 +46,9 @@ typedef struct DirectSoundDevice             DirectSoundDevice;
 typedef void (*bitsgetfunc)(const IDirectSoundBufferImpl *dsb, BYTE *base, DWORD count, float *dst);
 typedef void (*bitsputfunc)(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
 extern const bitsgetfunc getbpp[5];
+#ifdef __i386__
+extern const bitsgetfunc getbpp_sse2[5];
+#endif
 extern const bitsgetfunc getbpp_mono[5];
 void mixieee32(float *src, float *dst, unsigned samples);
 typedef void (*normfunc)(const void *src, void *dst, unsigned samples);
