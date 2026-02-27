@@ -378,9 +378,9 @@ static UINT cp_fields_noresample(IDirectSoundBufferImpl *dsb, float *buffer, flo
 
 #ifdef __i386__
 
-void downsample_fma(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
+void downsample_mono_fma(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
         UINT required_input, float *input, float *output);
-__ASM_GLOBAL_FUNC( downsample_fma,
+__ASM_GLOBAL_FUNC( downsample_mono_fma,
         "pushl %ebx\n\t"
         __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
         "pushl %ebp\n\t"
@@ -410,7 +410,7 @@ __ASM_GLOBAL_FUNC( downsample_fma,
 
         ".p2align 4,,10\n\t"
         ".p2align 3\n\t"
-"downsample_fma.L3:\n\t"
+"downsample_mono_fma.L3:\n\t"
         "movl %ebx, %ecx\n\t"
         "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
         "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
@@ -435,21 +435,21 @@ __ASM_GLOBAL_FUNC( downsample_fma,
 
         ".p2align 4,,10\n\t"
         ".p2align 3\n\t"
-"downsample_fma.L2:\n\t"
+"downsample_mono_fma.L2:\n\t"
         "vmulps (%eax,%ecx), %ymm2, %ymm4\n\t"
         "vfmadd231ps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %ymm3, %ymm4\n\t"
         "vaddps (%eax,%edi,4), %ymm4, %ymm4\n\t"
         "vmovups %ymm4, (%eax,%edi,4)\n\t"
         "addl $32, %eax\n\t"
         "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
-        "jl downsample_fma.L2\n\t"
+        "jl downsample_mono_fma.L2\n\t"
 
         "subl %edx, %ebx\n\t"
         "adcl $0, %edi\n\t"
 
         "addl $4, %esi\n\t"
         "cmpl %ebp, %esi\n\t"
-        "jl downsample_fma.L3\n\t"
+        "jl downsample_mono_fma.L3\n\t"
 
         "vzeroupper\n\t"
 
@@ -463,9 +463,9 @@ __ASM_GLOBAL_FUNC( downsample_fma,
         __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
         "ret" )
 
-void downsample_sse(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
+void downsample_mono_sse(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
         UINT required_input, float *input, float *output);
-__ASM_GLOBAL_FUNC( downsample_sse,
+__ASM_GLOBAL_FUNC( downsample_mono_sse,
         "pushl %ebx\n\t"
         __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
         "pushl %ebp\n\t"
@@ -497,7 +497,7 @@ __ASM_GLOBAL_FUNC( downsample_sse,
 
         ".p2align 4,,10\n\t"
         ".p2align 3\n\t"
-"downsample_sse.L3:\n\t"
+"downsample_mono_sse.L3:\n\t"
         "movl %ebx, %ecx\n\t"
         "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
         "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
@@ -521,7 +521,7 @@ __ASM_GLOBAL_FUNC( downsample_sse,
 
         ".p2align 4,,10\n\t"
         ".p2align 3\n\t"
-"downsample_sse.L2:\n\t"
+"downsample_mono_sse.L2:\n\t"
         "movups (%eax,%edi,4), %xmm6\n\t"
         "movaps (%eax,%ecx), %xmm4\n\t"
         "movaps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %xmm5\n\t"
@@ -532,14 +532,14 @@ __ASM_GLOBAL_FUNC( downsample_sse,
         "movups %xmm6, (%eax,%edi,4)\n\t"
         "addl $16, %eax\n\t"
         "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
-        "jl downsample_sse.L2\n\t"
+        "jl downsample_mono_sse.L2\n\t"
 
         "subl %edx, %ebx\n\t"
         "adcl $0, %edi\n\t"
 
         "addl $4, %esi\n\t"
         "cmpl %ebp, %esi\n\t"
-        "jl downsample_sse.L3\n\t"
+        "jl downsample_mono_sse.L3\n\t"
 
         "popl %edi\n\t"
         __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
@@ -553,7 +553,7 @@ __ASM_GLOBAL_FUNC( downsample_sse,
 
 #endif
 
-static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
+static void downsample_mono(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
         UINT required_input, float *input, float *output)
 {
     int j;
@@ -578,9 +578,228 @@ static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgai
 
 #ifdef __i386__
 
-void upsample_fma(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+void downsample_stereo_fma(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
+        UINT required_input, float *input, float *output);
+__ASM_GLOBAL_FUNC( downsample_stereo_fma,
+        "pushl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+
+        "movl 0x14(%esp), %edx\n\t"
+
+        "vmovss 0x1c(%esp), %xmm1\n\t"
+        "vmovss " __ASM_NAME("rem_den_rcp") ", %xmm0\n\t"
+        "vmulss %xmm1, %xmm0, %xmm0\n\t"
+
+        "movl 0x28(%esp), %edi\n\t"
+        "shrl $3, %edi\n\t"
+        "movl 0x14(%esp), %ebx\n\t"
+        "subl 0x18(%esp), %ebx\n\t"
+        "subl $1, %ebx\n\t"
+        "sbbl $" EXPAND_STR(FIR_WIDTH - 1) ", %edi\n\t"
+        "notl %ebx\n\t"
+        "shll $3, %edi\n\t"
+
+        "movl 0x24(%esp), %esi\n\t"
+        "movl 0x20(%esp), %eax\n\t"
+        "leal (%esi,%eax,4), %ebp\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"downsample_stereo_fma.L3:\n\t"
+        "movl %ebx, %ecx\n\t"
+        "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
+        "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
+        "leal " __ASM_NAME("fir") "(,%ecx,4), %ecx\n\t"
+
+        "movl %ebx, %eax\n\t"
+        "shll $" EXPAND_STR(FIR_STEP_SHIFT) ", %eax\n\t"
+        "shrl %eax\n\t"
+        "vcvtsi2ss %eax, %xmm3, %xmm3\n\t"
+        "vmulss %xmm0, %xmm3, %xmm3\n\t"
+        "vsubss %xmm3, %xmm1, %xmm2\n\t"
+        "vshufps $0, %xmm2, %xmm2, %xmm2\n\t"
+        "vshufps $0, %xmm3, %xmm3, %xmm3\n\t"
+        "vinsertf128 $1, %xmm2, %ymm2, %ymm2\n\t"
+        "vinsertf128 $1, %xmm3, %ymm3, %ymm3\n\t"
+
+        "vmovlps (%esi), %xmm7, %xmm7\n\t"
+        "vmovlhps %xmm7, %xmm7, %xmm7\n\t"
+        "vinsertf128 $1, %xmm7, %ymm7, %ymm7\n\t"
+
+        "xorl %eax, %eax\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"downsample_stereo_fma.L2:\n\t"
+        "vmulps (%eax,%ecx), %ymm2, %ymm4\n\t"
+        "vfmadd231ps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %ymm3, %ymm4\n\t"
+        "vunpckhps %ymm4, %ymm4, %ymm5\n\t"
+        "vunpcklps %ymm4, %ymm4, %ymm4\n\t"
+        "vinsertf128 $1, %xmm5, %ymm4, %ymm6\n\t"
+        "vfmadd213ps (%edi,%eax,2), %ymm7, %ymm6\n\t"
+        "vmovups %ymm6, (%edi,%eax,2)\n\t"
+        "vextractf128 $1, %ymm4, %xmm4\n\t"
+        "vinsertf128 $0, %xmm4, %ymm5, %ymm6\n\t"
+        "vfmadd213ps 32(%edi,%eax,2), %ymm7, %ymm6\n\t"
+        "vmovups %ymm6, 32(%edi,%eax,2)\n\t"
+        "addl $32, %eax\n\t"
+        "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
+        "jl downsample_stereo_fma.L2\n\t"
+
+        "subl %edx, %ebx\n\t"
+        "adcl $7, %edi\n\t"
+        "andl $0xfffffff8, %edi\n\t"
+
+        "addl $8, %esi\n\t"
+        "cmpl %ebp, %esi\n\t"
+        "jl downsample_stereo_fma.L3\n\t"
+
+        "vzeroupper\n\t"
+
+        "popl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "ret" )
+
+void downsample_stereo_sse(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
+        UINT required_input, float *input, float *output);
+__ASM_GLOBAL_FUNC( downsample_stereo_sse,
+        "pushl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+
+        "movl 0x14(%esp), %edx\n\t"
+
+        "movss 0x1c(%esp), %xmm1\n\t"
+        "shufps $0, %xmm1, %xmm1\n\t"
+        "movss " __ASM_NAME("rem_den_rcp") ", %xmm0\n\t"
+        "mulss %xmm1, %xmm0\n\t"
+        "shufps $0, %xmm0, %xmm0\n\t"
+
+        "movl 0x28(%esp), %edi\n\t"
+        "shrl $3, %edi\n\t"
+        "movl 0x14(%esp), %ebx\n\t"
+        "subl 0x18(%esp), %ebx\n\t"
+        "subl $1, %ebx\n\t"
+        "sbbl $" EXPAND_STR(FIR_WIDTH - 1) ", %edi\n\t"
+        "shll $3, %edi\n\t"
+        "notl %ebx\n\t"
+
+        "movl 0x24(%esp), %esi\n\t"
+        "movl 0x20(%esp), %eax\n\t"
+        "leal (%esi,%eax,4), %ebp\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"downsample_stereo_sse.L3:\n\t"
+        "movl %ebx, %ecx\n\t"
+        "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
+        "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
+        "leal " __ASM_NAME("fir") "(,%ecx,4), %ecx\n\t"
+
+        "movl %ebx, %eax\n\t"
+        "shll $" EXPAND_STR(FIR_STEP_SHIFT) ", %eax\n\t"
+        "shrl %eax\n\t"
+        "cvtsi2ssl %eax, %xmm3\n\t"
+        "mulss %xmm0, %xmm3\n\t"
+        "shufps $0, %xmm3, %xmm3\n\t"
+        "movups %xmm1, %xmm2\n\t"
+        "subps %xmm3, %xmm2\n\t"
+
+        "movlps (%esi), %xmm7\n\t"
+        "movlhps %xmm7, %xmm7\n\t"
+
+        "xorl %eax, %eax\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"downsample_stereo_sse.L2:\n\t"
+        "movups (%edi,%eax,2), %xmm6\n\t"
+        "movaps (%eax,%ecx), %xmm4\n\t"
+        "movaps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %xmm5\n\t"
+        "mulps %xmm2, %xmm4\n\t"
+        "mulps %xmm3, %xmm5\n\t"
+        "addps %xmm4, %xmm5\n\t"
+        "movups %xmm5, %xmm4\n\t"
+        "unpcklps %xmm5, %xmm5\n\t"
+        "mulps %xmm7, %xmm5\n\t"
+        "addps %xmm6, %xmm5\n\t"
+        "movups 16(%edi,%eax,2), %xmm6\n\t"
+        "movups %xmm5, (%edi,%eax,2)\n\t"
+        "unpckhps %xmm4, %xmm4\n\t"
+        "mulps %xmm7, %xmm4\n\t"
+        "addps %xmm6, %xmm4\n\t"
+        "movups %xmm4, 16(%edi,%eax,2)\n\t"
+        "addl $16, %eax\n\t"
+        "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
+        "jl downsample_stereo_sse.L2\n\t"
+
+        "subl %edx, %ebx\n\t"
+        "adcl $7, %edi\n\t"
+        "andl $0xfffffff8, %edi\n\t"
+
+        "addl $8, %esi\n\t"
+        "cmpl %ebp, %esi\n\t"
+        "jl downsample_stereo_sse.L3\n\t"
+
+        "popl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "ret" )
+
+#endif
+
+static void downsample_stereo(DWORD freq_adjust_den, DWORD freq_acc_start, float firgain,
+        UINT required_input, float *input, float *output)
+{
+    int j;
+
+    for (j = 0; j < required_input / 2; ++j) {
+        LONG64 opos_num = freq_adjust_den - freq_acc_start + j * (LONG64)freq_adjust_den + ~0u;
+        int opos = (int)(opos_num >> 32) - FIR_WIDTH;
+
+        UINT idx = ~(DWORD)opos_num >> (32 - FIR_STEP_SHIFT) << FIR_WIDTH_SHIFT;
+        int rem_num = ~(DWORD)opos_num << FIR_STEP_SHIFT >> 1;
+        float rem = rem_num * (1.0f / (1ll << 31));
+
+        float left = input[j * 2 + 0] * firgain;
+        float right = input[j * 2 + 1] * firgain;
+
+        UINT i;
+        for (i = 0; i < FIR_WIDTH; ++i) {
+            float fir_value = fir[idx + i] * (1.0f - rem) + fir[idx + FIR_WIDTH + i] * rem;
+            output[(opos + i) * 2 + 0] += fir_value * left;
+            output[(opos + i) * 2 + 1] += fir_value * right;
+        }
+    }
+}
+
+#ifdef __i386__
+
+void upsample_mono_fma(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
         float *output);
-__ASM_GLOBAL_FUNC( upsample_fma,
+__ASM_GLOBAL_FUNC( upsample_mono_fma,
         "pushl %ebx\n\t"
         __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
         "pushl %ebp\n\t"
@@ -605,7 +824,7 @@ __ASM_GLOBAL_FUNC( upsample_fma,
 
         ".p2align 4,,10\n\t"
         ".p2align 3\n\t"
-"upsample_fma.L3:\n\t"
+"upsample_mono_fma.L3:\n\t"
         "movl %ebx, %ecx\n\t"
         "notl %ecx\n\t"
         "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
@@ -626,13 +845,13 @@ __ASM_GLOBAL_FUNC( upsample_fma,
 
         ".p2align 4,,10\n\t"
         ".p2align 3\n\t"
-"upsample_fma.L2:\n\t"
+"upsample_mono_fma.L2:\n\t"
         "vmulps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %ymm3, %ymm4\n\t"
         "vfmadd231ps (%eax,%ecx), %ymm2, %ymm4\n\t"
         "vfmadd231ps (%eax,%esi,4), %ymm4, %ymm5\n\t"
         "addl $32, %eax\n\t"
         "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
-        "jl upsample_fma.L2\n\t"
+        "jl upsample_mono_fma.L2\n\t"
 
         "addl %edx, %ebx\n\t"
         "adcl $0, %esi\n\t"
@@ -647,7 +866,7 @@ __ASM_GLOBAL_FUNC( upsample_fma,
 
         "addl $4, %edi\n\t"
         "cmpl %ebp, %edi\n\t"
-        "jl upsample_fma.L3\n\t"
+        "jl upsample_mono_fma.L3\n\t"
 
         "vzeroupper\n\t"
 
@@ -661,9 +880,9 @@ __ASM_GLOBAL_FUNC( upsample_fma,
         __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
         "ret" )
 
-void upsample_sse(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+void upsample_mono_sse(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
         float *output);
-__ASM_GLOBAL_FUNC(upsample_sse,
+__ASM_GLOBAL_FUNC(upsample_mono_sse,
         "pushl %ebx\n\t"
         __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
         "pushl %ebp\n\t"
@@ -688,7 +907,7 @@ __ASM_GLOBAL_FUNC(upsample_sse,
 
         ".p2align 4,,10\n\t"
         ".p2align 3\n\t"
-"upsample_sse.L3:\n\t"
+"upsample_mono_sse.L3:\n\t"
         "movl %ebx, %ecx\n\t"
         "notl %ecx\n\t"
         "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
@@ -709,7 +928,7 @@ __ASM_GLOBAL_FUNC(upsample_sse,
 
         ".p2align 4,,10\n\t"
         ".p2align 3\n\t"
-"upsample_sse.L2:\n\t"
+"upsample_mono_sse.L2:\n\t"
         "movaps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %xmm4\n\t"
         "movaps (%eax,%ecx), %xmm5\n\t"
         "movups (%eax,%esi,4), %xmm6\n\t"
@@ -720,7 +939,7 @@ __ASM_GLOBAL_FUNC(upsample_sse,
         "mulps %xmm6, %xmm5\n\t"
         "addps %xmm5, %xmm7\n\t"
         "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
-        "jl upsample_sse.L2\n\t"
+        "jl upsample_mono_sse.L2\n\t"
 
         "addl %edx, %ebx\n\t"
         "adcl $0, %esi\n\t"
@@ -734,7 +953,7 @@ __ASM_GLOBAL_FUNC(upsample_sse,
 
         "addl $4, %edi\n\t"
         "cmpl %ebp, %edi\n\t"
-        "jl upsample_sse.L3\n\t"
+        "jl upsample_mono_sse.L3\n\t"
 
         "popl %edi\n\t"
         __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
@@ -748,7 +967,7 @@ __ASM_GLOBAL_FUNC(upsample_sse,
 
 #endif
 
-static void upsample(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+static void upsample_mono(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
         float *output)
 {
     UINT i;
@@ -772,7 +991,215 @@ static void upsample(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, fl
     }
 }
 
-static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq_acc_start,
+#ifdef __i386__
+
+void upsample_stereo_fma(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+        float *output);
+__ASM_GLOBAL_FUNC(upsample_stereo_fma,
+        "pushl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+
+        "vmovss " __ASM_NAME("rem_den_rcp") ", %xmm0\n\t"
+        "vmovaps " __ASM_NAME("one") ", %ymm1\n\t"
+
+        "movl 0x14(%esp), %edx\n\t"
+
+        "movl 0x18(%esp), %ebx\n\t"
+        "movl 0x20(%esp), %esi\n\t"
+
+        "movl 0x24(%esp), %edi\n\t"
+        "movl 0x1c(%esp), %eax\n\t"
+        "leal (%edi,%eax,4), %ebp\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"upsample_stereo_fma.L3:\n\t"
+        "movl %ebx, %ecx\n\t"
+        "notl %ecx\n\t"
+        "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
+        "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
+        "leal " __ASM_NAME("fir") "(,%ecx,4), %ecx\n\t"
+
+        "movl %ebx, %eax\n\t"
+        "shll $" EXPAND_STR(FIR_STEP_SHIFT) ", %eax\n\t"
+        "shrl %eax\n\t"
+        "vcvtsi2ss %eax, %xmm2, %xmm2\n\t"
+        "vmulss %xmm0, %xmm2, %xmm2\n\t"
+        "vshufps $0, %xmm2, %xmm2, %xmm2\n\t"
+        "vinsertf128 $1, %xmm2, %ymm2, %ymm2\n\t"
+        "vsubps %ymm2, %ymm1, %ymm3\n\t"
+
+        "xorl %eax, %eax\n\t"
+        "vxorps %xmm7, %xmm7, %xmm7\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"upsample_stereo_fma.L2:\n\t"
+        "vmulps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %ymm3, %ymm4\n\t"
+        "vfmadd231ps (%eax,%ecx), %ymm2, %ymm4\n\t"
+        "vunpckhps %ymm4, %ymm4, %ymm5\n\t"
+        "vunpcklps %ymm4, %ymm4, %ymm4\n\t"
+        "vinsertf128 $1, %xmm5, %ymm4, %ymm6\n\t"
+        "vfmadd231ps (%esi,%eax,2), %ymm6, %ymm7\n\t"
+        "vextractf128 $1, %ymm4, %xmm4\n\t"
+        "vinsertf128 $0, %xmm4, %ymm5, %ymm6\n\t"
+        "vfmadd231ps 32(%esi,%eax,2), %ymm6, %ymm7\n\t"
+        "addl $32, %eax\n\t"
+        "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
+        "jl upsample_stereo_fma.L2\n\t"
+
+        "addl %edx, %ebx\n\t"
+        "adcl $7, %esi\n\t"
+        "andl $0xfffffff8, %esi\n\t"
+
+        "vextractf128 $1, %ymm7, %xmm6\n\t"
+        "vaddps %xmm6, %xmm7, %xmm7\n\t"
+        "vmovhlps %xmm7, %xmm7, %xmm6\n\t"
+        "vaddps %xmm7, %xmm6, %xmm6\n\t"
+        "vmovlps %xmm6, (%edi)\n\t"
+
+        "addl $8, %edi\n\t"
+        "cmpl %ebp, %edi\n\t"
+        "jl upsample_stereo_fma.L3\n\t"
+
+        "vzeroupper\n\t"
+
+        "popl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "ret")
+
+void upsample_stereo_sse(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+        float *output);
+__ASM_GLOBAL_FUNC(upsample_stereo_sse,
+        "pushl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+        "pushl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
+
+        "movss " __ASM_NAME("rem_den_rcp") ", %xmm0\n\t"
+        "movaps " __ASM_NAME("one") ", %xmm1\n\t"
+
+        "movl 0x14(%esp), %edx\n\t"
+
+        "movl 0x18(%esp), %ebx\n\t"
+        "movl 0x20(%esp), %esi\n\t"
+
+        "movl 0x24(%esp), %edi\n\t"
+        "movl 0x1c(%esp), %eax\n\t"
+        "leal (%edi,%eax,4), %ebp\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"upsample_stereo_sse.L3:\n\t"
+        "movl %ebx, %ecx\n\t"
+        "notl %ecx\n\t"
+        "shrl $(32 - " EXPAND_STR(FIR_STEP_SHIFT) "), %ecx\n\t"
+        "shll $" EXPAND_STR(FIR_WIDTH_SHIFT) ", %ecx\n\t"
+        "leal " __ASM_NAME("fir") "(,%ecx,4), %ecx\n\t"
+
+        "movl %ebx, %eax\n\t"
+        "shll $" EXPAND_STR(FIR_STEP_SHIFT) ", %eax\n\t"
+        "shrl %eax\n\t"
+        "cvtsi2ssl %eax, %xmm2\n\t"
+        "mulss %xmm0, %xmm2\n\t"
+        "shufps $0, %xmm2, %xmm2\n\t"
+        "movups %xmm1, %xmm3\n\t"
+        "subps %xmm2, %xmm3\n\t"
+
+        "xorl %eax, %eax\n\t"
+        "xorps %xmm7, %xmm7\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"upsample_stereo_sse.L2:\n\t"
+        "movaps " EXPAND_STR(FIR_WIDTH * 4) "(%eax,%ecx), %xmm4\n\t"
+        "movaps (%eax,%ecx), %xmm5\n\t"
+        "movups (%esi,%eax,2), %xmm6\n\t"
+        "mulps %xmm3, %xmm4\n\t"
+        "mulps %xmm2, %xmm5\n\t"
+        "addps %xmm4, %xmm5\n\t"
+        "movups %xmm5, %xmm4\n\t"
+        "unpcklps %xmm5, %xmm5\n\t"
+        "mulps %xmm6, %xmm5\n\t"
+        "addps %xmm5, %xmm7\n\t"
+        "movups 16(%esi,%eax,2), %xmm6\n\t"
+        "addl $16, %eax\n\t"
+        "unpckhps %xmm4, %xmm4\n\t"
+        "mulps %xmm6, %xmm4\n\t"
+        "addps %xmm4, %xmm7\n\t"
+        "cmpl $" EXPAND_STR(FIR_WIDTH * 4) ", %eax\n\t"
+        "jl upsample_stereo_sse.L2\n\t"
+
+        "addl %edx, %ebx\n\t"
+        "adcl $7, %esi\n\t"
+        "andl $0xfffffff8, %esi\n\t"
+
+        "movhlps %xmm7, %xmm6\n\t"
+        "addps %xmm7, %xmm6\n\t"
+        "movlps %xmm6, (%edi)\n\t"
+
+        "addl $8, %edi\n\t"
+        "cmpl %ebp, %edi\n\t"
+        "jl upsample_stereo_sse.L3\n\t"
+
+        "popl %edi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %esi\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebp\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "popl %ebx\n\t"
+        __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+        "ret")
+
+#endif
+
+static void upsample_stereo(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, float *input,
+        float *output)
+{
+    UINT i;
+
+    for(i = 0; i < count / 2; ++i) {
+        LONG64 ipos_num = freq_acc_start + i * (LONG64)freq_adjust_num;
+        UINT ipos = ipos_num >> 32;
+
+        UINT idx = ~(DWORD)ipos_num >> (32 - FIR_STEP_SHIFT) << FIR_WIDTH_SHIFT;
+        int rem_num = (DWORD)ipos_num << FIR_STEP_SHIFT >> 1;
+        float rem_inv = rem_num * (1.0f / (1ll << 31));
+        float rem = 1.0f - rem_inv;
+
+        int j;
+        float sum_left = 0.0;
+        float sum_right = 0.0;
+        float* cache = &input[ipos * 2];
+
+        for (j = 0; j < FIR_WIDTH; j++) {
+            float fir_value = fir[idx + j] * rem_inv + fir[idx + j + FIR_WIDTH] * rem;
+            sum_left += fir_value * cache[j * 2 + 0];
+            sum_right += fir_value * cache[j * 2 + 1];
+        }
+        output[i * 2 + 0] = sum_left;
+        output[i * 2 + 1] = sum_right;
+    }
+}
+
+static void resample_mono(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq_acc_start,
         float firgain, UINT required_input, UINT count, float *input, float *output)
 {
     if (freq_adjust_num > freq_adjust_den) {
@@ -782,17 +1209,17 @@ static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq
         memset(output, 0, count * sizeof(float));
 #ifdef __i386__
         if (fma_supported) {
-            downsample_fma(freq_adjust_fixed_den, freq_acc_fixed_start, firgain, required_input,
-                    input, output);
+            downsample_mono_fma(freq_adjust_fixed_den, freq_acc_fixed_start, firgain,
+                    required_input, input, output);
             return;
         }
         if (sse_supported) {
-            downsample_sse(freq_adjust_fixed_den, freq_acc_fixed_start, firgain, required_input,
-                    input, output);
+            downsample_mono_sse(freq_adjust_fixed_den, freq_acc_fixed_start, firgain,
+                    required_input, input, output);
             return;
         }
 #endif
-        downsample(freq_adjust_fixed_den, freq_acc_fixed_start, firgain, required_input, input,
+        downsample_mono(freq_adjust_fixed_den, freq_acc_fixed_start, firgain, required_input, input,
                 output);
     } else {
         DWORD freq_adjust_fixed_num = (freq_adjust_num << 32) / freq_adjust_den;
@@ -800,15 +1227,55 @@ static void resample(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq
 
 #ifdef __i386__
         if (fma_supported) {
-            upsample_fma(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
+            upsample_mono_fma(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
             return;
         }
         if (sse_supported) {
-            upsample_sse(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
+            upsample_mono_sse(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
             return;
         }
 #endif
-        upsample(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
+        upsample_mono(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
+    }
+}
+
+static void resample_stereo(LONG64 freq_adjust_num, LONG64 freq_adjust_den, LONG64 freq_acc_start,
+        float firgain, UINT required_input, UINT count, float *input, float *output)
+{
+    if (freq_adjust_num > freq_adjust_den) {
+        DWORD freq_adjust_fixed_den = (freq_adjust_den << 32) / freq_adjust_num;
+        DWORD freq_acc_fixed_start = freq_acc_start * freq_adjust_fixed_den / freq_adjust_den;
+
+        memset(output, 0, count * sizeof(float));
+#ifdef __i386__
+        if (fma_supported) {
+            downsample_stereo_fma(freq_adjust_fixed_den, freq_acc_fixed_start, firgain,
+                    required_input, input, output);
+            return;
+        }
+        if (sse_supported) {
+            downsample_stereo_sse(freq_adjust_fixed_den, freq_acc_fixed_start, firgain,
+                    required_input, input, output);
+            return;
+        }
+#endif
+        downsample_stereo(freq_adjust_fixed_den, freq_acc_fixed_start, firgain, required_input, input,
+                output);
+    } else {
+        DWORD freq_adjust_fixed_num = (freq_adjust_num << 32) / freq_adjust_den;
+        DWORD freq_acc_fixed_start = (freq_acc_start << 32) / freq_adjust_den;
+
+#ifdef __i386__
+        if (fma_supported) {
+            upsample_stereo_fma(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
+            return;
+        }
+        if (sse_supported) {
+            upsample_stereo_sse(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
+            return;
+        }
+#endif
+        upsample_stereo(freq_adjust_fixed_num, freq_acc_fixed_start, count, input, output);
     }
 }
 
@@ -865,14 +1332,17 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, float *buffer, float
                 intermediate + committed_samples * channels);
 
     if (channels == 1) {
-        resample(dsb->freqAdjustNum, dsb->freqAdjustDen, freqAcc_start, dsb->firgain,
+        resample_mono(dsb->freqAdjustNum, dsb->freqAdjustDen, freqAcc_start, dsb->firgain,
                 required_input, count, intermediate, output);
+    } else if (channels == 2) {
+        resample_stereo(dsb->freqAdjustNum, dsb->freqAdjustDen, freqAcc_start,
+                dsb->firgain, required_input * 2, count * 2, intermediate, output);
     } else {
         transpose(channels, required_input, channels, intermediate, intermediate_transposed);
         for (channel = 0; channel < channels; ++channel) {
             float *channel_intermediate = intermediate_transposed + channel * required_input;
             float *channel_output = output_transposed + channel * (count + FIR_WIDTH - 1);
-            resample(dsb->freqAdjustNum, dsb->freqAdjustDen, freqAcc_start, dsb->firgain,
+            resample_mono(dsb->freqAdjustNum, dsb->freqAdjustDen, freqAcc_start, dsb->firgain,
                     required_input, count, channel_intermediate, channel_output);
         }
         transpose(count, channels, count + FIR_WIDTH - 1, output_transposed, output);
