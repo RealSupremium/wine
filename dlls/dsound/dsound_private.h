@@ -179,6 +179,9 @@ struct IDirectSoundBufferImpl
 
 void putsamples(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
 void putsamples_mono(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+#ifdef __i386__
+void putsamples_stereo_sse(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+#endif
 void putsamples_stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
 void putsamples_quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
 void putsamples_surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);

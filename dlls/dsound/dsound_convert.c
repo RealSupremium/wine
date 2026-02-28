@@ -315,6 +315,67 @@ void putsamples_mono(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volume
         putieee32(dsb, buf, i * sizeof(float), 0, values[i] * volume0);
 }
 
+#ifdef __i386__
+
+void putsamples_stereo_sse(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+__ASM_GLOBAL_FUNC( putsamples_stereo_sse,
+        "movl 0x08(%esp), %eax\n\t"
+
+        "movl 0x0c(%esp), %ecx\n\t"
+        "movlps (%ecx), %xmm0\n\t"
+        "movlhps %xmm0, %xmm0\n\t"
+
+        "movl 0x10(%esp), %ecx\n\t"
+        "movl 0x14(%esp), %edx\n\t"
+        "leal (%edx,%ecx,4), %ecx\n\t"
+
+        "subl $16, %ecx\n\t"
+        "cmpl %ecx, %edx\n\t"
+        "jg putsamples_stereo_sse.L3\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"putsamples_stereo_sse.L2:\n\t"
+        "movups (%edx), %xmm1\n\t"
+        "movups (%eax), %xmm2\n\t"
+        "addl $16, %eax\n\t"
+        "addl $16, %edx\n\t"
+        "mulps %xmm0, %xmm1\n\t"
+        "addps %xmm1, %xmm2\n\t"
+        "movups %xmm2, -16(%eax)\n\t"
+        "cmpl %ecx, %edx\n\t"
+        "jle putsamples_stereo_sse.L2\n\t"
+
+"putsamples_stereo_sse.L3:\n\t"
+        "subl %edx, %ecx\n\t"
+        "test $8, %ecx\n\t"
+        "jz putsamples_stereo_sse.L4\n\t"
+
+        "xorps %xmm1, %xmm1\n\t"
+        "xorps %xmm2, %xmm2\n\t"
+        "movlps (%edx), %xmm1\n\t"
+        "movlps (%eax), %xmm2\n\t"
+        "addl $8, %eax\n\t"
+        "addl $8, %edx\n\t"
+        "mulps %xmm0, %xmm1\n\t"
+        "addps %xmm1, %xmm2\n\t"
+        "movlps %xmm2, -8(%eax)\n\t"
+
+"putsamples_stereo_sse.L4:\n\t"
+        "test $4, %ecx\n\t"
+        "jz putsamples_stereo_sse.L5\n\t"
+
+        "movss (%edx), %xmm1\n\t"
+        "movss (%eax), %xmm2\n\t"
+        "mulss %xmm0, %xmm1\n\t"
+        "addss %xmm1, %xmm2\n\t"
+        "movss %xmm2, (%eax)\n\t"
+
+"putsamples_stereo_sse.L5:\n\t"
+        "ret" )
+
+#endif
+
 void putsamples_stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
     float volume0 = volumes[0];

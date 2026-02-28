@@ -159,9 +159,13 @@ void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb)
 
 	if (ochannels == 1)
 		dsb->put = putsamples_mono;
-	else if (ochannels == 2)
+	else if (ochannels == 2) {
 		dsb->put = putsamples_stereo;
-	else if (ochannels == 4)
+#ifdef __i386__
+		if (sse_supported)
+			dsb->put = putsamples_stereo_sse;
+#endif
+	} else if (ochannels == 4)
 		dsb->put = putsamples_quad;
 	else if (ochannels == 6)
 		dsb->put = putsamples_surround51;
