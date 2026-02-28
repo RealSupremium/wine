@@ -444,6 +444,76 @@ void putsamples_surround71(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *
     }
 }
 
+#ifdef __i386__
+
+void putsamples_mono2stereo_sse(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
+__ASM_GLOBAL_FUNC( putsamples_mono2stereo_sse,
+        "movl 0x08(%esp), %eax\n\t"
+
+        "movl 0x0c(%esp), %ecx\n\t"
+        "movlps (%ecx), %xmm0\n\t"
+        "movlhps %xmm0, %xmm0\n\t"
+
+        "movl 0x10(%esp), %ecx\n\t"
+        "movl 0x14(%esp), %edx\n\t"
+        "leal (%edx,%ecx,4), %ecx\n\t"
+
+        "subl $16, %ecx\n\t"
+        "cmpl %ecx, %edx\n\t"
+        "jg putsamples_mono2stereo_sse.L3\n\t"
+
+        ".p2align 4,,10\n\t"
+        ".p2align 3\n\t"
+"putsamples_mono2stereo_sse.L2:\n\t"
+        "movups (%edx), %xmm1\n\t"
+        "movups (%eax), %xmm3\n\t"
+        "movups 16(%eax), %xmm4\n\t"
+        "addl $32, %eax\n\t"
+        "addl $16, %edx\n\t"
+        "movups %xmm1, %xmm2\n\t"
+        "unpcklps %xmm1, %xmm1\n\t"
+        "unpckhps %xmm2, %xmm2\n\t"
+        "mulps %xmm0, %xmm1\n\t"
+        "mulps %xmm0, %xmm2\n\t"
+        "addps %xmm1, %xmm3\n\t"
+        "addps %xmm2, %xmm4\n\t"
+        "movups %xmm3, -32(%eax)\n\t"
+        "movups %xmm4, -16(%eax)\n\t"
+        "cmpl %ecx, %edx\n\t"
+        "jle putsamples_mono2stereo_sse.L2\n\t"
+
+"putsamples_mono2stereo_sse.L3:\n\t"
+        "subl %edx, %ecx\n\t"
+        "test $8, %ecx\n\t"
+        "jz putsamples_mono2stereo_sse.L4\n\t"
+
+        "xorps %xmm1, %xmm1\n\t"
+        "movlps (%edx), %xmm1\n\t"
+        "movups (%eax), %xmm3\n\t"
+        "addl $16, %eax\n\t"
+        "addl $8, %edx\n\t"
+        "unpcklps %xmm1, %xmm1\n\t"
+        "mulps %xmm0, %xmm1\n\t"
+        "addps %xmm1, %xmm3\n\t"
+        "movups %xmm3, -16(%eax)\n\t"
+
+"putsamples_mono2stereo_sse.L4:\n\t"
+        "test $4, %ecx\n\t"
+        "jz putsamples_mono2stereo_sse.L5\n\t"
+
+        "xorps %xmm3, %xmm3\n\t"
+        "movss (%edx), %xmm1\n\t"
+        "movlps (%eax), %xmm3\n\t"
+        "unpcklps %xmm1, %xmm1\n\t"
+        "mulps %xmm0, %xmm1\n\t"
+        "addps %xmm1, %xmm3\n\t"
+        "movlps %xmm3, (%eax)\n\t"
+
+"putsamples_mono2stereo_sse.L5:\n\t"
+        "ret" )
+
+#endif
+
 void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values)
 {
     float volume0 = volumes[0];

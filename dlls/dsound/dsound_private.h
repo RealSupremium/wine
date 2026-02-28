@@ -187,6 +187,9 @@ void putsamples_quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volume
 void putsamples_surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
 void putsamples_surround71(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *values);
 void putsamples_mono2stereo(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+#ifdef __i386__
+void putsamples_mono2stereo_sse(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
+#endif
 void putsamples_mono2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
 void putsamples_stereo2quad(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
 void putsamples_mono2surround51(const IDirectSoundBufferImpl *dsb, BYTE *buf, float *volumes, DWORD count, float *value);
