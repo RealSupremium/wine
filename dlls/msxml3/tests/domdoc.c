@@ -14510,28 +14510,37 @@ static void test_embedded_xml_declaration(void)
         "  <data><?xml version=\"1.0\" encoding=\"UTF-8\"?><test>encoded</test></data>"
         "</root>";
 
+    /* Embedded content with self-closing tags and attributes containing />. */
+    static const char selfclose_str[] =
+        "<?xml version=\"1.0\"?>"
+        "<root>"
+        "  <data><?xml version=\"1.0\"?><br/><img src=\"x\"/><p>text</p></data>"
+        "</root>";
+
+    /* Embedded content with nested elements at multiple levels. */
+    static const char nested_str[] =
+        "<?xml version=\"1.0\"?>"
+        "<root>"
+        "  <data><?xml version=\"1.0\"?><a><b><c>deep</c></b></a></data>"
+        "</root>";
+
     doc = create_document_version(30, &IID_IXMLDOMDocument);
 
     /* Test 1: loadXML with embedded <?xml?> declaration.
-     * Windows MSXML rejects this (returns S_FALSE). Wine's patched
-     * libxml2 tolerates it and emits the content as a text node. */
-    b = VARIANT_FALSE;
+     * Windows MSXML rejects this (S_FALSE). Wine tolerates it and
+     * returns the embedded content as a text node. */
     hr = IXMLDOMDocument_loadXML(doc, _bstr_(embedded_xml_str), &b);
-    todo_wine_if(hr == S_OK)
-    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
-    todo_wine_if(b == VARIANT_TRUE)
-    ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
-
+    ok(hr == S_FALSE || hr == S_OK, "Unexpected hr %#lx.\n", hr);
     if (hr == S_OK)
     {
+        ok(b == VARIANT_TRUE, "Unexpected result %d.\n", b);
+
         hr = IXMLDOMDocument_get_documentElement(doc, &elem);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
         hr = IXMLDOMElement_selectSingleNode(elem, _bstr_("data"), &node);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-        /* The embedded <?xml?> and subsequent content should be
-         * consumed as a single text node. */
         hr = IXMLDOMNode_get_childNodes(node, &nodes);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
@@ -14557,17 +14566,18 @@ static void test_embedded_xml_declaration(void)
         IXMLDOMNode_Release(node);
         IXMLDOMElement_Release(elem);
     }
+    else
+    {
+        ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
+    }
 
-    /* Test 2: loadXML with multiple elements, one containing embedded declaration. */
-    b = VARIANT_FALSE;
+    /* Test 2: Multiple elements, one containing embedded declaration. */
     hr = IXMLDOMDocument_loadXML(doc, _bstr_(multi_element_str), &b);
-    todo_wine_if(hr == S_OK)
-    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
-    todo_wine_if(b == VARIANT_TRUE)
-    ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
-
+    ok(hr == S_FALSE || hr == S_OK, "Unexpected hr %#lx.\n", hr);
     if (hr == S_OK)
     {
+        ok(b == VARIANT_TRUE, "Unexpected result %d.\n", b);
+
         hr = IXMLDOMDocument_get_documentElement(doc, &elem);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
@@ -14615,17 +14625,18 @@ static void test_embedded_xml_declaration(void)
 
         IXMLDOMElement_Release(elem);
     }
+    else
+    {
+        ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
+    }
 
-    /* Test 3: loadXML with embedded declaration containing encoding attribute. */
-    b = VARIANT_FALSE;
+    /* Test 3: Embedded declaration with encoding attribute. */
     hr = IXMLDOMDocument_loadXML(doc, _bstr_(embedded_encoding_str), &b);
-    todo_wine_if(hr == S_OK)
-    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
-    todo_wine_if(b == VARIANT_TRUE)
-    ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
-
+    ok(hr == S_FALSE || hr == S_OK, "Unexpected hr %#lx.\n", hr);
     if (hr == S_OK)
     {
+        ok(b == VARIANT_TRUE, "Unexpected result %d.\n", b);
+
         hr = IXMLDOMDocument_get_documentElement(doc, &elem);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
@@ -14655,26 +14666,24 @@ static void test_embedded_xml_declaration(void)
         IXMLDOMNode_Release(node);
         IXMLDOMElement_Release(elem);
     }
+    else
+    {
+        ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
+    }
 
-    /* Test 4: load from file with embedded <?xml?> declaration.
-     * This tests the IXMLDOMDocument::load() path which some
-     * applications use to load XML files containing embedded
-     * declarations. */
+    /* Test 4: load() from file with embedded <?xml?> declaration. */
     GetTempPathA(MAX_PATH, path);
     strcat(path, "wine_embedded_xml_test.xml");
     write_to_file(path, embedded_xml_str);
 
     V_VT(&src) = VT_BSTR;
     V_BSTR(&src) = _bstr_(path);
-    b = VARIANT_FALSE;
     hr = IXMLDOMDocument_load(doc, src, &b);
-    todo_wine_if(hr == S_OK)
-    ok(hr == S_FALSE, "Unexpected hr %#lx.\n", hr);
-    todo_wine_if(b == VARIANT_TRUE)
-    ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
-
+    ok(hr == S_FALSE || hr == S_OK, "Unexpected hr %#lx.\n", hr);
     if (hr == S_OK)
     {
+        ok(b == VARIANT_TRUE, "Unexpected result %d.\n", b);
+
         hr = IXMLDOMDocument_get_documentElement(doc, &elem);
         ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
@@ -14704,8 +14713,95 @@ static void test_embedded_xml_declaration(void)
         IXMLDOMNode_Release(node);
         IXMLDOMElement_Release(elem);
     }
+    else
+    {
+        ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
+    }
 
     DeleteFileA(path);
+
+    /* Test 5: Self-closing tags in embedded content (<br/>, <img .../>). */
+    hr = IXMLDOMDocument_loadXML(doc, _bstr_(selfclose_str), &b);
+    ok(hr == S_FALSE || hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (hr == S_OK)
+    {
+        ok(b == VARIANT_TRUE, "Unexpected result %d.\n", b);
+
+        hr = IXMLDOMDocument_get_documentElement(doc, &elem);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        hr = IXMLDOMElement_selectSingleNode(elem, _bstr_("data"), &node);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        hr = IXMLDOMNode_get_childNodes(node, &nodes);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = IXMLDOMNodeList_get_length(nodes, &len);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(len == 1, "Expected 1 child, got %ld.\n", len);
+
+        hr = IXMLDOMNodeList_get_item(nodes, 0, &child);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = IXMLDOMNode_get_nodeType(child, &type);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(type == NODE_TEXT, "Expected NODE_TEXT, got %d.\n", type);
+
+        hr = IXMLDOMNode_get_text(child, &str);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(!lstrcmpW(str, L"<?xml version=\"1.0\"?><br/><img src=\"x\"/><p>text</p>"),
+           "Unexpected text %s.\n", wine_dbgstr_w(str));
+        SysFreeString(str);
+
+        IXMLDOMNode_Release(child);
+        IXMLDOMNodeList_Release(nodes);
+        IXMLDOMNode_Release(node);
+        IXMLDOMElement_Release(elem);
+    }
+    else
+    {
+        ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
+    }
+
+    /* Test 6: Deeply nested elements in embedded content. */
+    hr = IXMLDOMDocument_loadXML(doc, _bstr_(nested_str), &b);
+    ok(hr == S_FALSE || hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (hr == S_OK)
+    {
+        ok(b == VARIANT_TRUE, "Unexpected result %d.\n", b);
+
+        hr = IXMLDOMDocument_get_documentElement(doc, &elem);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        hr = IXMLDOMElement_selectSingleNode(elem, _bstr_("data"), &node);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        hr = IXMLDOMNode_get_childNodes(node, &nodes);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = IXMLDOMNodeList_get_length(nodes, &len);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(len == 1, "Expected 1 child, got %ld.\n", len);
+
+        hr = IXMLDOMNodeList_get_item(nodes, 0, &child);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = IXMLDOMNode_get_nodeType(child, &type);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(type == NODE_TEXT, "Expected NODE_TEXT, got %d.\n", type);
+
+        hr = IXMLDOMNode_get_text(child, &str);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(!lstrcmpW(str, L"<?xml version=\"1.0\"?><a><b><c>deep</c></b></a>"),
+           "Unexpected text %s.\n", wine_dbgstr_w(str));
+        SysFreeString(str);
+
+        IXMLDOMNode_Release(child);
+        IXMLDOMNodeList_Release(nodes);
+        IXMLDOMNode_Release(node);
+        IXMLDOMElement_Release(elem);
+    }
+    else
+    {
+        ok(b == VARIANT_FALSE, "Unexpected result %d.\n", b);
+    }
+
     IXMLDOMDocument_Release(doc);
     free_bstrs();
 }

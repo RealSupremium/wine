@@ -5376,20 +5376,33 @@ xmlParsePI(xmlParserCtxtPtr ctxt) {
 		memcpy(text, "<?xml", 5);
 		textlen = 5;
 
-		/* Consume everything until parent's close tag, tracking nesting */
+		/* Consume everything until parent's close tag, tracking nesting.
+		 * We track open/close tags to find the correct closing tag of
+		 * the parent element. Attribute values in quotes are skipped
+		 * when scanning for self-closing tags to avoid false matches
+		 * on /> inside attribute values. */
 		while (RAW != 0) {
 		    if (RAW == '<' && NXT(1) == '/') {
 			if (nesting == 0)
 			    break;
 			nesting--;
 		    }
-		    else if (RAW == '<' && NXT(1) != '?' && NXT(1) != '!' && NXT(1) != '/') {
+		    else if (RAW == '<' && NXT(1) != '!' && NXT(1) != '/') {
 			xmlChar c = NXT(1);
 			if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
 			    const xmlChar *p = ctxt->input->cur + 1;
+			    const xmlChar *end = ctxt->input->end;
 			    int is_selfclose = 0;
-			    while (*p && *p != '>') {
-				if (*p == '/' && *(p+1) == '>') {
+			    while (p < end && *p != '>') {
+				/* Skip quoted attribute values to avoid
+				 * false matches on /> inside them */
+				if (*p == '\'' || *p == '"') {
+				    xmlChar q = *p++;
+				    while (p < end && *p != q) p++;
+				    if (p < end) p++;
+				    continue;
+				}
+				if (*p == '/' && (p + 1) < end && *(p+1) == '>') {
 				    is_selfclose = 1;
 				    break;
 				}
@@ -5419,7 +5432,7 @@ xmlParsePI(xmlParserCtxtPtr ctxt) {
 
 		if ((ctxt->sax) && (!ctxt->disableSAX) &&
 		    (ctxt->sax->characters != NULL))
-		    ctxt->sax->characters(ctxt->userData, text, textlen);
+		    ctxt->sax->characters(ctxt->userData, text, (int)textlen);
 
 		xmlFree(text);
 		if (ctxt->instate != XML_PARSER_EOF)
