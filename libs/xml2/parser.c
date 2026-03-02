@@ -5220,6 +5220,11 @@ xmlParsePITarget(xmlParserCtxtPtr ctxt) {
 	int i;
 	if ((name[0] == 'x') && (name[1] == 'm') &&
 	    (name[2] == 'l') && (name[3] == 0)) {
+	    if (ctxt->nodeNr > 0) {
+		/* Wine: tolerate embedded XML declarations inside elements,
+		 * content consumption is handled in xmlParsePI. */
+		return(name);
+	    }
 	    xmlFatalErrMsg(ctxt, XML_ERR_RESERVED_XML_NAME,
 		 "XML declaration allowed only at the start of the document\n");
 	    return(name);
@@ -5345,6 +5350,82 @@ xmlParsePI(xmlParserCtxtPtr ctxt) {
 	 */
         target = xmlParsePITarget(ctxt);
 	if (target != NULL) {
+	    /* Wine: tolerate embedded XML declarations inside elements.
+	     * When an embedded <?xml ...?> is encountered inside an element,
+	     * consume everything from "<?xml" up to the parent element's
+	     * closing tag and emit it as a text node via the SAX characters
+	     * callback. This matches the behavior applications expect: the
+	     * content after <?xml?> is treated as opaque text, not parsed
+	     * as child elements. */
+	    if (ctxt->nodeNr > 0 &&
+	        (target[0] == 'x') && (target[1] == 'm') &&
+	        (target[2] == 'l') && (target[3] == 0)) {
+		xmlChar *text;
+		size_t textlen = 0;
+		size_t textsize = 1024;
+		int nesting = 0;
+
+		text = (xmlChar *) xmlMallocAtomic(textsize);
+		if (text == NULL) {
+		    xmlErrMemory(ctxt, NULL);
+		    ctxt->instate = state;
+		    return;
+		}
+
+		/* Reconstruct "<?xml" which the parser already consumed */
+		memcpy(text, "<?xml", 5);
+		textlen = 5;
+
+		/* Consume everything until parent's close tag, tracking nesting */
+		while (RAW != 0) {
+		    if (RAW == '<' && NXT(1) == '/') {
+			if (nesting == 0)
+			    break;
+			nesting--;
+		    }
+		    else if (RAW == '<' && NXT(1) != '?' && NXT(1) != '!' && NXT(1) != '/') {
+			xmlChar c = NXT(1);
+			if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			    const xmlChar *p = ctxt->input->cur + 1;
+			    int is_selfclose = 0;
+			    while (*p && *p != '>') {
+				if (*p == '/' && *(p+1) == '>') {
+				    is_selfclose = 1;
+				    break;
+				}
+				p++;
+			    }
+			    if (!is_selfclose)
+				nesting++;
+			}
+		    }
+
+		    if (textlen + 2 >= textsize) {
+			xmlChar *tmp;
+			textsize *= 2;
+			tmp = (xmlChar *) xmlRealloc(text, textsize);
+			if (tmp == NULL) {
+			    xmlErrMemory(ctxt, NULL);
+			    xmlFree(text);
+			    ctxt->instate = state;
+			    return;
+			}
+			text = tmp;
+		    }
+		    text[textlen++] = RAW;
+		    NEXT;
+		}
+		text[textlen] = 0;
+
+		if ((ctxt->sax) && (!ctxt->disableSAX) &&
+		    (ctxt->sax->characters != NULL))
+		    ctxt->sax->characters(ctxt->userData, text, textlen);
+
+		xmlFree(text);
+		if (ctxt->instate != XML_PARSER_EOF)
+		    ctxt->instate = state;
+		return;
+	    }
 	    if ((RAW == '?') && (NXT(1) == '>')) {
 		if (inputid != ctxt->input->id) {
 		    xmlFatalErrMsg(ctxt, XML_ERR_ENTITY_BOUNDARY,
