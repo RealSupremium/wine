@@ -5098,7 +5098,7 @@ static void test_measure_string(void)
     rect.Width = width_M_M;
     rect.Height = 32000.0;
     status = GdipMeasureString(graphics2, string2, -1, font, &rect, format_no_wrap, &bounds, &glyphs, &lines);
-    todo_wine expect(Ok, status);
+    expect(Ok, status);
     if (status == Ok)
     {
         expectf_(width_M_M, bounds.Width, 0.1);
