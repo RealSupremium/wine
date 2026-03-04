@@ -1,0 +1,5 @@
+TESTDLL   = gameinput.dll
+IMPORTS   = gameinput
+
+SOURCES = \
+	gameinput.c
