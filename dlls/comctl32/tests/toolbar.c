@@ -3102,6 +3102,48 @@ static void test_WM_PAINT(BOOL v6)
     UnregisterClassW(wc.lpszClassName, 0);
 }
 
+void AddButton(HWND tb, const char *text, int id)
+{
+    TBBUTTON btn = {0};
+    btn.iBitmap   = I_IMAGENONE;
+    btn.idCommand = id;
+    btn.fsState   = TBSTATE_ENABLED;
+    btn.fsStyle   = BTNS_BUTTON | BTNS_AUTOSIZE;
+    btn.iString   = (INT_PTR)text;
+    SendMessageA(tb, TB_ADDBUTTONSA, 1, (LPARAM)&btn);
+}
+
+static void test_wrap(void)
+{
+    int result;
+    HWND hToolbar = CreateWindowExA(0, TOOLBARCLASSNAMEA, NULL, WS_CHILD | WS_VISIBLE | CCS_NORESIZE | TBSTYLE_WRAPABLE,
+            0, 0, 150, 30, hMainWnd, NULL, GetModuleHandleA(NULL), NULL);
+
+    SendMessageA(hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
+
+    AddButton(hToolbar, "T", 0);
+    SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
+    result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
+    ok(result == 1, "Got unexpected nRows: %d.\n", result);
+
+    AddButton(hToolbar, "TEST", 1);
+    SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
+    result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
+    ok(result == 1, "Got unexpected nRows: %d.\n", result);
+
+    AddButton(hToolbar, "TESTTESTTEST", 2);
+    SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
+    result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
+    todo_wine ok(result == 1, "Got unexpected nRows: %d.\n", result);
+
+    AddButton(hToolbar, "TESTTESTTESTTESTTESTTE", 3);
+    SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
+    result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
+    todo_wine ok(result == 2, "Got unexpected nRows: %d.\n", result);
+
+    DestroyWindow(hToolbar);
+}
+
 START_TEST(toolbar)
 {
     ULONG_PTR ctx_cookie;
@@ -3157,6 +3199,7 @@ START_TEST(toolbar)
     test_unicode_format();
     test_WM_ERASEBKGND(FALSE);
     test_WM_PAINT(FALSE);
+    test_wrap();
 
     if (!load_v6_module(&ctx_cookie, &ctx))
         return;
