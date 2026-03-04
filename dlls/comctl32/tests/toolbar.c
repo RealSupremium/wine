@@ -3134,12 +3134,12 @@ static void test_wrap(void)
     AddButton(hToolbar, "TESTTESTTEST", 2);
     SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
     result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
-    todo_wine ok(result == 1, "Got unexpected nRows: %d.\n", result);
+    ok(result == 1, "Got unexpected nRows: %d.\n", result);
 
     AddButton(hToolbar, "TESTTESTTESTTESTTESTTE", 3);
     SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
     result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
-    todo_wine ok(result == 2, "Got unexpected nRows: %d.\n", result);
+    ok(result == 2, "Got unexpected nRows: %d.\n", result);
 
     DestroyWindow(hToolbar);
 }
