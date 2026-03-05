@@ -1341,7 +1341,7 @@ static BOOL heap_validate( const struct heap *heap )
 
             if (!validate_used_block( heap, find_subheap( heap, block, FALSE ), block, BLOCK_TYPE_DEAD ))
             {
-                ERR( "heap %p: failed to to validate delayed free block %p\n", heap, block );
+                ERR( "heap %p: failed to validate delayed free block %p\n", heap, block );
                 return FALSE;
             }
         }
