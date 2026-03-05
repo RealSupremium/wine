@@ -12913,8 +12913,8 @@ static void test_window_placement(void)
     DestroyWindow(hwnd);
 
     /* Test that when forgetting the maximized position for top level windows covering the work
-     * area, the work area means the monitor work area, not the the work area that a maximized
-     * window can cover depending on style. For example, a maximized WS_POPUP window can cover the
+     * area, the work area means the monitor work area, not the work area that a maximized window
+     * can cover depending on style. For example, a maximized WS_POPUP window can cover the
      * whole screen when maximized. Also see See win32u/window.c#update_maximized_pos() */
     hwnd = CreateWindowA("MainWindowClass", "wp", WS_POPUP, orig.left, orig.top,
         orig.right - orig.left, orig.bottom - orig.top, 0, 0, 0, 0);
