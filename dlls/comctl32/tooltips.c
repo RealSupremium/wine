@@ -79,7 +79,7 @@
  * tool.
  *
  *
- * infoPtr->nTool is the tool the mouse was on on the last relayed MM
+ * infoPtr->nTool is the tool the mouse was on the last relayed MM
  * or timer expiry or -1 if the mouse was not on a tool.
  *
  * infoPtr->nCurrentTool is the tool for which the tip is currently
@@ -136,7 +136,7 @@ typedef struct
     INT      xTrackPos;
     INT      yTrackPos;
     INT      nMaxTipWidth;
-    INT      nTool; /* tool that mouse was on on last relayed mouse move */
+    INT      nTool; /* tool that mouse was on last relayed mouse move */
     INT      nCurrentTool;
     INT      nTrackTool;
     INT      nReshowTime;
@@ -1231,7 +1231,7 @@ TOOLTIPS_DelToolT (TOOLTIPS_INFO *infoPtr, const TTTOOLINFOW *ti, BOOL isW)
 
     /* update any indices affected by delete */
 
-    /* destroying tool that mouse was on on last relayed mouse move */
+    /* destroying tool that mouse was on last relayed mouse move */
     if (infoPtr->nTool == nTool)
         /* -1 means no current tool (0 means first tool) */
         infoPtr->nTool = -1;
