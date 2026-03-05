@@ -3142,6 +3142,27 @@ static void test_wrap(void)
     ok(result == 2, "Got unexpected nRows: %d.\n", result);
 
     DestroyWindow(hToolbar);
+
+    hToolbar = CreateWindowExA(0, TOOLBARCLASSNAMEA, NULL, WS_CHILD | WS_VISIBLE | CCS_NORESIZE | TBSTYLE_WRAPABLE,
+            0, 0, 428, 30, hMainWnd, NULL, GetModuleHandleA(NULL), NULL);
+
+    SendMessageA(hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
+
+    AddButton(hToolbar, "................................", 0);
+    AddButton(hToolbar, "................................", 1);
+    AddButton(hToolbar, "................................", 2);
+    AddButton(hToolbar, "................................", 3);
+
+    SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
+    result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
+    ok(result == 1, "Got unexpected nRows: %d.\n", result);
+
+    SetWindowPos(hToolbar, NULL, 0, 0, 427, 30, SWP_NOMOVE | SWP_NOZORDER);
+    SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
+    result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
+    todo_wine ok(result == 2, "Got unexpected nRows: %d.\n", result);
+
+    DestroyWindow(hToolbar);
 }
 
 START_TEST(toolbar)
