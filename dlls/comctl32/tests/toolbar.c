@@ -3160,7 +3160,7 @@ static void test_wrap(void)
     SetWindowPos(hToolbar, NULL, 0, 0, 427, 30, SWP_NOMOVE | SWP_NOZORDER);
     SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0);
     result = SendMessageA(hToolbar, TB_GETROWS, 0, 0);
-    todo_wine ok(result == 2, "Got unexpected nRows: %d.\n", result);
+    ok(result == 2, "Got unexpected nRows: %d.\n", result);
 
     DestroyWindow(hToolbar);
 }
