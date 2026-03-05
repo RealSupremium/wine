@@ -1038,6 +1038,7 @@ HRESULT secondarybuffer_create(DirectSoundDevice *device, const DSBUFFERDESC *ds
 	HRESULT err = DS_OK;
 	DWORD capf = 0;
 	size_t bufsize;
+	size_t buflen;
 
         TRACE("(%p,%p,%p)\n", device, dsbd, buffer);
 
@@ -1094,7 +1095,9 @@ HRESULT secondarybuffer_create(DirectSoundDevice *device, const DSBUFFERDESC *ds
 
 	/* Allocate an empty buffer */
 	bufsize = (sizeof(*(dsb->buffer)) + sizeof(void *) - 1) & ~(sizeof(void *) - 1);
-	dsb->buffer = malloc(bufsize + dsb->buflen);
+	/* Add some padding at the end to simplify SSE2 processing */
+	buflen = dsb->buflen + 15;
+	dsb->buffer = malloc(bufsize + buflen);
         if (!dsb->buffer) {
                 IDirectSoundBuffer8_Release(&dsb->IDirectSoundBuffer8_iface);
 		return DSERR_OUTOFMEMORY;
@@ -1107,7 +1110,7 @@ HRESULT secondarybuffer_create(DirectSoundDevice *device, const DSBUFFERDESC *ds
 	dsb->buffer->lockedbytes = 0;
 	list_init(&dsb->buffer->buffers);
 	list_add_head(&dsb->buffer->buffers, &dsb->entry);
-	FillMemory(dsb->buffer->memory, dsb->buflen, dsbd->lpwfxFormat->wBitsPerSample == 8 ? 128 : 0);
+	FillMemory(dsb->buffer->memory, buflen, dsbd->lpwfxFormat->wBitsPerSample == 8 ? 128 : 0);
 
 	/* It's not necessary to initialize values to zero since */
 	/* we allocated this structure with calloc... */
