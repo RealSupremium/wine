@@ -1047,6 +1047,7 @@ static const struct {
 };
 static unsigned kbd_layout=0; /* index into above table of layouts */
 static int xkb_event_base, xkb_error_base;
+static unsigned short xkb_device_spec;
 #ifdef SONAME_LIBXKBREGISTRY
 static struct rxkb_context *rxkb_context;
 
@@ -2121,6 +2122,7 @@ static void init_keycode_mappings( Display *display )
 void init_keyboard_layouts( Display *display )
 {
     unsigned int xkb_group, xkb_group_count;
+    unsigned prev_kbd_layout = kbd_layout;
     unsigned int legacy_layout_idx;
     XkbStateRec xkb_state;
     XModifierKeymap *mmp;
@@ -2136,6 +2138,12 @@ void init_keyboard_layouts( Display *display )
     LCID lcid;
 
     pthread_mutex_lock( &kbd_mutex );
+    if (kbd_layout != prev_kbd_layout)
+    {
+        TRACE("Keyboard layout already updated, returning\n");
+        pthread_mutex_unlock( &kbd_mutex );
+        return;
+    }
     XDisplayKeycodes( display, &min_keycode, &max_keycode );
     XFree( XGetKeyboardMapping( display, min_keycode, max_keycode + 1 - min_keycode, &keysyms_per_keycode ) );
 
@@ -2174,6 +2182,7 @@ void init_keyboard_layouts( Display *display )
         char *names[4];
         int count;
 
+        xkb_device_spec = xkb_desc->device_spec;
         XkbGetNames( display, XkbGroupNamesMask, xkb_desc );
         for (count = 0; count < ARRAY_SIZE(xkb_desc->names->groups); count++)
             if (!xkb_desc->names->groups[count]) break;
@@ -2301,8 +2310,9 @@ void x11drv_keyboard_init_thread( struct x11drv_thread_data *data )
     Status status;
 
     XkbUseExtension( data->display, NULL, NULL );
-    XkbSelectEvents( data->display, XkbUseCoreKbd, XkbMapNotifyMask | XkbStateNotifyMask,
-                     XkbMapNotifyMask | XkbStateNotifyMask );
+    XkbSelectEvents( data->display, XkbUseCoreKbd,
+                     XkbMapNotifyMask | XkbStateNotifyMask | XkbNewKeyboardNotifyMask,
+                     XkbMapNotifyMask | XkbStateNotifyMask | XkbNewKeyboardNotifyMask);
     XkbSetDetectableAutoRepeat( data->display, True, NULL );
     init_keyboard_layouts( data->display );
     status = XkbGetState( data->display, XkbUseCoreKbd, &xkb_state );
@@ -2350,6 +2360,13 @@ BOOL x11drv_xkb_event_handler( HWND dummy, XEvent *event )
             TRACE("Received XkbMapNotify event, changed %#x\n", e->map.changed);
             XkbRefreshKeyboardMapping( &e->map );
             x11drv_update_input_lang( e->map.display );
+            break;
+        case XkbNewKeyboardNotify:
+            TRACE("Received XkbNewKeyboardNotify event, changed %#x, device %u\n",
+                  e->new_kbd.changed, e->new_kbd.device);
+            if (!xkb_device_spec || e->new_kbd.device != xkb_device_spec)
+                return TRUE;
+            x11drv_update_input_lang( e->new_kbd.display );
             break;
     }
     return TRUE;
