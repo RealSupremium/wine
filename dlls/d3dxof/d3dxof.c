@@ -548,6 +548,8 @@ static ULONG WINAPI IDirectXFileDataImpl_Release(IDirectXFileData *iface)
 
     if (!refcount)
     {
+        HeapFree(GetProcessHeap(), 0, data->pdata_user_copy);
+
         if (!data->level && !data->from_ref)
         {
             HeapFree(GetProcessHeap(), 0, data->pstrings);
@@ -615,6 +617,14 @@ static HRESULT WINAPI IDirectXFileDataImpl_GetData(IDirectXFileData* iface, LPCS
   if (!pcbSize || !ppvData)
     return DXFILEERR_BADVALUE;
 
+  if (!This->pdata_user_copy && This->pobj->root->pdata && This->pobj->size > 0)
+  {
+      This->pdata_user_copy = HeapAlloc(GetProcessHeap(), 0, This->pobj->size);
+      if (!This->pdata_user_copy)
+          return DXFILEERR_BADALLOC;
+      memcpy(This->pdata_user_copy, This->pobj->root->pdata + This->pobj->pos_data, This->pobj->size);
+  }
+
   if (szMember)
   {
     ULONG i;
@@ -627,12 +637,12 @@ static HRESULT WINAPI IDirectXFileDataImpl_GetData(IDirectXFileData* iface, LPCS
       return DXFILEERR_BADDATAREFERENCE;
     }
     *pcbSize = This->pobj->members[i].size;
-    *ppvData = This->pobj->root->pdata + This->pobj->members[i].start;
+    *ppvData = This->pdata_user_copy + (This->pobj->members[i].start - This->pobj->pos_data);
   }
   else
   {
     *pcbSize = This->pobj->size;
-    *ppvData = This->pobj->root->pdata + This->pobj->pos_data;
+    *ppvData = This->pdata_user_copy;
   }
 
   return DXFILE_OK;
