@@ -362,6 +362,7 @@ struct vulkan_driver_funcs
     VkBool32 (*p_get_physical_device_presentation_support)(struct vulkan_physical_device *, uint32_t);
     void (*p_map_instance_extensions)( struct vulkan_instance_extensions *extensions );
     void (*p_map_device_extensions)( struct vulkan_device_extensions *extensions );
+    BOOL (*p_get_vulkan_surface_alpha_state)(HWND);
 };
 
 #endif /* WINE_UNIX_LIB */

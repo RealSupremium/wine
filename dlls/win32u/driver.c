@@ -825,6 +825,11 @@ static void nulldrv_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE al
 {
 }
 
+static BOOL WINAPI nulldrv_SetWindowDwmConfig(HWND hwnd, int command, const void *data)
+{
+    return FALSE;
+}
+
 static void nulldrv_SetParent( HWND hwnd, HWND parent, HWND old_parent )
 {
 }
@@ -1290,6 +1295,7 @@ static const struct user_driver_funcs lazy_load_driver =
     loaderdrv_SetDesktopWindow,
     nulldrv_ActivateWindow,
     loaderdrv_SetLayeredWindowAttributes,
+    nulldrv_SetWindowDwmConfig,
     nulldrv_SetParent,
     loaderdrv_SetWindowRgn,
     nulldrv_SetWindowIcons,

@@ -212,6 +212,29 @@ void wayland_surface_destroy(struct wayland_surface *surface)
 
     wayland_surface_clear_role(surface);
 
+    /* Tear down cross-process bonds only on absolute surface destruction.
+     * This ensures the zxdg_imported_v2 bond survives transient SW_HIDE toggles. */
+    if (surface->zxdg_exported_v2)
+    {
+        WCHAR prop_name[] = {'W','a','y','l','a','n','d','H','a','n','d','l','e',0};
+        HANDLE prop = NtUserRemoveProp(surface->hwnd, prop_name);
+        if (prop)
+        {
+            RTL_ATOM atom = (RTL_ATOM)(ULONG_PTR)prop;
+            NtDeleteAtom(atom);
+            TRACE("Deleted exported atom %x for hwnd %p\n", atom, surface->hwnd);
+        }
+
+        zxdg_exported_v2_destroy(surface->zxdg_exported_v2);
+        surface->zxdg_exported_v2 = NULL;
+    }
+
+    if (surface->zxdg_imported_v2)
+    {
+        zxdg_imported_v2_destroy(surface->zxdg_imported_v2);
+        surface->zxdg_imported_v2 = NULL;
+    }
+
     if (surface->wp_viewport)
     {
         wp_viewport_destroy(surface->wp_viewport);
@@ -241,6 +264,60 @@ void wayland_surface_destroy(struct wayland_surface *surface)
     free(surface);
 }
 
+/* Helper to store Wayland string handle as a global 16-bit Atom */
+static RTL_ATOM add_global_atom(const char *str)
+{
+    RTL_ATOM atom = 0;
+    size_t len = strlen(str);
+    WCHAR *wstr = malloc((len + 1) * sizeof(WCHAR));
+    if (!wstr) return 0;
+    for (size_t i = 0; i < len; i++) wstr[i] = str[i];
+    wstr[len] = 0;
+    NtAddAtom(wstr, len * sizeof(WCHAR), &atom);
+    free(wstr);
+    return atom;
+}
+
+/* Helper to retrieve the Wayland string handle from the Atom Table */
+char *get_global_atom_name(RTL_ATOM atom)
+{
+    ATOM_BASIC_INFORMATION *info;
+    ULONG size = 1024;
+    char *str = NULL;
+    int i, len;
+
+    if (!(info = malloc(size))) return NULL;
+    if (!NtQueryInformationAtom(atom, AtomBasicInformation, info, size, NULL))
+    {
+        len = info->NameLength / sizeof(WCHAR);
+        if ((str = malloc(len + 1)))
+        {
+            for (i = 0; i < len; i++) str[i] = (char)info->Name[i];
+            str[len] = 0;
+        }
+    }
+    free(info);
+    return str;
+}
+
+/* Callback triggered by compositor when surface export is successful */
+static void zxdg_exported_v2_handle(void *data, struct zxdg_exported_v2 *exported, const char *handle)
+{
+    struct wayland_surface *surface = data;
+    RTL_ATOM atom = add_global_atom(handle);
+    if (atom)
+    {
+        /* Attach the 16-bit Atom to the Game's HWND as a window property */
+        WCHAR prop_name[] = {'W','a','y','l','a','n','d','H','a','n','d','l','e',0};
+        NtUserSetProp(surface->hwnd, prop_name, (HANDLE)(ULONG_PTR)atom);
+        TRACE("Exported surface %p (hwnd %p) with handle %s (atom %x)\n", surface, surface->hwnd, handle, atom);
+    }
+}
+
+static const struct zxdg_exported_v2_listener zxdg_exported_v2_listener = {
+    zxdg_exported_v2_handle
+};
+
 /**********************************************************************
  *          wayland_surface_make_toplevel
  *
@@ -249,6 +326,10 @@ void wayland_surface_destroy(struct wayland_surface *surface)
 void wayland_surface_make_toplevel(struct wayland_surface *surface)
 {
     WCHAR text[1024];
+    HWND owner_hwnd;
+    WCHAR prop_name[] = {'W','a','y','l','a','n','d','H','a','n','d','l','e',0};
+    DWORD ex_style = NtUserGetWindowLongW(surface->hwnd, GWL_EXSTYLE);
+    BOOL layered_transparent = (ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT);
 
     TRACE("surface=%p\n", surface);
 
@@ -266,6 +347,44 @@ void wayland_surface_make_toplevel(struct wayland_surface *surface)
     surface->xdg_toplevel = xdg_surface_get_toplevel(surface->xdg_surface);
     if (!surface->xdg_toplevel) goto err;
     xdg_toplevel_add_listener(surface->xdg_toplevel, &xdg_toplevel_listener, surface->hwnd);
+
+    /* CROSS-PROCESS HIERARCHY: xdg_foreign Import / Export Routing */
+    owner_hwnd = NtUserGetWindowRelative(surface->hwnd, GW_OWNER);
+    
+    if (layered_transparent && !owner_hwnd)
+    {
+        /* Fallback heuristic for unowned overlays */
+        owner_hwnd = NtUserGetForegroundWindow();
+        if (owner_hwnd == surface->hwnd || !owner_hwnd)
+        {
+            owner_hwnd = NtUserGetWindowRelative(surface->hwnd, GW_HWNDNEXT);
+        }
+    }
+
+    /* Restore global import/export for all standard owned windows and overlays */
+    if (owner_hwnd && process_wayland.zxdg_importer_v2)
+    {
+        HANDLE prop = NtUserGetProp(owner_hwnd, prop_name);
+        if (prop)
+        {
+            RTL_ATOM atom = (RTL_ATOM)(ULONG_PTR)prop;
+            char *handle_str = get_global_atom_name(atom);
+            if (handle_str)
+            {
+                TRACE("Importing surface %p (hwnd %p) to parent %p via handle %s\n", surface, surface->hwnd, owner_hwnd, handle_str);
+                surface->zxdg_imported_v2 = zxdg_importer_v2_import_toplevel(
+                    process_wayland.zxdg_importer_v2, handle_str);
+                zxdg_imported_v2_set_parent_of(surface->zxdg_imported_v2, surface->wl_surface);
+                free(handle_str);
+            }
+        }
+    }
+    else if (!owner_hwnd && process_wayland.zxdg_exporter_v2)
+    {
+        surface->zxdg_exported_v2 = zxdg_exporter_v2_export_toplevel(
+            process_wayland.zxdg_exporter_v2, surface->wl_surface);
+        zxdg_exported_v2_add_listener(surface->zxdg_exported_v2, &zxdg_exported_v2_listener, surface);
+    }
 
     if (process_name)
         xdg_toplevel_set_app_id(surface->xdg_toplevel, process_name);
@@ -336,6 +455,17 @@ err:
  */
 void wayland_surface_clear_role(struct wayland_surface *surface)
 {
+    DWORD ex_style = NtUserGetWindowLongW(surface->hwnd, GWL_EXSTYLE);
+    BOOL layered_transparent = (ex_style & WS_EX_LAYERED) && (ex_style & WS_EX_TRANSPARENT);
+
+    /* Prevent role destruction for overlays during Win32 HIDE/SHOW toggles.
+     * This keeps the zxdg_foreign parent relationship and wl_surface alive. */
+    if (layered_transparent && surface->role != WAYLAND_SURFACE_ROLE_NONE)
+    {
+        TRACE("Gating role clearance for overlay surface %p to preserve parent bond\n", surface);
+        return;
+    }
+
     TRACE("surface=%p\n", surface);
 
     switch (surface->role)
@@ -520,6 +650,9 @@ static void wayland_surface_reconfigure_geometry(struct wayland_surface *surface
 {
     RECT rect;
 
+    /* Guard against invalid geometry dimensions causing xdg protocol violations */
+    if (width <= 0 || height <= 0) return;
+
     /* If the window size is bigger than the current state accepts, use the
      * largest visible (from Windows' perspective) subregion of the window. */
     if ((surface->current.state & (WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED |
@@ -676,24 +809,45 @@ static void wayland_surface_reconfigure_subsurface(struct wayland_surface *surfa
     struct wayland_surface *toplevel_surface;
     int local_x, local_y, x, y;
 
+    /* Gaurd: If this surface is associated with an imported handle
+     * it is strictly a Toplevel client. Any attempt to use subsurface 
+     * stacking protocols is a fatal violation. */
+    if (surface->zxdg_imported_v2 || surface->zxdg_exported_v2) 
+    {
+        memset(&surface->processing, 0, sizeof(surface->processing));
+        return;
+    }
+
     if (surface->processing.serial && surface->processing.processed &&
         (toplevel_data = wayland_win_data_get_nolock(surface->toplevel_hwnd)) &&
         (toplevel_surface = toplevel_data->wayland_surface))
     {
+        /* Final Protocol Check: Ensure valid local target */
+        if (!toplevel_surface->wl_surface)
+        {
+             memset(&surface->processing, 0, sizeof(surface->processing));
+             return;
+        }
+
         local_x = surface->window.rect.left - toplevel_surface->window.rect.left;
         local_y = surface->window.rect.top - toplevel_surface->window.rect.top;
 
         wayland_surface_coords_from_window(surface, local_x, local_y, &x, &y);
 
-        TRACE("hwnd=%p pos=%d,%d\n", surface->hwnd, x, y);
+        TRACE("hwnd=%p pos=%d,%d subsurface stacking guard active\n", surface->hwnd, x, y);
 
-        wl_subsurface_set_position(surface->wl_subsurface, x, y);
-        if (toplevel_data->client_surface)
-            wl_subsurface_place_above(surface->wl_subsurface, toplevel_data->client_surface->wl_surface);
-        else
-            wl_subsurface_place_above(surface->wl_subsurface, toplevel_surface->wl_surface);
+        if (surface->wl_subsurface)
+        {
+            wl_subsurface_set_position(surface->wl_subsurface, x, y);
+            
+            /* Guard: Place local subsurfaces relative only to local parents */
+            if (toplevel_data->client_surface && toplevel_data->client_surface->wl_surface)
+                wl_subsurface_place_above(surface->wl_subsurface, toplevel_data->client_surface->wl_surface);
+            else
+                wl_subsurface_place_above(surface->wl_subsurface, toplevel_surface->wl_surface);
+        }
+        
         wl_surface_commit(toplevel_surface->wl_surface);
-
         memset(&surface->processing, 0, sizeof(surface->processing));
     }
 }
@@ -708,12 +862,36 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface)
 {
     struct wayland_window_config *window = &surface->window;
     int win_width, win_height, width, height;
+    BOOL zxdg_imported = (surface->zxdg_imported_v2 != NULL);
 
-    win_width = surface->window.rect.right - surface->window.rect.left;
-    win_height = surface->window.rect.bottom - surface->window.rect.top;
+    /* PRESERVE RENDER LOOP: Do not attach a NULL buffer for off-screen overlays.
+     * Wayland compositors suspend frame callbacks for unmapped surfaces, which 
+     * permanently freezes the overlay's render loop. Force 1x1 geometry instead. */
+    if (zxdg_imported && (window->rect.left <= -32000 || window->rect.top <= -32000))
+    {
+        TRACE("Trapped overlay %p off-screen; forcing 1x1 geometry to sustain frame callbacks\n", surface->hwnd);
+        width = 1;
+        height = 1;
 
-    wayland_surface_coords_from_window(surface, win_width, win_height,
-                                       &width, &height);
+        wayland_surface_reconfigure_xdg(surface, width, height);
+        wayland_surface_reconfigure_size(surface, width, height);
+        return TRUE;
+    }
+
+    /* Standard unmap behavior for normal applications */
+    if (window->rect.left <= -32000 || window->rect.top <= -32000)
+    {
+        TRACE("Trapped off-screen position %d,%d for %p; unmapping Wayland surface\n", 
+              window->rect.left, window->rect.top, surface->hwnd);
+        wl_surface_attach(surface->wl_surface, NULL, 0, 0);
+        wl_surface_commit(surface->wl_surface);
+        return TRUE;
+    }
+
+    win_width = window->rect.right - window->rect.left;
+    win_height = window->rect.bottom - window->rect.top;
+
+    wayland_surface_coords_from_window(surface, win_width, win_height, &width, &height);
 
     TRACE("hwnd=%p window=%dx%d,%#x processing=%dx%d,%#x current=%dx%d,%#x\n",
           surface->hwnd, win_width, win_height, window->state,

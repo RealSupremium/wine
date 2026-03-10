@@ -998,6 +998,7 @@ W32KAPI BOOL    WINAPI NtUserSetForegroundWindow( HWND hwnd );
 W32KAPI void    WINAPI NtUserSetInternalWindowPos( HWND hwnd, UINT cmd, RECT *rect, POINT *pt );
 W32KAPI BOOL    WINAPI NtUserSetKeyboardState( BYTE *state );
 W32KAPI BOOL    WINAPI NtUserSetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWORD flags );
+W32KAPI BOOL    WINAPI NtUserSetWindowDwmConfig( HWND hwnd, LONG command, const void *data );
 W32KAPI BOOL    WINAPI NtUserSetMenu( HWND hwnd, HMENU menu );
 W32KAPI BOOL    WINAPI NtUserSetMenuContextHelpId( HMENU handle, DWORD id );
 W32KAPI BOOL    WINAPI NtUserSetMenuDefaultItem( HMENU handle, UINT item, UINT bypos );

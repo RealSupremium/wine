@@ -2552,6 +2552,21 @@ BOOL WINAPI NtUserSetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alph
 }
 
 /*****************************************************************************
+ *           NtUserSetWindowDwmConfig (win32u.@)
+ */
+BOOL WINAPI NtUserSetWindowDwmConfig( HWND hwnd, LONG command, const void *data )
+{
+    TRACE( "(%p, %d, %p)\n", hwnd, (int)command, data );
+
+    if (user_driver && user_driver->pSetWindowDwmConfig)
+    {
+        return user_driver->pSetWindowDwmConfig( hwnd, command, data );
+    }
+
+    return FALSE;
+}
+
+/*****************************************************************************
  *           UpdateLayeredWindow (win32u.@)
  */
 BOOL WINAPI NtUserUpdateLayeredWindow( HWND hwnd, HDC hdc_dst, const POINT *pts_dst, const SIZE *size,

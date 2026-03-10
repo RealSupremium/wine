@@ -4445,6 +4445,15 @@ NTSTATUS WINAPI wow64_NtUserSetLayeredWindowAttributes( UINT *args )
     return NtUserSetLayeredWindowAttributes( hwnd, key, alpha, flags );
 }
 
+NTSTATUS WINAPI wow64_NtUserSetWindowDwmConfig( UINT *args )
+{
+    HWND hwnd = get_handle( &args );
+    LONG command = get_ulong( &args );
+    const void *data = get_ptr( &args );
+
+    return NtUserSetWindowDwmConfig( hwnd, command, data );
+}
+
 NTSTATUS WINAPI wow64_NtUserSetMenu( UINT *args )
 {
     HWND hwnd = get_handle( &args );

@@ -82,16 +82,41 @@ static void wayland_gl_drawable_sync_size(struct wayland_gl_drawable *gl)
 
 static BOOL wayland_opengl_surface_create(HWND hwnd, int format, struct opengl_drawable **drawable)
 {
-    EGLConfig config = egl_config_for_format(format);
+    /* Always prefer ARGB to support runtime DWM/Glass toggling */
+    EGLint argb_attribs[] = { EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE };
+    EGLConfig config;
     struct wayland_client_surface *client;
     EGLint attribs[4], *attrib = attribs;
     struct opengl_drawable *previous;
     struct wayland_gl_drawable *gl;
     RECT rect;
+    int count = 0;
+    EGLint alpha_size = 0;
+    struct wayland_win_data *data;
+    BOOL is_dwm_active = FALSE;
 
     TRACE("hwnd=%p format=%d\n", hwnd, format);
 
     if ((previous = *drawable) && previous->format == format) return TRUE;
+
+    if ((data = wayland_win_data_get(hwnd)))
+    {
+        is_dwm_active = (data->dwm_mode != WAYLAND_DWM_EXTEND_NONE);
+        wayland_win_data_release(data);
+    }
+
+    if (funcs->p_eglChooseConfig(egl->display, argb_attribs, &config, 1, &count) && count)
+    {
+        TRACE("Selected ARGB capable EGL config for window %p\n", hwnd);
+    }
+    else
+    {
+        WARN("ARGB config not found, falling back to requested format\n");
+        config = egl_config_for_format(format);
+    }
+
+    /* Query the selected config for an alpha channel */
+    funcs->p_eglGetConfigAttrib(egl->display, config, EGL_ALPHA_SIZE, &alpha_size);
 
     NtUserGetClientRect(hwnd, &rect, NtUserGetDpiForWindow(hwnd));
     if (rect.right == rect.left) rect.right = rect.left + 1;
@@ -101,8 +126,19 @@ static BOOL wayland_opengl_surface_create(HWND hwnd, int format, struct opengl_d
         WARN("Missing EGL_EXT_present_opaque extension\n");
     else
     {
-        *attrib++ = EGL_PRESENT_OPAQUE_EXT;
-        *attrib++ = EGL_TRUE;
+        /* Automatically enable EGL transparency if the config supports it (ARGB). 
+         * Standard games are protected from accidental transparency by the full-window 
+         * wl_surface_set_opaque_region protocol applied in window.c */
+        if (alpha_size > 0 || is_dwm_active)
+        {
+            *attrib++ = EGL_PRESENT_OPAQUE_EXT;
+            *attrib++ = EGL_FALSE;
+        }
+        else
+        {
+            *attrib++ = EGL_PRESENT_OPAQUE_EXT;
+            *attrib++ = EGL_TRUE;
+        }
     }
     *attrib++ = EGL_NONE;
 
@@ -138,6 +174,51 @@ static void wayland_init_egl_platform(struct egl_platform *platform)
     egl = platform;
 }
 
+static void wayland_gl_clear_margin_regions(struct wayland_gl_drawable *gl)
+{
+    struct wayland_win_data *data;
+    RECT rect;
+    int w, h;
+
+    if (!(data = wayland_win_data_get(gl->base.client->hwnd))) return;
+
+    if (data->dwm_mode == WAYLAND_DWM_EXTEND_MARGINS)
+    {
+        NtUserGetClientRect(data->hwnd, &rect, NtUserGetDpiForWindow(data->hwnd));
+        
+        w = rect.right;
+        h = rect.bottom;
+
+        if (funcs->p_glEnable && funcs->p_glScissor && funcs->p_glClear && funcs->p_glClearColor)
+        {
+            funcs->p_glEnable(GL_SCISSOR_TEST);
+            funcs->p_glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+            /* Top margin */
+            funcs->p_glScissor(0, h - data->margins.cyTopHeight, w, data->margins.cyTopHeight);
+            funcs->p_glClear(GL_COLOR_BUFFER_BIT);
+
+            /* Bottom margin */
+            funcs->p_glScissor(0, 0, w, data->margins.cyBottomHeight);
+            funcs->p_glClear(GL_COLOR_BUFFER_BIT);
+
+            /* Left margin */
+            funcs->p_glScissor(0, data->margins.cyBottomHeight, data->margins.cxLeftWidth, 
+                               h - data->margins.cyTopHeight - data->margins.cyBottomHeight);
+            funcs->p_glClear(GL_COLOR_BUFFER_BIT);
+
+            /* Right margin */
+            funcs->p_glScissor(w - data->margins.cxRightWidth, data->margins.cyBottomHeight, data->margins.cxRightWidth, 
+                               h - data->margins.cyTopHeight - data->margins.cyBottomHeight);
+            funcs->p_glClear(GL_COLOR_BUFFER_BIT);
+
+            funcs->p_glDisable(GL_SCISSOR_TEST);
+        }
+    }
+
+    wayland_win_data_release(data);
+}
+
 static void wayland_drawable_flush(struct opengl_drawable *base, UINT flags)
 {
     struct wayland_gl_drawable *gl = impl_from_opengl_drawable(base);
@@ -145,15 +226,22 @@ static void wayland_drawable_flush(struct opengl_drawable *base, UINT flags)
     TRACE("drawable %s, flags %#x\n", debugstr_opengl_drawable(base), flags);
 
     if (flags & GL_FLUSH_INTERVAL) funcs->p_eglSwapInterval(egl->display, abs(base->interval));
-
     /* Since context_flush is called from operations that may latch the native size,
      * perform any pending resizes before calling them. */
-    if (flags & GL_FLUSH_UPDATED) wayland_gl_drawable_sync_size(gl);
+    if (flags & GL_FLUSH_UPDATED) 
+    {
+        wayland_gl_drawable_sync_size(gl);
+        /* Ensure margins are cleared during the flush/resize cycle */
+        wayland_gl_clear_margin_regions(gl);
+    }
 }
 
 static BOOL wayland_drawable_swap(struct opengl_drawable *base)
 {
     struct wayland_gl_drawable *gl = impl_from_opengl_drawable(base);
+
+    /* Apply hardware scissor to mask the dwm margins before swapping. */
+    wayland_gl_clear_margin_regions(gl);
 
     client_surface_present(base->client);
     funcs->p_eglSwapBuffers(egl->display, gl->base.surface);

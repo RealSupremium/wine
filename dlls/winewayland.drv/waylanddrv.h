@@ -38,6 +38,7 @@
 #include "xdg-shell-client-protocol.h"
 #include "wlr-data-control-unstable-v1-client-protocol.h"
 #include "xdg-toplevel-icon-v1-client-protocol.h"
+#include "xdg-foreign-unstable-v2-client-protocol.h"
 
 #include "windef.h"
 #include "winbase.h"
@@ -82,6 +83,21 @@ enum wayland_surface_role
     WAYLAND_SURFACE_ROLE_NONE,
     WAYLAND_SURFACE_ROLE_TOPLEVEL,
     WAYLAND_SURFACE_ROLE_SUBSURFACE,
+};
+
+enum wayland_dwm_extend_mode
+{
+    WAYLAND_DWM_EXTEND_NONE = 0,
+    WAYLAND_DWM_EXTEND_MARGINS = 1,
+    WAYLAND_DWM_EXTEND_GLASS = 2
+};
+
+struct wayland_dwm_margins
+{
+    int cxLeftWidth;
+    int cxRightWidth;
+    int cyTopHeight;
+    int cyBottomHeight;
 };
 
 struct wayland_keyboard
@@ -178,6 +194,8 @@ struct wayland
     struct wl_data_device_manager *wl_data_device_manager;
     struct xdg_toplevel_icon_manager_v1 *xdg_toplevel_icon_manager_v1;
     struct wp_cursor_shape_manager_v1 *wp_cursor_shape_manager_v1;
+    struct zxdg_exporter_v2 *zxdg_exporter_v2;
+    struct zxdg_importer_v2 *zxdg_importer_v2;
     struct wayland_seat seat;
     struct wayland_keyboard keyboard;
     struct wayland_pointer pointer;
@@ -262,6 +280,7 @@ struct wayland_shm_buffer
 struct wayland_surface
 {
     HWND hwnd;
+    HWND dynamic_owner; /* Inferred parent for overlays lacking GW_OWNER */
 
     struct wl_surface *wl_surface;
     struct wp_viewport *wp_viewport;
@@ -276,6 +295,8 @@ struct wayland_surface
             struct xdg_surface *xdg_surface;
             struct xdg_toplevel *xdg_toplevel;
             struct xdg_toplevel_icon_v1 *xdg_toplevel_icon;
+            struct zxdg_exported_v2 *zxdg_exported_v2;
+            struct zxdg_imported_v2 *zxdg_imported_v2;
         };
         struct
         {
@@ -340,6 +361,8 @@ static inline BOOL wayland_surface_is_toplevel(struct wayland_surface *surface)
     return surface->role == WAYLAND_SURFACE_ROLE_TOPLEVEL && surface->xdg_toplevel;
 }
 
+char *get_global_atom_name(RTL_ATOM atom);
+
 /**********************************************************************
  *          Wayland SHM buffer
  */
@@ -372,6 +395,8 @@ struct wayland_win_data
     BOOL is_fullscreen;
     BOOL managed;
     BOOL layered_attribs_set;
+    struct wayland_dwm_margins margins;
+    int dwm_mode;
 };
 
 struct wayland_win_data *wayland_win_data_get(HWND hwnd);
@@ -446,6 +471,7 @@ BOOL WAYLAND_SetIMECompositionRect(HWND hwnd, RECT rect);
 void WAYLAND_SetCursor(HWND hwnd, HCURSOR hcursor);
 BOOL WAYLAND_SetCursorPos(INT x, INT y);
 void WAYLAND_SetLayeredWindowAttributes(HWND hwnd, COLORREF key, BYTE alpha, DWORD flags);
+BOOL WAYLAND_SetWindowDwmConfig(HWND hwnd, INT command, const void *data);
 void WAYLAND_SetWindowIcons(HWND hwnd, HICON icon, const ICONINFO *ii, HICON icon_small, const ICONINFO *ii_small);
 void WAYLAND_SetWindowStyle(HWND hwnd, INT offset, STYLESTRUCT *style);
 void WAYLAND_SetWindowText(HWND hwnd, LPCWSTR text);
