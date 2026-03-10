@@ -298,14 +298,20 @@ static HRESULT stream_create_transforms(struct stream *stream,
         {
             /* Create the converter with a recursive call. */
             hr = stream_create_transforms(stream, input_type, encoder_input_type, FALSE, attributes);
-            IMFMediaType_Release(encoder_input_type);
             if (SUCCEEDED(hr))
             {
                 /* Converter is already set in the recursive call, set encoder here. */
-                stream->encoder = transform;
-                TRACE("Created encoder %p.", transform);
-                break;
+                if (SUCCEEDED(hr = stream_set_transform(stream, transform, encoder_input_type, output_type, TRUE)))
+                {
+                    IMFMediaType_Release(encoder_input_type);
+                    break;
+                }
+                else
+                {
+                    stream_release_transforms(stream);
+                }
             }
+            IMFMediaType_Release(encoder_input_type);
         }
 
         IMFTransform_Release(transform);
