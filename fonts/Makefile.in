@@ -5,6 +5,7 @@ SOURCES = \
 	marlett.sfd \
 	ms_sans_serif.sfd \
 	segoeui.sfd \
+	segoeuib.sfd \
 	small_fonts.sfd \
 	small_fonts_jp.sfd \
 	symbol.sfd \
