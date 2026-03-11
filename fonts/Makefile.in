@@ -8,6 +8,7 @@ SOURCES = \
 	segoeuib.sfd \
 	segoeuil.sfd \
 	segoeuisl.sfd \
+	seguisb.sfd \
 	small_fonts.sfd \
 	small_fonts_jp.sfd \
 	symbol.sfd \
