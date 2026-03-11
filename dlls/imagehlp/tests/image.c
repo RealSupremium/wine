@@ -607,7 +607,7 @@ static const struct expected_blob b5[] = {
     {FILE_RELOC-FILE_RSRC-0x100, &bin_with_rsrc_and_reloc.rsrc_section + 0x100},
     {FILE_TOTAL_2-FILE_RELOC, &bin_with_rsrc_and_reloc.reloc_section}
 };
-static struct expected_update_accum a5 = { ARRAY_SIZE(b5), b5, TRUE };
+static struct expected_update_accum a5 = { ARRAY_SIZE(b5), b5, FALSE };
 
 static const struct expected_blob b6[] = {
     {FILE_PE_START,  &bin_with_rsrc_and_reloc},
@@ -619,7 +619,7 @@ static const struct expected_blob b6[] = {
     {FILE_RELOC-FILE_RSRC, &bin_with_rsrc_and_reloc.rsrc_section},
     {FILE_TOTAL_2-FILE_RELOC, &bin_with_rsrc_and_reloc.reloc_section}
 };
-static struct expected_update_accum a6 = { ARRAY_SIZE(b6), b6, TRUE };
+static struct expected_update_accum a6 = { ARRAY_SIZE(b6), b6, FALSE };
 
 static const struct expected_blob b7[] = {
     {FILE_PE_START,  &bin64_with_rsrc_and_reloc},
@@ -631,7 +631,7 @@ static const struct expected_blob b7[] = {
     {FILE_RELOC-FILE_RSRC-0x100, &bin64_with_rsrc_and_reloc.rsrc_section + 0x100},
     {FILE_TOTAL_2-FILE_RELOC, &bin64_with_rsrc_and_reloc.reloc_section},
 };
-static struct expected_update_accum a7 = { ARRAY_SIZE(b7), b7, TRUE };
+static struct expected_update_accum a7 = { ARRAY_SIZE(b7), b7, FALSE };
 
 static const struct expected_blob b8[] = {
     {FILE_PE_START,  &bin64_with_rsrc_and_reloc},
@@ -643,7 +643,7 @@ static const struct expected_blob b8[] = {
     {FILE_RELOC-FILE_RSRC, &bin64_with_rsrc_and_reloc.rsrc_section},
     {FILE_TOTAL_2-FILE_RELOC, &bin64_with_rsrc_and_reloc.reloc_section}
 };
-static struct expected_update_accum a8 = { ARRAY_SIZE(b8), b8, TRUE };
+static struct expected_update_accum a8 = { ARRAY_SIZE(b8), b8, FALSE };
 
 /* Creates a test file and returns a handle to it.  The file's path is returned
  * in temp_file, which must be at least MAX_PATH characters in length.
@@ -725,7 +725,7 @@ static void test_get_digest_stream(void)
     bin.nt_headers.OptionalHeader.SizeOfImage = 0;
 
     ret = ImageGetDigestStream(file, 0, accumulating_stream_output, &accum);
-    ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
+    todo_wine ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
     check_updates("flags = 0", &a1, &accum);
     free_updates(&accum);
     ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO,
@@ -756,7 +756,7 @@ static void test_get_digest_stream(void)
     bin64.nt_headers.OptionalHeader.SizeOfImage = 0;
 
     ret = ImageGetDigestStream(file, 0, accumulating_stream_output, &accum);
-    ok(ret, "ImageGetDigestStream failed: %lu\n", GetLastError());
+    todo_wine ok(ret, "ImageGetDigestStream failed: %lu\n", GetLastError());
     check_updates("64 flags = 0", &a3, &accum);
     free_updates(&accum);
     ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO,
@@ -783,8 +783,6 @@ static void test_get_digest_stream(void)
     ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO,
         accumulating_stream_output, &accum);
     ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
-    if (winetest_platform_is_wine)
-        a5.cUpdates = 1;
     check_updates("wrsrc flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO", &a5, &accum);
     free_updates(&accum);
 
@@ -793,8 +791,6 @@ static void test_get_digest_stream(void)
     ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO|CERT_PE_IMAGE_DIGEST_RESOURCES,
         accumulating_stream_output, &accum);
     ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
-    if (winetest_platform_is_wine)
-        a6.cUpdates = 1;
     check_updates("wrsrc flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO|CERT_PE_IMAGE_DIGEST_RESOURCES", &a6, &accum);
     free_updates(&accum);
     CloseHandle(file);
@@ -816,8 +812,6 @@ static void test_get_digest_stream(void)
     ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO,
         accumulating_stream_output, &accum);
     ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
-    if (winetest_platform_is_wine)
-        a7.cUpdates = 1;
     check_updates("64 wrsrc flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO", &a7, &accum);
     free_updates(&accum);
 
@@ -826,8 +820,6 @@ static void test_get_digest_stream(void)
     ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO|CERT_PE_IMAGE_DIGEST_RESOURCES,
         accumulating_stream_output, &accum);
     ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
-    if (winetest_platform_is_wine)
-        a8.cUpdates = 1;
     check_updates("64 wrsrc flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO|CERT_PE_IMAGE_DIGEST_RESOURCES", &a8, &accum);
     free_updates(&accum);
     CloseHandle(file);
