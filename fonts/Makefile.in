@@ -6,6 +6,7 @@ SOURCES = \
 	ms_sans_serif.sfd \
 	segoeui.sfd \
 	segoeuib.sfd \
+	segoeuil.sfd \
 	small_fonts.sfd \
 	small_fonts_jp.sfd \
 	symbol.sfd \
