@@ -16068,7 +16068,7 @@ static void test_bitmap_create(BOOL d3d11)
             bitmap_desc.bitmapOptions = subresource_tests[i].options;
             hr = ID2D1DeviceContext_CreateSharedBitmap(ctx.context, &IID_IDXGISurface2, surface2,
                     (const D2D1_BITMAP_PROPERTIES *)&bitmap_desc, &bitmap2);
-            todo_wine
+            todo_wine_if(subresource_count != 1)
             ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
             if (hr == S_OK)
             {
@@ -16079,7 +16079,7 @@ static void test_bitmap_create(BOOL d3d11)
 
             hr = ID2D1DeviceContext_CreateBitmapFromDxgiSurface(ctx.context,
                     (IDXGISurface *)surface2, &bitmap_desc, &bitmap);
-            todo_wine
+            todo_wine_if(subresource_count != 1)
             ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
             if (hr == S_OK)
             {
