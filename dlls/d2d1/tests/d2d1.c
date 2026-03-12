@@ -1044,7 +1044,7 @@ static void serialize_figure(struct figure *figure)
                 p += 4;
                 if (++k == 19)
                 {
-                    trace("%.76s\n", output);
+                    if (winetest_debug > 1) trace("%.76s\n", output);
                     p = output;
                     k = 0;
                 }
@@ -1062,7 +1062,7 @@ static void serialize_figure(struct figure *figure)
         p[3] = lookup[t[2] & 0x3f];
         ++k;
     }
-    if (k)
+    if (winetest_debug > 1 && k)
         trace("%.*s\n", k * 4, output);
 }
 
@@ -1199,7 +1199,7 @@ static BOOL compare_figure(struct d2d1_test_context *ctx, unsigned int x, unsign
     }
     if (diff > max_diff)
     {
-        trace("diff %u > max_diff %u.\n", diff, max_diff);
+        if (winetest_debug > 1) trace("diff %u > max_diff %u.\n", diff, max_diff);
         read_figure(&figure, rb.data, rb.pitch, x, y, w, h, prev);
         serialize_figure(&figure);
     }
