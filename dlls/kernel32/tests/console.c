@@ -5717,6 +5717,48 @@ static void test_FreeConsoleStd(void)
     }
 }
 
+static void test_ANSI_escape_sequences(void)
+{
+    CONSOLE_SCREEN_BUFFER_INFO sb_info;
+    HANDLE hConOut;
+    BOOL ret;
+    DWORD mode, dw;
+    COORD c = {};
+
+    FreeConsole();
+    AllocConsole();
+    hConOut = CreateFileA("CONOUT$", GENERIC_READ|GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, 0);
+    ret = SetConsoleMode(hConOut, ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    ok(ret, "SetConsoleMode failed\n");
+    ret = GetConsoleMode(hConOut, &mode);
+    ok(ret, "GetConsoleMode failed\n");
+    ok(mode == (ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING), "Unexpected mode\n");
+    ret = SetConsoleCursorPosition(hConOut, c);
+    ok(ret, "SetConsoleCursorPosition failed\n");
+    ret = SetConsoleTextAttribute(hConOut, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+    ok(ret, "SetConsoleTextAttribute failed\n");
+    ret = WriteConsoleW(hConOut, L"GREEN\x1b[91mRED", 5+5+3, &dw, NULL);
+    ok(dw == 5+5+3, "Wrong count\n");
+    ok(ret, "WriteConsole failed\n");
+    ret = GetConsoleScreenBufferInfo(hConOut, &sb_info);
+    ok(ret, "GetConsoleScreenBufferInfo failed\n");
+    ok(sb_info.dwCursorPosition.X == 5 + 3, "Incorrect X cursor position\n");
+    ok(sb_info.dwCursorPosition.Y == 0, "Incorrect X cursor position\n");
+    ok(sb_info.wAttributes == (FOREGROUND_RED | FOREGROUND_INTENSITY), "Unexpected attributes got %x, expected %x\n", sb_info.wAttributes, FOREGROUND_RED | FOREGROUND_INTENSITY);
+    ret = SetConsoleTextAttribute(hConOut, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+    ret = WriteConsoleW(hConOut, L"BLUE\x1b[m", 4+3, &dw, NULL);
+    ok(dw == 4+3, "Wrong count\n");
+    ret = GetConsoleScreenBufferInfo(hConOut, &sb_info);
+    ok(sb_info.dwCursorPosition.X == 5 + 3 + 4, "Incorrect X cursor position\n");
+    ok(sb_info.dwCursorPosition.Y == 0, "Incorrect X cursor position\n");
+    ok(sb_info.wAttributes == (FOREGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN), "Unexpected attributes: got %x, expected %x\n", sb_info.wAttributes, FOREGROUND_BLUE | FOREGROUND_RED | FOREGROUND_GREEN);
+    /* TODO should call ReadConsoleOutput to check that the colors are correct (they are visually) */
+    /* could test more sequences */
+    CloseHandle(hConOut);
+
+    FreeConsole();
+}
+
 START_TEST(console)
 {
     HANDLE hConIn, hConOut, revert_output = NULL, unbound_output;
@@ -6021,6 +6063,7 @@ START_TEST(console)
         test_condrv_server_as_root_directory();
         test_CreateProcessCUI();
         test_CtrlHandlerSubsystem();
+        test_ANSI_escape_sequences();
     }
     else if (revert_output) SetConsoleActiveScreenBuffer(revert_output);
 
