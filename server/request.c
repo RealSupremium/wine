@@ -408,8 +408,10 @@ int receive_fd( struct process *process )
     {
         struct thread *thread;
 
+        if (data.tid == get_thread_id( process->sched_thread )) data.tid = 0;
+
         if (data.tid) thread = get_thread_from_id( data.tid );
-        else thread = (struct thread *)grab_object( get_process_first_thread( process ));
+        else thread = (struct thread *)grab_object( process->sched_thread );
 
         if (!thread || thread->process != process || thread->state == TERMINATED)
         {
@@ -562,7 +564,7 @@ static void master_socket_poll_event( struct fd *fd, int event )
         fcntl( client, F_SETFL, O_NONBLOCK );
         if ((process = create_process( client, NULL, 0, NULL, NULL, NULL, 0, NULL )))
         {
-            create_thread( -1, process, NULL );
+            create_thread( -1, process, 0, NULL );
             release_object( process );
         }
     }

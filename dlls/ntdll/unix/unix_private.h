@@ -188,8 +188,8 @@ extern pthread_key_t teb_key;
 extern PEB *peb;
 extern USHORT *uctable;
 extern USHORT *lctable;
-extern SIZE_T startup_info_size;
 extern BOOL is_prefix_bootstrap;
+extern LONG init_redirect;
 extern int main_argc;
 extern char **main_argv;
 extern WCHAR **main_wargv;
@@ -206,7 +206,7 @@ extern struct _KUSER_SHARED_DATA *user_shared_data;
 extern ULONG process_cookie;
 
 extern void init_environment(void);
-extern void init_startup_info(void);
+extern void init_startup_info( SIZE_T info_size );
 extern void *create_startup_info( const UNICODE_STRING *nt_image, ULONG process_flags,
                                   const RTL_USER_PROCESS_PARAMETERS *params,
                                   const struct pe_image_info *pe_info, DWORD *info_size );
@@ -237,7 +237,7 @@ extern int server_get_unix_fd( HANDLE handle, unsigned int wanted_access, int *u
 extern int wine_server_receive_fd( obj_handle_t *handle );
 extern void process_exit_wrapper( int status ) DECLSPEC_NORETURN;
 extern size_t server_init_process(void);
-extern void server_init_process_done(void);
+extern void server_start_main_thread(void);
 extern void server_init_thread( void *entry_point, BOOL *suspend );
 extern int server_pipe( int fd[2] );
 
@@ -262,7 +262,7 @@ extern void set_process_instrumentation_callback( void *callback );
 
 extern void *get_cpu_area( USHORT machine );
 extern void set_thread_id( TEB *teb, DWORD pid, DWORD tid );
-extern NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE_T commit_size );
+extern NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE_T commit_size, BOOL only_kernel );
 extern void DECLSPEC_NORETURN abort_thread( int status );
 extern void DECLSPEC_NORETURN abort_process( int status );
 extern void DECLSPEC_NORETURN exit_process( int status );
@@ -387,6 +387,8 @@ extern NTSTATUS wow64_wine_server_fd_to_handle( void *args );
 extern NTSTATUS wow64_wine_server_handle_to_fd( void *args );
 extern NTSTATUS wow64_wine_spawnvp( void *args );
 #endif
+
+extern void sched_run(void);
 
 extern void dbg_init(void);
 

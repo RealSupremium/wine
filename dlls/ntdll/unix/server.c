@@ -1655,6 +1655,9 @@ size_t server_init_process(void)
     /* work around Ubuntu's ptrace breakage */
     if (server_pid != -1) prctl( 0x59616d61 /* PR_SET_PTRACER */, server_pid );
 #endif
+#ifdef __APPLE__
+    send_server_task_port();
+#endif
 
     /* ignore SIGPIPE so that we get an EPIPE error instead  */
     sig_act.sa_handler = SIG_IGN;
@@ -1664,7 +1667,7 @@ size_t server_init_process(void)
 
     reply_pipe = init_thread_pipe();
 
-    SERVER_START_REQ( init_first_thread )
+    SERVER_START_REQ( init_process )
     {
         req->unix_pid    = getpid();
         req->unix_tid    = get_unix_tid();
@@ -1691,7 +1694,7 @@ size_t server_init_process(void)
     SERVER_END_REQ;
     close( reply_pipe );
 
-    if (ret) server_protocol_error( "init_first_thread failed with status %x\n", ret );
+    if (ret) server_protocol_error( "init_process failed with status %x\n", ret );
 
     if (!supported_machines_count)
         fatal_error( "'%s' is a 64-bit installation, it cannot be used with a 32-bit wineserver.\n",
@@ -1726,23 +1729,18 @@ size_t server_init_process(void)
 
 
 /***********************************************************************
- *           server_init_process_done
+ *           server_start_main_thread
  */
-void server_init_process_done(void)
+void server_start_main_thread(void)
 {
-    void *teb;
     unsigned int status;
-    int suspend;
     FILE_FS_DEVICE_INFORMATION info;
     struct ntdll_thread_data *thread_data = ntdll_get_thread_data();
+    HANDLE handle;
 
     if (!get_device_info( initial_cwd, &info ) && (info.Characteristics & FILE_REMOVABLE_MEDIA))
         chdir( "/" );
     close( initial_cwd );
-
-#ifdef __APPLE__
-    send_server_task_port();
-#endif
 
     /* Install signal handlers; this cannot be done earlier, since we cannot
      * send exceptions to the debugger before the create process event that
@@ -1751,21 +1749,12 @@ void server_init_process_done(void)
     thread_data->syscall_table = KeServiceDescriptorTable;
     thread_data->syscall_trace = TRACE_ON(syscall);
 
-    /* always send the native TEB */
-    if (!(teb = NtCurrentTeb64())) teb = NtCurrentTeb();
-
-    /* Signal the parent process to continue */
-    SERVER_START_REQ( init_process_done )
-    {
-        req->teb = wine_server_client_ptr( teb );
-        req->peb = NtCurrentTeb64() ? NtCurrentTeb64()->Peb : wine_server_client_ptr( peb );
-        status = wine_server_call( req );
-        suspend = reply->suspend;
-    }
-    SERVER_END_REQ;
-
+    status = NtCreateThreadEx( &handle, THREAD_ALL_ACCESS, NULL, NtCurrentProcess(),
+                               main_image_info.TransferAddress, peb, 0, 0, 0, 0, NULL );
     assert( !status );
-    signal_start_thread( main_image_info.TransferAddress, peb, suspend, NtCurrentTeb() );
+    NtClose( handle );
+
+    sched_run();
 }
 
 

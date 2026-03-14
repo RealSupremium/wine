@@ -66,8 +66,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(environ);
 PEB *peb = NULL;
 WOW_PEB *wow_peb = NULL;
 USHORT *uctable = NULL, *lctable = NULL;
-SIZE_T startup_info_size = 0;
 BOOL is_prefix_bootstrap = FALSE;
+LONG init_redirect = FALSE;
 
 static const WCHAR bootstrapW[] = {'W','I','N','E','B','O','O','T','S','T','R','A','P','M','O','D','E'};
 
@@ -1990,6 +1990,7 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
 
     get_initial_console( params );
 
+    init_redirect = NtCurrentTeb64() && NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR];
     return params;
 }
 
@@ -1997,29 +1998,26 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
 /*************************************************************************
  *		init_startup_info
  */
-void init_startup_info(void)
+void init_startup_info( SIZE_T info_size )
 {
     WCHAR *src, *dst, *env;
     void *module = NULL;
     unsigned int status;
-    SIZE_T size, info_size, env_size, env_pos;
+    SIZE_T size, env_size, env_pos;
     RTL_USER_PROCESS_PARAMETERS *params = NULL;
+    const TEB64 *teb64 = NtCurrentTeb64();
     struct startup_info_data *info;
     UNICODE_STRING nt_name;
     USHORT machine;
 
-    if (!startup_info_size)
-    {
-        params = build_initial_params( &module );
-        init_peb( params, module );
-        return;
-    }
-
-    info = malloc( startup_info_size );
+    info = info_size ? malloc( info_size ) : NULL;
 
     SERVER_START_REQ( get_startup_info )
     {
-        wine_server_set_reply( req, info, startup_info_size );
+        /* always send the native PEB / TEB */
+        req->peb = teb64 ? teb64->Peb : wine_server_client_ptr( peb );
+        req->teb = wine_server_client_ptr( teb64 ? (void *)teb64 : NtCurrentTeb() );
+        if (info) wine_server_set_reply( req, info, info_size );
         status = wine_server_call( req );
         machine = reply->machine;
         info_size = reply->info_size;
@@ -2027,6 +2025,13 @@ void init_startup_info(void)
     }
     SERVER_END_REQ;
     assert( !status );
+
+    if (!info)
+    {
+        params = build_initial_params( &module );
+        init_peb( params, module );
+        return;
+    }
 
     env = malloc( env_size * sizeof(WCHAR) );
     memcpy( env, (char *)info + info_size, env_size * sizeof(WCHAR) );

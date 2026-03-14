@@ -88,8 +88,9 @@ struct thread
     int                    base_priority; /* base priority level (relative to process base priority class) */
     int                    disable_boost; /* disable thread priority boost */
     int                    suspend;       /* suspend count */
-    int                    dbg_hidden;    /* hidden from debugger */
-    int                    bypass_proc_suspend; /* will still run if the process is suspended */
+    unsigned int           is_sched:1;    /* sched / unix main thread */
+    unsigned int           dbg_hidden:1;  /* hidden from debugger */
+    unsigned int           bypass_proc_suspend:1; /* will still run if the process is suspended */
     obj_handle_t           desktop;       /* desktop handle */
     int                    desktop_users; /* number of objects using the thread desktop */
     timeout_t              creation_time; /* Thread creation time */
@@ -105,7 +106,7 @@ extern struct thread *current;
 
 /* thread functions */
 
-extern struct thread *create_thread( int fd, struct process *process,
+extern struct thread *create_thread( int fd, struct process *process, unsigned int flags,
                                      const struct security_descriptor *sd );
 extern struct thread *get_thread_from_id( thread_id_t id );
 extern struct thread *get_thread_from_handle( obj_handle_t handle, unsigned int access );

@@ -83,7 +83,7 @@ WINE_DECLARE_DEBUG_CHANNEL(threadname);
 
 pthread_key_t teb_key = 0;
 
-static LONG nb_threads = 1;
+static LONG nb_threads = 0;
 
 static inline int get_unix_exit_code( NTSTATUS status )
 {
@@ -1199,7 +1199,7 @@ void set_thread_id( TEB *teb, DWORD pid, DWORD tid )
 /***********************************************************************
  *           init_thread_stack
  */
-NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE_T commit_size )
+NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE_T commit_size, BOOL only_kernel )
 {
     struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
     WOW_TEB *wow_teb = get_wow_teb( teb );
@@ -1210,6 +1210,8 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
     if ((status = virtual_alloc_thread_stack( &stack, limit_4g, 0, kernel_stack_size, kernel_stack_size, FALSE )))
         return status;
     thread_data->kernel_stack = stack.DeallocationStack;
+
+    if (only_kernel) return STATUS_SUCCESS;
 
     if (wow_teb)
     {
@@ -1420,7 +1422,7 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
 
     if ((status = virtual_alloc_teb( &teb ))) goto done;
 
-    if ((status = init_thread_stack( teb, get_zero_bits_limit( zero_bits ), stack_reserve, stack_commit )))
+    if ((status = init_thread_stack( teb, get_zero_bits_limit( zero_bits ), stack_reserve, stack_commit, FALSE )))
     {
         virtual_free_teb( teb );
         goto done;
@@ -1436,6 +1438,10 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
         wow_teb->SkipThreadAttach = teb->SkipThreadAttach;
         wow_teb->SkipLoaderInit = teb->SkipLoaderInit;
     }
+#ifndef _WIN64
+    if (InterlockedExchange( &init_redirect, FALSE ) && teb->GdiBatchCount)
+        ((TEB64 *)teb->GdiBatchCount)->TlsSlots[WOW64_TLS_FILESYSREDIR] = TRUE;
+#endif
 
     thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
     thread_data->request_fd  = request_pipe[1];

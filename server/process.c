@@ -664,6 +664,7 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     }
     process->sync            = NULL;
     process->parent_id       = 0;
+    process->sched_thread    = NULL;
     process->debug_obj       = NULL;
     process->debug_event     = NULL;
     process->handles         = NULL;
@@ -674,6 +675,8 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     process->unix_pid        = -1;
     process->exit_code       = STILL_ACTIVE;
     process->running_threads = 0;
+    process->thread_flags    = 0;
+    process->thread_sd       = NULL;
     process->priority        = PROCESS_PRIOCLASS_NORMAL;
     process->base_priority   = 8;
     process->disable_boost   = 0;
@@ -770,6 +773,15 @@ data_size_t get_process_startup_info_size( struct process *process )
     return info->data_size;
 }
 
+struct security_descriptor *get_first_thread_info( struct process *process, unsigned int *flags )
+{
+    struct startup_info *info = process->startup_info;
+
+    if (!info) return NULL;
+    *flags = process->thread_flags;
+    return process->thread_sd;
+}
+
 /* destroy a process when its refcount is 0 */
 static void process_destroy( struct object *obj )
 {
@@ -777,6 +789,7 @@ static void process_destroy( struct object *obj )
     assert( obj->ops == &process_ops );
 
     /* we can't have a thread remaining */
+    assert( !process->sched_thread );
     assert( list_empty( &process->thread_list ));
     assert( list_empty( &process->asyncs ));
 
@@ -800,6 +813,7 @@ static void process_destroy( struct object *obj )
     free( process->rawinput_devices );
     free( process->dir_cache );
     free( process->image );
+    free( process->thread_sd );
 }
 
 /* dump a process on stdout for debugging purposes */
@@ -980,6 +994,11 @@ void kill_console_processes( struct thread *renderer, int exit_code )
 /* a process has been killed (i.e. its last thread died) */
 static void process_killed( struct process *process )
 {
+    assert( process->sched_thread );
+    kill_thread( process->sched_thread, 0 );
+    release_object( process->sched_thread );
+    process->sched_thread = NULL;
+
     assert( list_empty( &process->thread_list ));
     process->end_time = current_time;
     close_process_desktop( process );
@@ -1005,6 +1024,8 @@ static void process_killed( struct process *process )
 /* add a thread to a process running threads list */
 void add_process_thread( struct process *process, struct thread *thread )
 {
+    assert( process->sched_thread );
+
     list_add_tail( &process->thread_list, &thread->proc_entry );
     if (!process->running_threads++)
     {
@@ -1027,6 +1048,7 @@ void remove_process_thread( struct process *process, struct thread *thread )
 {
     assert( process->running_threads > 0 );
     assert( !list_empty( &process->thread_list ));
+    assert( process->sched_thread );
 
     list_remove( &thread->proc_entry );
 
@@ -1151,13 +1173,13 @@ DECL_HANDLER(new_process)
     struct startup_info *info;
     const void *info_ptr;
     struct unicode_str name, desktop_path = {0};
-    const struct security_descriptor *sd;
+    const struct security_descriptor *sd, *thread_sd = NULL;
     const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, NULL );
     struct process *process = NULL;
     struct token *token = NULL;
     struct debug_obj *debug_obj = NULL;
     struct process *parent;
-    struct thread *parent_thread = current;
+    struct thread *thread, *parent_thread = current;
     int socket_fd = thread_get_inflight_fd( current, req->socket_fd );
     const obj_handle_t *handles = NULL;
     const obj_handle_t *job_handles = NULL;
@@ -1201,7 +1223,7 @@ DECL_HANDLER(new_process)
 
     /* If a job further in the job chain does not permit breakaway process creation
      * succeeds and the process which is trying to breakaway is assigned to that job. */
-    if (parent->job && (req->flags & PROCESS_CREATE_FLAGS_BREAKAWAY) &&
+    if (parent->job && (req->process_flags & PROCESS_CREATE_FLAGS_BREAKAWAY) &&
         !(parent->job->limit_flags & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)))
     {
         set_error( STATUS_ACCESS_DENIED );
@@ -1253,6 +1275,24 @@ DECL_HANDLER(new_process)
         job_handles = info_ptr;
         info_ptr = (const char *)info_ptr + req->jobs_size;
         info->data_size -= req->jobs_size;
+    }
+    if (req->sd_len > info->data_size)
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        close( socket_fd );
+        goto done;
+    }
+    if (req->sd_len)
+    {
+        thread_sd = info_ptr;
+        info_ptr = (const char *)thread_sd + req->sd_len;
+        info->data_size -= req->sd_len;
+    }
+    if (thread_sd && !sd_is_valid( thread_sd, req->sd_len ))
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        close( socket_fd );
+        goto done;
     }
 
     job_handle_count = req->jobs_size / sizeof(*handles);
@@ -1319,18 +1359,20 @@ DECL_HANDLER(new_process)
         goto done;
     }
 
-    if (!(process = create_process( socket_fd, parent, req->flags, info->data, sd,
+    if (!(process = create_process( socket_fd, parent, req->process_flags, info->data, sd,
                                     handles, req->handles_size / sizeof(*handles), token )))
         goto done;
 
     process->machine = req->machine;
     process->startup_info = (struct startup_info *)grab_object( info );
+    process->thread_flags = req->thread_flags;
+    if (thread_sd && !(process->thread_sd = memdup( thread_sd, req->sd_len ))) goto done;
 
     job = parent->job;
     while (job)
     {
         if (!(job->limit_flags & JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
-                && !(req->flags & PROCESS_CREATE_FLAGS_BREAKAWAY
+                && !(req->process_flags & PROCESS_CREATE_FLAGS_BREAKAWAY
                 && job->limit_flags & JOB_OBJECT_LIMIT_BREAKAWAY_OK))
         {
             add_job_process( job, process );
@@ -1360,7 +1402,7 @@ DECL_HANDLER(new_process)
         info->data->console = duplicate_handle( parent, info->data->console, process,
                                                 0, 0, DUPLICATE_SAME_ACCESS );
 
-    if (!(req->flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES) && info->data->console != 1)
+    if (!(req->process_flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES) && info->data->console != 1)
     {
         info->data->hstdin  = duplicate_handle( parent, info->data->hstdin, process,
                                                 0, 0, DUPLICATE_SAME_ACCESS | DUPLICATE_SAME_ATTRIBUTES );
@@ -1377,7 +1419,7 @@ DECL_HANDLER(new_process)
     if (debug_obj)
     {
         process->debug_obj = debug_obj;
-        process->debug_children = !(req->flags & PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT);
+        process->debug_children = !(req->process_flags & PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT);
     }
     else if (parent->debug_children)
     {
@@ -1391,6 +1433,10 @@ DECL_HANDLER(new_process)
         info->data->process_group_id = process->group_id;
 
     info->process = (struct process *)grab_object( process );
+
+    if (!(thread = create_thread( -1, process, 0, NULL ))) goto done;
+    thread->system_regs = current->system_regs;
+
     reply->info = alloc_handle( current->process, info, SYNCHRONIZE, 0 );
     reply->pid = get_process_id( process );
     reply->handle = alloc_handle_no_access_check( current->process, process, req->access, objattr->attributes );
@@ -1407,14 +1453,22 @@ DECL_HANDLER(new_process)
 DECL_HANDLER(get_new_process_info)
 {
     struct startup_info *info;
+    struct thread *thread;
 
-    if ((info = (struct startup_info *)get_handle_obj( current->process, req->info,
-                                                       0, &startup_info_ops )))
+    if (!(info = (struct startup_info *)get_handle_obj( current->process, req->info, 0, &startup_info_ops ))) return;
+    if (!(thread = get_process_first_thread( info->process )))
     {
-        reply->success = is_process_init_done( info->process );
-        reply->exit_code = info->process->exit_code;
-        release_object( info );
+        set_error( STATUS_INVALID_PARAMETER );
+        goto done;
     }
+
+    reply->tid = get_thread_id( thread );
+    reply->handle = alloc_handle_no_access_check( current->process, thread, req->access, req->attributes );
+    reply->success = is_process_init_done( info->process );
+    reply->exit_code = info->process->exit_code;
+
+done:
+    release_object( info );
 }
 
 /* Itererate processes using global process list */
@@ -1458,6 +1512,10 @@ DECL_HANDLER(get_startup_info)
     struct startup_info *info = process->startup_info;
     data_size_t size;
 
+    current->teb = req->teb;
+    process->peb = req->peb;
+    init_process_tracing( process );
+
     if (!info) return;
 
     /* we return the data directly without making a copy so this can only be called once */
@@ -1471,29 +1529,19 @@ DECL_HANDLER(get_startup_info)
 }
 
 /* signal the end of the process initialization */
-DECL_HANDLER(init_process_done)
+void init_process_done( struct process *process )
 {
-    struct process *process = current->process;
-
     if (is_process_init_done(process))
     {
         set_error( STATUS_INVALID_PARAMETER );
         return;
     }
 
-    current->teb = req->teb;
-    process->peb = req->peb;
-
-    process->start_time = current_time;
-
-    init_process_tracing( process );
-    generate_startup_debug_events( process );
     set_process_startup_state( process, STARTUP_DONE );
 
     if (process->image_info.subsystem != IMAGE_SUBSYSTEM_WINDOWS_CUI)
         process->idle_event = create_event( NULL, NULL, 0, 1, 0, NULL );
     if (process->debug_obj) set_process_debug_flag( process, 1 );
-    reply->suspend = (current->suspend || process->suspend);
 }
 
 /* open a handle to a process */
@@ -1671,6 +1719,7 @@ void set_process_base_priority( struct process *process, int base_priority )
 
     process->base_priority = base_priority;
 
+    if ((thread = process->sched_thread)) set_thread_base_priority( thread, thread->base_priority );
     LIST_FOR_EACH_ENTRY( thread, &process->thread_list, struct thread, proc_entry )
     {
         set_thread_base_priority( thread, thread->base_priority );
@@ -1716,6 +1765,7 @@ static void set_process_disable_boost( struct process *process, int disable_boos
 
     process->disable_boost = disable_boost;
 
+    if ((thread = process->sched_thread)) set_thread_disable_boost( thread, disable_boost );
     LIST_FOR_EACH_ENTRY( thread, &process->thread_list, struct thread, proc_entry )
     {
         set_thread_disable_boost( thread, disable_boost );
@@ -1734,6 +1784,7 @@ static void set_process_affinity( struct process *process, affinity_t affinity )
 
     process->affinity = affinity;
 
+    if ((thread = process->sched_thread)) set_thread_affinity( thread, affinity );
     LIST_FOR_EACH_ENTRY( thread, &process->thread_list, struct thread, proc_entry )
     {
         set_thread_affinity( thread, affinity );

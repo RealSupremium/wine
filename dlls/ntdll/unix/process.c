@@ -689,8 +689,8 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     unsigned int status;
     BOOL success = FALSE;
     HANDLE file_handle, process_info = 0, process_handle = 0, thread_handle = 0;
-    struct object_attributes *objattr;
-    data_size_t attr_len;
+    struct object_attributes *objattr, *thread_objattr;
+    data_size_t attr_len, thread_attr_len;
     char *winedebug = NULL;
     char *unix_name = NULL;
     struct startup_info_data *startup_info = NULL;
@@ -781,6 +781,11 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     env_size = get_env_size( params, &winedebug );
 
     if ((status = alloc_object_attributes( process_attr, &objattr, &attr_len ))) goto done;
+    if ((status = alloc_object_attributes( thread_attr, &thread_objattr, &thread_attr_len )))
+    {
+        free( thread_objattr );
+        goto done;
+    }
 
     if ((status = alloc_handle_list( handles_attr, &handles, &handles_size )))
     {
@@ -822,16 +827,19 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         req->token          = wine_server_obj_handle( token );
         req->debug          = wine_server_obj_handle( debug );
         req->parent_process = wine_server_obj_handle( parent );
-        req->flags          = process_flags;
+        req->process_flags  = process_flags;
+        req->thread_flags   = thread_flags;
         req->socket_fd      = socketfd[1];
         req->access         = process_access;
         req->machine        = machine;
         req->info_size      = startup_info_size;
         req->handles_size   = handles_size;
         req->jobs_size      = jobs_size;
+        req->sd_len         = thread_objattr ? thread_objattr->sd_len : 0;
         wine_server_add_data( req, objattr, attr_len );
         wine_server_add_data( req, handles, handles_size );
         wine_server_add_data( req, jobs, jobs_size );
+        wine_server_add_data( req, thread_objattr + 1, req->sd_len );
         wine_server_add_data( req, startup_info, startup_info_size );
         wine_server_add_data( req, params->Environment, env_size );
         if (!(status = wine_server_call( req )))
@@ -843,6 +851,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     }
     SERVER_END_REQ;
     close( socketfd[1] );
+    free( thread_objattr );
     free( objattr );
     free( handles );
     free( jobs );
@@ -862,25 +871,6 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         goto done;
     }
 
-    if ((status = alloc_object_attributes( thread_attr, &objattr, &attr_len ))) goto done;
-
-    SERVER_START_REQ( new_thread )
-    {
-        req->process    = wine_server_obj_handle( process_handle );
-        req->access     = thread_access;
-        req->flags      = thread_flags;
-        req->request_fd = -1;
-        wine_server_add_data( req, objattr, attr_len );
-        if (!(status = wine_server_call( req )))
-        {
-            thread_handle = wine_server_ptr_handle( reply->handle );
-            id.UniqueThread = ULongToHandle( reply->tid );
-        }
-    }
-    SERVER_END_REQ;
-    free( objattr );
-    if (status) goto done;
-
     /* create the child process */
 
     if ((status = spawn_process( params, socketfd[0], unixdir, winedebug, &pe_info ))) goto done;
@@ -893,10 +883,14 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     NtWaitForSingleObject( process_info, FALSE, NULL );
     SERVER_START_REQ( get_new_process_info )
     {
-        req->info = wine_server_obj_handle( process_info );
+        req->info       = wine_server_obj_handle( process_info );
+        req->access     = thread_access;
+        req->attributes = thread_attr ? thread_attr->Attributes : 0;
         wine_server_call( req );
         success = reply->success;
         status = reply->exit_code;
+        thread_handle = wine_server_ptr_handle( reply->handle );
+        id.UniqueThread = ULongToHandle( reply->tid );
     }
     SERVER_END_REQ;
 
