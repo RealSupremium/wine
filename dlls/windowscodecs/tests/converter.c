@@ -1045,13 +1045,13 @@ static void test_converter_4bppGray(void)
     {
         hr = IWICFormatConverter_CanConvert(converter, &GUID_WICPixelFormat32bppBGRA,
             &GUID_WICPixelFormat4bppGray, &can_convert);
-        todo_wine ok(SUCCEEDED(hr), "CanConvert returned %lx\n", hr);
-        todo_wine ok(can_convert, "expected TRUE, got %i\n", can_convert);
+        ok(SUCCEEDED(hr), "CanConvert returned %lx\n", hr);
+        ok(can_convert, "expected TRUE, got %i\n", can_convert);
 
         hr = IWICFormatConverter_Initialize(converter, &src_obj->IWICBitmapSource_iface,
             &GUID_WICPixelFormat4bppGray, WICBitmapDitherTypeNone, NULL, 0.0,
             WICBitmapPaletteTypeCustom);
-        todo_wine ok(SUCCEEDED(hr), "Initialize returned %lx\n", hr);
+        ok(SUCCEEDED(hr), "Initialize returned %lx\n", hr);
 
         if (SUCCEEDED(hr))
             compare_bitmap_data(&testdata_32bppBGRA, &testdata_4bppGray, (IWICBitmapSource*)converter, "4bppGray converter");

@@ -2040,6 +2040,144 @@ static HRESULT copypixels_to_BlackWhite(struct FormatConverter *This, const WICR
     }
 }
 
+static HRESULT copypixels_to_2bppGray(struct FormatConverter *This, const WICRect *prc,
+    UINT cbStride, UINT cbBufferSize, BYTE *pbBuffer, enum pixelformat source_format)
+{
+    HRESULT hr;
+    BYTE *srcdata;
+    UINT srcstride, srcdatasize;
+
+    if (source_format == format_2bppGray)
+    {
+        if (prc)
+            return IWICBitmapSource_CopyPixels(This->source, prc, cbStride, cbBufferSize, pbBuffer);
+        return S_OK;
+    }
+
+    if (!prc)
+        return copypixels_to_8bppGray(This, NULL, cbStride, cbBufferSize, pbBuffer, source_format);
+
+    srcstride = prc->Width;
+    srcdatasize = srcstride * prc->Height;
+
+    srcdata = malloc(srcdatasize);
+    if (!srcdata) return E_OUTOFMEMORY;
+
+    hr = copypixels_to_8bppGray(This, prc, srcstride, srcdatasize, srcdata, source_format);
+    if (SUCCEEDED(hr))
+    {
+        INT x, y;
+        BYTE *src = srcdata, *dst = pbBuffer;
+
+        for (y = 0; y < prc->Height; y++)
+        {
+            memset(dst, 0, (prc->Width + 3) / 4);
+            for (x = 0; x < prc->Width; x++)
+            {
+                BYTE gray2 = src[x] >> 6;  /* 256 levels -> 4 levels */
+                dst[x >> 2] |= gray2 << (6 - (x & 3) * 2);
+            }
+            src += srcstride;
+            dst += cbStride;
+        }
+    }
+
+    free(srcdata);
+    return hr;
+}
+
+static HRESULT copypixels_to_4bppGray(struct FormatConverter *This, const WICRect *prc,
+    UINT cbStride, UINT cbBufferSize, BYTE *pbBuffer, enum pixelformat source_format)
+{
+    HRESULT hr;
+    BYTE *srcdata;
+    UINT srcstride, srcdatasize;
+
+    if (source_format == format_4bppGray)
+    {
+        if (prc)
+            return IWICBitmapSource_CopyPixels(This->source, prc, cbStride, cbBufferSize, pbBuffer);
+        return S_OK;
+    }
+
+    if (!prc)
+        return copypixels_to_8bppGray(This, NULL, cbStride, cbBufferSize, pbBuffer, source_format);
+
+    srcstride = prc->Width;
+    srcdatasize = srcstride * prc->Height;
+
+    srcdata = malloc(srcdatasize);
+    if (!srcdata) return E_OUTOFMEMORY;
+
+    hr = copypixels_to_8bppGray(This, prc, srcstride, srcdatasize, srcdata, source_format);
+    if (SUCCEEDED(hr))
+    {
+        INT x, y;
+        BYTE *src = srcdata, *dst = pbBuffer;
+
+        for (y = 0; y < prc->Height; y++)
+        {
+            memset(dst, 0, (prc->Width + 1) / 2);
+            for (x = 0; x < prc->Width; x++)
+            {
+                BYTE gray4 = src[x] >> 4;  /* 256 levels -> 16 levels */
+                if (x & 1)
+                    dst[x >> 1] |= gray4;
+                else
+                    dst[x >> 1] |= gray4 << 4;
+            }
+            src += srcstride;
+            dst += cbStride;
+        }
+    }
+
+    free(srcdata);
+    return hr;
+}
+
+static HRESULT copypixels_to_16bppGray(struct FormatConverter *This, const WICRect *prc,
+    UINT cbStride, UINT cbBufferSize, BYTE *pbBuffer, enum pixelformat source_format)
+{
+    HRESULT hr;
+    BYTE *srcdata;
+    UINT srcstride, srcdatasize;
+
+    if (source_format == format_16bppGray)
+    {
+        if (prc)
+            return IWICBitmapSource_CopyPixels(This->source, prc, cbStride, cbBufferSize, pbBuffer);
+        return S_OK;
+    }
+
+    if (!prc)
+        return copypixels_to_8bppGray(This, NULL, cbStride, cbBufferSize, pbBuffer, source_format);
+
+    srcstride = prc->Width;
+    srcdatasize = srcstride * prc->Height;
+
+    srcdata = malloc(srcdatasize);
+    if (!srcdata) return E_OUTOFMEMORY;
+
+    hr = copypixels_to_8bppGray(This, prc, srcstride, srcdatasize, srcdata, source_format);
+    if (SUCCEEDED(hr))
+    {
+        INT x, y;
+        BYTE *src = srcdata, *dst = pbBuffer;
+
+        for (y = 0; y < prc->Height; y++)
+        {
+            UINT16 *dst16 = (UINT16 *)dst;
+            for (x = 0; x < prc->Width; x++)
+                dst16[x] = src[x] * 257;  /* 0xFF -> 0xFFFF */
+            src += srcstride;
+            dst += cbStride;
+        }
+    }
+
+    free(srcdata);
+    return hr;
+}
+
 static HRESULT copypixels_to_16bppBGRA5551(struct FormatConverter *This, const WICRect *prc,
     UINT cbStride, UINT cbBufferSize, BYTE *pbBuffer, enum pixelformat source_format)
 {
@@ -2550,10 +2688,10 @@ static const struct pixelformatinfo supported_formats[] = {
     {format_4bppIndexed, &GUID_WICPixelFormat4bppIndexed, NULL, TRUE},
     {format_8bppIndexed, &GUID_WICPixelFormat8bppIndexed, copypixels_to_8bppIndexed, TRUE},
     {format_BlackWhite, &GUID_WICPixelFormatBlackWhite, copypixels_to_BlackWhite},
-    {format_2bppGray, &GUID_WICPixelFormat2bppGray, NULL},
-    {format_4bppGray, &GUID_WICPixelFormat4bppGray, NULL},
+    {format_2bppGray, &GUID_WICPixelFormat2bppGray, copypixels_to_2bppGray},
+    {format_4bppGray, &GUID_WICPixelFormat4bppGray, copypixels_to_4bppGray},
     {format_8bppGray, &GUID_WICPixelFormat8bppGray, copypixels_to_8bppGray},
-    {format_16bppGray, &GUID_WICPixelFormat16bppGray, NULL},
+    {format_16bppGray, &GUID_WICPixelFormat16bppGray, copypixels_to_16bppGray},
     {format_16bppGrayHalf, &GUID_WICPixelFormat16bppGrayHalf},
     {format_16bppBGR555, &GUID_WICPixelFormat16bppBGR555, NULL},
     {format_16bppBGR565, &GUID_WICPixelFormat16bppBGR565, NULL},
