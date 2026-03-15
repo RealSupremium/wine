@@ -40,10 +40,10 @@ static void test_FillRect(void)
         const BOOL todo_flag;
     } test[] =
     {
-        { 5, 5, 0x0, TRUE },
+        { 5, 5, 0x0, FALSE },
         { 5, 6, 0xffffff, FALSE },
         { 6, 5, 0xffffff, FALSE },
-        { 6, 6, 0xffffff, TRUE },
+        { 6, 6, 0xffffff, FALSE },
     };
 
     /* fill bitmap data with white */
