@@ -144,6 +144,7 @@ typedef struct
     INT      nInitialTime;
     RECT     rcMargin;
     BOOL     bToolBelow;
+    BOOL     bClickCancelled;
     LPWSTR   pszTitle;
     HICON    hTitleIcon;
     int      iconWidth;
@@ -840,6 +841,8 @@ TOOLTIPS_Hide (TOOLTIPS_INFO *infoPtr)
     TTTOOL_INFO *toolPtr;
     NMHDR hdr;
 
+    KillTimer(infoPtr->hwndSelf, ID_TIMERSHOW);
+
     TRACE("Hide tooltip %d, %p.\n", infoPtr->nCurrentTool, infoPtr->hwndSelf);
 
     if (infoPtr->nCurrentTool == -1)
@@ -1504,6 +1507,10 @@ TOOLTIPS_RelayEvent (TOOLTIPS_INFO *infoPtr, LPMSG lpMsg)
 	case WM_RBUTTONDOWN:
 	case WM_RBUTTONUP:
 	    TOOLTIPS_Hide (infoPtr);
+	    if (infoPtr->nTool != -1) {
+	        infoPtr->bClickCancelled = TRUE;
+	        SetTimer(infoPtr->hwndSelf, ID_TIMERLEAVE, infoPtr->nReshowTime, 0);
+	    }
 	    break;
 
 	case WM_MOUSEMOVE:
@@ -1517,6 +1524,7 @@ TOOLTIPS_RelayEvent (TOOLTIPS_INFO *infoPtr, LPMSG lpMsg)
             TRACE("WM_MOUSEMOVE (%p %s)\n", infoPtr->hwndSelf, wine_dbgstr_point(&pt));
 
 	    if (infoPtr->nTool != nOldTool) {
+	        infoPtr->bClickCancelled = FALSE;
 	        if(infoPtr->nTool == -1) { /* Moved out of all tools */
 		    TOOLTIPS_Hide(infoPtr);
 		    KillTimer(infoPtr->hwndSelf, ID_TIMERLEAVE);
@@ -1537,7 +1545,7 @@ TOOLTIPS_RelayEvent (TOOLTIPS_INFO *infoPtr, LPMSG lpMsg)
 	        KillTimer(infoPtr->hwndSelf, ID_TIMERPOP);
 		SetTimer(infoPtr->hwndSelf, ID_TIMERPOP, infoPtr->nAutoPopTime, 0);
 		TRACE("timer 2 restarted\n");
-	    } else if(infoPtr->nTool != -1 && infoPtr->bActive) {
+	    } else if(infoPtr->nTool != -1 && infoPtr->bActive && !infoPtr->bClickCancelled) {
                 /* previous show attempt didn't result in tooltip so try again */
 		SetTimer(infoPtr->hwndSelf, ID_TIMERSHOW, infoPtr->nInitialTime, 0);
                 TRACE("timer 1 started\n");
@@ -2042,6 +2050,7 @@ TOOLTIPS_Timer (TOOLTIPS_INFO *infoPtr, INT iTimer)
 	TRACE("tool (%p) %d %d %d\n", infoPtr->hwndSelf, nOldTool,
 	      infoPtr->nTool, infoPtr->nCurrentTool);
 	if (infoPtr->nTool != nOldTool) {
+	    infoPtr->bClickCancelled = FALSE;
 	    if(infoPtr->nTool == -1) { /* Moved out of all tools */
 	        TOOLTIPS_Hide(infoPtr);
 		KillTimer(infoPtr->hwndSelf, ID_TIMERLEAVE);
