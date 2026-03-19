@@ -1698,6 +1698,19 @@ static LANGID langid_from_xkb_layout( const char *layout )
     return MAKELANGID(LANG_NEUTRAL, SUBLANG_CUSTOM_UNSPECIFIED);
 };
 
+static const char *x11drv_xkb_layout_from_langid(LANGID langid)
+{
+    unsigned int i;
+
+    /* TODO: precompute a sorted array of pointers to do bsearch here as well? */
+    for (i = 0; i < ARRAY_SIZE(layout_ids); i++)
+    {
+        if (langid == layout_ids[i].langid)
+            return layout_ids[i].name;
+    }
+    return NULL;
+}
+
 static const struct klid_map_entry
 {
     const char *layout;
@@ -2100,8 +2113,13 @@ void init_keyboard_layouts( Display *display )
     XkbDescRec *xkb_desc;
     struct layout *entry;
     LANGID xkb_lang = 0;
+    const char *variant;
+    const char *layout;
+    char buffer[1024];
     Status status;
     KeyCode *kcp;
+    DWORD klid;
+    LCID lcid;
 
     pthread_mutex_lock( &kbd_mutex );
     XDisplayKeycodes( display, &min_keycode, &max_keycode );
@@ -2180,6 +2198,25 @@ void init_keyboard_layouts( Display *display )
     if (xkb_lang && xkb_lang != main_key_tab[kbd_layout].lcid)
         WARN( "Xkb langid %04x differs from detected langid %04x\n",
               xkb_lang, main_key_tab[kbd_layout].lcid );
+
+    if (!xkb_lang)
+    {
+        WARN("Xkb layout enumeration failed, falling back to fuzzy layout detection.\n");
+        lcid = main_key_tab[kbd_layout].lcid;
+        layout = x11drv_xkb_layout_from_langid( lcid );
+        if (strstr( main_key_tab[kbd_layout].comment, "dvorak" ))
+        {
+            variant = "dvorak";
+            klid = 0x00010409;
+        }
+        else
+        {
+            variant = "";
+            klid = 0;
+        }
+        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
+        create_layout_from_xkb( xkb_state.group, buffer, lcid, klid );
+    }
 
     init_keycode_mappings( display );
 
