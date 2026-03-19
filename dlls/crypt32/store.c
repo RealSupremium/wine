@@ -219,7 +219,7 @@ static context_t *MemStore_enumContext(WINE_MEMSTORE *store, struct list *list, 
     EnterCriticalSection(&store->cs);
     if (prev) {
         next = list_next(list, &prev->u.entry);
-        Context_Release(prev);
+        if (prev->ref) Context_Release(prev);
     }else {
         next = list_head(list);
     }
