@@ -2108,7 +2108,8 @@ static void init_keycode_mappings( Display *display )
 /* initialize or update keyboard layouts */
 void init_keyboard_layouts( Display *display )
 {
-    unsigned int xkb_group;
+    unsigned int xkb_group, xkb_group_count;
+    unsigned int legacy_layout_idx;
     XkbStateRec xkb_state;
     XModifierKeymap *mmp;
     XkbDescRec *xkb_desc;
@@ -2194,7 +2195,6 @@ void init_keyboard_layouts( Display *display )
     }
 
     kbd_layout = detect_keyboard_layout( display, mmp, xkb_group );
-    XFreeModifiermap( mmp );
 
     if (xkb_lang && xkb_lang != main_key_tab[kbd_layout].lcid)
         WARN( "Xkb langid %04x differs from detected langid %04x\n",
@@ -2203,21 +2203,28 @@ void init_keyboard_layouts( Display *display )
     if (!xkb_lang)
     {
         WARN("Xkb layout enumeration failed, falling back to fuzzy layout detection.\n");
-        lcid = main_key_tab[kbd_layout].lcid;
-        layout = x11drv_xkb_layout_from_langid( lcid );
-        if (strstr( main_key_tab[kbd_layout].comment, "dvorak" ))
+
+        xkb_group_count = status ? 1 : 4;
+        for (int i = 0; i < xkb_group_count; i++)
         {
-            variant = "dvorak";
-            klid = 0x00010409;
+            legacy_layout_idx = detect_keyboard_layout( display, mmp, i );
+            lcid = main_key_tab[legacy_layout_idx].lcid;
+            layout = x11drv_xkb_layout_from_langid( lcid );
+            if (strstr( main_key_tab[legacy_layout_idx].comment, "dvorak" ))
+            {
+                variant = "dvorak";
+                klid = 0x00010409;
+            }
+            else
+            {
+                variant = "";
+                klid = 0;
+            }
+            snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
+            create_layout_from_xkb( i, buffer, lcid, klid );
         }
-        else
-        {
-            variant = "";
-            klid = 0;
-        }
-        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
-        create_layout_from_xkb( xkb_state.group, buffer, lcid, klid );
     }
+    XFreeModifiermap(mmp);
 
     init_keycode_mappings( display );
 
