@@ -65,14 +65,12 @@ echo errorlevel: %ERRORLEVEL%
 
 echo --- Test 21
 rem test cmd.exe /c with absolute path including long directory + executable containing a space, exceeding MAX_PATH
-rem crashes, returns 0xc0000005
-rem cmd.exe /c "Z:\foobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobar\foo bar.bat" >nul 2>nul
+cmd.exe /c "Z:\foobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobar\foo bar.bat" >nul 2>nul
 echo errorlevel: %ERRORLEVEL%
 
 echo --- Test 22
 rem test cmd.exe /c with relative path including long directory + executable containing a space, exceeding MAX_PATH
-rem crashes, returns 0xc0000005
-rem cmd.exe /c "foobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobar\foo bar.bat" >nul 2>nul
+cmd.exe /c "foobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobar\foo bar.bat" >nul 2>nul
 echo errorlevel: %ERRORLEVEL%
 
 rem Directories are ignored when searching for executable files
