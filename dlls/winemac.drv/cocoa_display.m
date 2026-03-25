@@ -25,8 +25,13 @@
 #ifdef HAVE_MTLDEVICE_REGISTRYID
 #import <Metal/Metal.h>
 #endif
+#ifdef HAVE_VULKAN_VULKAN_METAL_H
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_metal.h>
+#endif
 #include <dlfcn.h>
 #include "macdrv_cocoa.h"
+
 
 #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
 
@@ -192,6 +197,183 @@ static int macdrv_get_gpu_info_from_registry_id(struct macdrv_gpu* gpu, uint64_t
     return ret;
 }
 
+#ifdef HAVE_VULKAN_VULKAN_METAL_H
+static int macdrv_get_gpu_info_from_vulkan(struct macdrv_gpu *gpu, id<MTLDevice> mtldevice)
+{
+    static PFN_vkGetPhysicalDeviceQueueFamilyProperties p_vkGetPhysicalDeviceQueueFamilyProperties;
+    static PFN_vkGetPhysicalDeviceProperties p_vkGetPhysicalDeviceProperties;
+    static PFN_vkEnumeratePhysicalDevices p_vkEnumeratePhysicalDevices;
+    static PFN_vkExportMetalObjectsEXT p_vkExportMetalObjectsEXT;
+    static PFN_vkGetInstanceProcAddr p_vkGetInstanceProcAddr;
+    static PFN_vkGetDeviceProcAddr p_vkGetDeviceProcAddr;
+    static PFN_vkDestroyInstance p_vkDestroyInstance;
+    static PFN_vkCreateInstance p_vkCreateInstance;
+    static PFN_vkDestroyDevice p_vkDestroyDevice;
+    static PFN_vkCreateDevice p_vkCreateDevice;
+    VkExportMetalObjectCreateInfoEXT export_device_create_info = {
+        .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT,
+        .pNext = NULL,
+        .exportObjectType = VK_EXPORT_METAL_OBJECT_TYPE_METAL_DEVICE_BIT_EXT,
+    };
+    VkApplicationInfo app_info = {
+        .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pNext = NULL,
+        .apiVersion = VK_API_VERSION_1_0
+    };
+    VkInstanceCreateInfo create_info = {
+        .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pNext = &export_device_create_info,
+        .pApplicationInfo = &app_info,
+        .enabledExtensionCount = 0,
+        .enabledLayerCount = 0
+    };
+    VkExportMetalDeviceInfoEXT device_info_ext = {
+        .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_DEVICE_INFO_EXT,
+        .pNext = NULL,
+        .mtlDevice = NULL
+    };
+    VkExportMetalObjectsInfoEXT export_info = {
+        .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECTS_INFO_EXT,
+        .pNext = &device_info_ext
+    };
+    static void *vulkan_handle = NULL;
+    VkInstance vk_instance = NULL;
+    uint32_t device_count = 0;
+    VkResult result;
+    int ret = -1;
+
+    vulkan_handle = dlopen(SONAME_LIBVULKAN, RTLD_LAZY | RTLD_LOCAL);
+    if (!vulkan_handle) return ret;
+
+    p_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(vulkan_handle, "vkGetInstanceProcAddr");
+    if (!p_vkGetInstanceProcAddr)
+        goto done;
+
+    p_vkCreateInstance = (PFN_vkCreateInstance)p_vkGetInstanceProcAddr(NULL, "vkCreateInstance");
+    if (!p_vkCreateInstance || p_vkCreateInstance(&create_info, NULL, &vk_instance))
+        goto done;
+
+    p_vkDestroyInstance = (PFN_vkDestroyInstance)p_vkGetInstanceProcAddr(vk_instance, "vkDestroyInstance");
+    if (!p_vkDestroyInstance)
+        goto done;
+
+#define LOAD_VK_FUNC(f)                                               \
+    if (!(p_##f = (void *)p_vkGetInstanceProcAddr(vk_instance, #f)))  \
+        goto done;                                                    \
+
+    LOAD_VK_FUNC(vkCreateDevice)
+    LOAD_VK_FUNC(vkDestroyDevice)
+    LOAD_VK_FUNC(vkEnumeratePhysicalDevices)
+    LOAD_VK_FUNC(vkGetDeviceProcAddr)
+    LOAD_VK_FUNC(vkGetPhysicalDeviceProperties)
+    LOAD_VK_FUNC(vkGetPhysicalDeviceQueueFamilyProperties)
+#undef LOAD_VK_FUNC
+
+    result = p_vkEnumeratePhysicalDevices(vk_instance, &device_count, NULL);
+    if (result != VK_SUCCESS)
+        goto done;
+
+    if (device_count > 0)
+    {
+        const char *extensions[] = {"VK_EXT_metal_objects"};
+        uint32_t extensions_count = sizeof(extensions) / sizeof(extensions[0]);
+        uint32_t family_count, i, family_index;
+        VkDeviceQueueCreateInfo queue_create_info = {
+            .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueCount = 1
+        };
+        VkPhysicalDeviceFeatures device_features = {0};
+        VkDeviceCreateInfo device_create_info = {
+            .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+            .pQueueCreateInfos = &queue_create_info,
+            .queueCreateInfoCount = 1,
+            .pEnabledFeatures = &device_features,
+            .enabledExtensionCount = extensions_count,
+            .ppEnabledExtensionNames = extensions,
+            .enabledLayerCount = 0
+        };
+        VkPhysicalDeviceProperties properties;
+        VkQueueFamilyProperties *families;
+        VkPhysicalDevice *devices;
+        VkDevice vk_device = NULL;
+        float priority;
+
+        devices = (VkPhysicalDevice *)malloc(sizeof(VkPhysicalDevice) * device_count);
+        if (!devices)
+            goto done;
+
+        result = p_vkEnumeratePhysicalDevices(vk_instance, &device_count, devices);
+        if (result != VK_SUCCESS)
+        {
+            free(devices);
+            goto done;
+        }
+
+        while (device_count--)
+        {
+            family_index = UINT32_MAX;
+            p_vkGetPhysicalDeviceQueueFamilyProperties(devices[device_count], &family_count, NULL);
+            if (!family_count)
+                continue;
+
+            families = (VkQueueFamilyProperties*)malloc(sizeof(VkQueueFamilyProperties) * family_count);
+            if (!families)
+                continue;
+
+            p_vkGetPhysicalDeviceQueueFamilyProperties(devices[device_count], &family_count, families);
+
+            for (i = 0; i < family_count; i++)
+            {
+                if (families[i].queueCount && (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
+                {
+                    family_index = i;
+                    break;
+                }
+            }
+            free(families);
+
+            if (family_index == UINT32_MAX)
+                continue;
+
+            priority = 1.0f;
+            queue_create_info.queueFamilyIndex = family_index;
+            queue_create_info.pQueuePriorities = &priority;
+            result = p_vkCreateDevice(devices[device_count], &device_create_info, NULL, &vk_device);
+            if (result != VK_SUCCESS)
+                continue;
+
+            p_vkExportMetalObjectsEXT = (PFN_vkExportMetalObjectsEXT)p_vkGetDeviceProcAddr(vk_device,
+                                                                                           "vkExportMetalObjectsEXT");
+            if (!p_vkExportMetalObjectsEXT)
+            {
+                p_vkDestroyDevice(vk_device, NULL);
+                continue;
+            }
+
+            device_info_ext.mtlDevice = NULL;
+            p_vkExportMetalObjectsEXT(vk_device, &export_info);
+            if ([device_info_ext.mtlDevice isEqual:mtldevice])
+            {
+                p_vkGetPhysicalDeviceProperties(devices[device_count], &properties);
+                gpu->vendor_id = properties.vendorID;
+                gpu->device_id = properties.deviceID & 0xffff;
+                ret = 0;
+                p_vkDestroyDevice(vk_device, NULL);
+                break;
+            }
+
+            p_vkDestroyDevice(vk_device, NULL);
+        }
+        free(devices);
+    }
+
+done:
+    if (vk_instance) p_vkDestroyInstance(vk_instance, NULL);
+    if (vulkan_handle) dlclose(vulkan_handle);
+    return ret;
+}
+#endif
+
 /***********************************************************************
  *              macdrv_get_gpu_info_from_mtldevice
  *
@@ -204,6 +386,12 @@ static int macdrv_get_gpu_info_from_mtldevice(struct macdrv_gpu* gpu, id<MTLDevi
     int ret;
     if ((ret = macdrv_get_gpu_info_from_registry_id(gpu, [device registryID])))
         return ret;
+
+#ifdef HAVE_VULKAN_VULKAN_METAL_H
+    if (!macdrv_get_gpu_info_from_vulkan(gpu, device))
+        return 0;
+#endif
+
 #if defined(MAC_OS_X_VERSION_10_15) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_15
     /* Apple GPUs aren't PCI devices and therefore have no device ID
      * Use the Metal GPUFamily as the device ID */

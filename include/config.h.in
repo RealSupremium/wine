@@ -663,6 +663,9 @@
 /* Define to 1 if you have the <valgrind/valgrind.h> header file. */
 #undef HAVE_VALGRIND_VALGRIND_H
 
+/* Define to 1 if you have the <vulkan/vulkan_metal.h> header file. */
+#undef HAVE_VULKAN_VULKAN_METAL_H
+
 /* Define to 1 if the Wine preloader is being used. */
 #undef HAVE_WINE_PRELOADER
 

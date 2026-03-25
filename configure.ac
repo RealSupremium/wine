@@ -1952,10 +1952,20 @@ then
     if test "x$ac_cv_lib_soname_vulkan" = "x"
     then
         WINE_CHECK_SONAME(MoltenVK, vkGetInstanceProcAddr, [AC_DEFINE_UNQUOTED(SONAME_LIBVULKAN,["$ac_cv_lib_soname_MoltenVK"])])
+        if test "x$ac_cv_lib_soname_MoltenVK" != "x"
+        then
+            WINE_PACKAGE_FLAGS(VULKAN_METAL,[vulkan],,,,
+                [AC_CHECK_HEADERS([vulkan/vulkan_metal.h],,,
+                    [#include <vulkan/vulkan.h>])])
+        fi
     fi
 fi
 WINE_NOTICE_WITH(vulkan,[test "x$ac_cv_lib_soname_vulkan" = "x" -a "x$ac_cv_lib_soname_MoltenVK" = "x"],
                  [libvulkan and libMoltenVK ${notice_platform}development files not found, Vulkan won't be supported.])
+if test "x$ac_cv_lib_soname_MoltenVK" != "x" -a "x$ac_cv_header_vulkan_vulkan_metal_h" != "xyes"
+then
+    WINE_NOTICE([Vulkan Metal ${notice_platform}development files not found, features that depends on Vulkan Metal extensions won't be available.])
+fi
 
 dnl **** Check for gcc specific options ****
 
