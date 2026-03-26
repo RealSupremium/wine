@@ -686,6 +686,8 @@ This is an error since --enable-archs=$wine_arch was requested.])])
     WINE_TRY_PE_CFLAGS([-Wabsolute-value])
     WINE_TRY_PE_CFLAGS([-fasync-exceptions -DMIN_CLANG_VERSION=19], AS_VAR_APPEND([${wine_arch}_EXTRACFLAGS],[" -fasync-exceptions"]))
 
+    WINE_TRY_PE_CFLAGS([-std=gnu23],AS_VAR_APPEND([${wine_arch}_EXTRACFLAGS],[" -std=gnu23"]),[enable_mesa=no])
+
 done
 
 CC=$saved_CC
