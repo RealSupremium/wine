@@ -1772,9 +1772,19 @@ bool UnwindCursor<A, R>::getInfoFromSEH(pint_t pc) {
       // these structures.)
       // N.B. UNWIND_INFO structs are DWORD-aligned.
       uint32_t lastcode = (xdata->CountOfCodes + 1) & ~1;
-      const uint32_t *handler = reinterpret_cast<uint32_t *>(&xdata->UnwindCodes[lastcode]);
-      _info.lsda = reinterpret_cast<unw_word_t>(handler+1);
-      if (*handler) {
+      // NOTE: lastcode can be equal to or greater than 2, then accessing UnwindCodes[lastcode] is
+      // out of bound (i.e. undefined behavior). The external memory outside the class object 
+      // cannot be reached from a pointer to a subobject. The only valid case is when CountOfCodes
+      // is 0, and then lastcode will be equal 0.
+      // However, `reinterpret_cast` from a pointer to uint16[2] to a pointer to uint32 is not 
+      // allowed in any case. (https://godbolt.org/z/vY1zKEvo6)
+      // It turns out that here we just need to check each of the array elements for zero.
+      const uint16_t hi = xdata->UnwindCodes[0];
+      const uint16_t low = xdata->UnwindCodes[1];
+#warning "invalid reinterpret-cast"
+      // FIXME: Does `xdata` actually point to an array of UNWIND_INFO?
+      _info.lsda = reinterpret_cast<unw_word_t>(xdata+1);
+      if (hi || low) {
         _info.handler = reinterpret_cast<unw_word_t>(__libunwind_seh_personality);
       } else
         _info.handler = 0;
