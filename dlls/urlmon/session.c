@@ -157,6 +157,27 @@ static HRESULT unregister_namespace(IClassFactory *cf, LPCWSTR protocol)
     return S_OK;
 }
 
+BOOL is_known_protocol(LPCWSTR url)
+{
+    WCHAR schema[64];
+    DWORD schema_len;
+    HRESULT hres;
+    BOOL found;
+
+    hres = CoInternetParseUrl(url, PARSE_SCHEMA, 0, schema, ARRAY_SIZE(schema), &schema_len, 0);
+    if(FAILED(hres) || !schema_len)
+        return FALSE;
+
+    EnterCriticalSection(&session_cs);
+    found = find_name_space(schema) != NULL;
+    LeaveCriticalSection(&session_cs);
+
+    if(!found)
+        found = get_protocol_cf(schema, schema_len, NULL, NULL) == S_OK;
+
+    return found;
+}
+
 BOOL is_registered_protocol(LPCWSTR url)
 {
     DWORD schema_len;

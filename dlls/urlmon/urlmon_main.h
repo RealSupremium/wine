@@ -68,6 +68,7 @@ IInternetProtocolInfo *get_protocol_info(LPCWSTR);
 HRESULT get_protocol_handler(IUri*,CLSID*,IClassFactory**);
 IInternetProtocol *get_mime_filter(LPCWSTR);
 BOOL is_registered_protocol(LPCWSTR);
+BOOL is_known_protocol(LPCWSTR);
 HRESULT register_namespace(IClassFactory*,REFIID,LPCWSTR,BOOL);
 HINTERNET get_internet_session(IInternetBindInfo*);
 WCHAR *get_useragent(void);

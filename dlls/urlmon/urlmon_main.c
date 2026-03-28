@@ -511,17 +511,15 @@ HRESULT WINAPI DllRegisterServerEx(void)
  *  Failure: S_FALSE.
  *  returns E_INVALIDARG if one or more of the args is invalid.
  *
- * TODO:
- *  test functionality against windows to see what a valid URL is.
  */
 HRESULT WINAPI IsValidURL(LPBC pBC, LPCWSTR szURL, DWORD dwReserved)
 {
-    FIXME("(%p, %s, %ld): stub\n", pBC, debugstr_w(szURL), dwReserved);
+    TRACE("(%p, %s, %ld)\n", pBC, debugstr_w(szURL), dwReserved);
 
     if (dwReserved || !szURL)
         return E_INVALIDARG;
 
-    return S_OK;
+    return is_known_protocol(szURL) ? S_OK : S_FALSE;
 }
 
 /**************************************************************************
