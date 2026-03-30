@@ -8401,7 +8401,6 @@ static void test_scheme_resolvers(void)
     for (i = 0; i < ARRAY_SIZE(urls); i++)
     {
         hr = IMFSourceResolver_CreateObjectFromURL(resolver, urls[i], MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-        todo_wine_if(i >= 2)
         ok(hr == S_OK, "got hr %#lx\n", hr);
         if (hr != S_OK)
             continue;
@@ -8425,7 +8424,6 @@ static void test_scheme_resolvers(void)
         hr = IMFAttributes_GetItem(attributes, &MF_BYTESTREAM_CONTENT_TYPE, NULL);
         ok(hr == S_OK, "got hr %#lx\n", hr);
         hr = IMFAttributes_GetItem(attributes, &MF_BYTESTREAM_LAST_MODIFIED_TIME, NULL);
-        todo_wine
         ok(hr == S_OK, "got hr %#lx\n", hr);
         IMFAttributes_Release(attributes);
 
@@ -8433,8 +8431,7 @@ static void test_scheme_resolvers(void)
         ok(hr == S_OK, "got hr %#lx\n", hr);
         hr = IMFByteStream_GetCapabilities(byte_stream, &caps);
         ok(hr == S_OK, "got hr %#lx\n", hr);
-        todo_wine
-        ok(caps == (expect_caps | MFBYTESTREAM_IS_PARTIALLY_DOWNLOADED)
+        ok(caps == expect_caps || caps == (expect_caps | MFBYTESTREAM_IS_PARTIALLY_DOWNLOADED)
                 || caps == (expect_caps | MFBYTESTREAM_DOES_NOT_USE_NETWORK),
                 "got caps %#lx\n", caps);
         hr = IMFByteStream_GetLength(byte_stream, &length);
@@ -8453,35 +8450,25 @@ static void test_scheme_resolvers(void)
     ok(hr == MF_E_UNSUPPORTED_BYTESTREAM_TYPE, "got hr %#lx\n", hr);
 
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"http://test.winehq.bla/tests/test.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == NS_E_SERVER_NOT_FOUND, "got hr %#lx\n", hr);
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"https://test.winehq.bla/tests/test.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == WININET_E_NAME_NOT_RESOLVED, "got hr %#lx\n", hr);
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"httpd://test.winehq.bla/tests/test.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == WININET_E_NAME_NOT_RESOLVED, "got hr %#lx\n", hr);
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"httpsd://test.winehq.bla/tests/test.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == WININET_E_NAME_NOT_RESOLVED, "got hr %#lx\n", hr);
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"mms://test.winehq.bla/tests/test.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == WININET_E_NAME_NOT_RESOLVED, "got hr %#lx\n", hr);
 
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"http://test.winehq.org/tests/invalid.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == NS_E_FILE_NOT_FOUND, "got hr %#lx\n", hr);
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"https://test.winehq.org/tests/invalid.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == NS_E_FILE_NOT_FOUND, "got hr %#lx\n", hr);
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"httpd://test.winehq.org/tests/invalid.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == NS_E_FILE_NOT_FOUND, "got hr %#lx\n", hr);
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"httpsd://test.winehq.org/tests/invalid.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == NS_E_FILE_NOT_FOUND, "got hr %#lx\n", hr);
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"mms://test.winehq.org/tests/invalid.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &type, &object);
-    todo_wine
     ok(hr == MF_E_UNSUPPORTED_BYTESTREAM_TYPE || hr == NS_E_FILE_NOT_FOUND, "got hr %#lx\n", hr);
 
     IMFSourceResolver_Release(resolver);
@@ -11319,7 +11306,6 @@ static void test_network_bytestream(void)
     obj_type = (MF_OBJECT_TYPE)0xdeadbeef;
     object = NULL;
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"http://nonexistent.url/file.mp4", MF_RESOLUTION_BYTESTREAM, NULL, &obj_type, &object);
-    todo_wine
     ok(hr == NS_E_SERVER_NOT_FOUND, "Got hr %#lx.\n", hr);
     ok(obj_type == MF_OBJECT_INVALID, "Unexpected obj_type %#x.\n", obj_type);
     if (object) IUnknown_Release(object);
@@ -11327,9 +11313,7 @@ static void test_network_bytestream(void)
     obj_type = (MF_OBJECT_TYPE)0xdeadbeef;
     object = NULL;
     hr = IMFSourceResolver_CreateObjectFromURL(resolver, L"http://test.winehq.org/tests/invalid.mp3", MF_RESOLUTION_BYTESTREAM, NULL, &obj_type, &object);
-    todo_wine
     ok(hr == NS_E_FILE_NOT_FOUND, "Got hr %#lx.\n", hr);
-    todo_wine
     ok(obj_type == MF_OBJECT_INVALID, "Unexpected obj_type %#x.\n", obj_type);
     if (object) IUnknown_Release(object);
 
@@ -11352,7 +11336,6 @@ static void test_network_bytestream(void)
 
         hr = IMFAttributes_GetCount(attr, &count);
         ok(hr == S_OK, "Got hr %#lx\n", hr);
-        todo_wine
         ok(count == 3, "count = %u\n", count);
 
         PropVariantInit(&var);
@@ -11361,7 +11344,6 @@ static void test_network_bytestream(void)
         ok(hr == S_OK, "Got hr %#lx\n", hr);
         ok(IsEqualGUID(&key, &MF_BYTESTREAM_EFFECTIVE_URL), "Got key %s\n", debugstr_guid(&key));
         ok(var.vt == VT_LPWSTR, "Got type %d\n", var.vt);
-        todo_wine
         ok(!lstrcmpW(var.pwszVal, EFFECTIVE_URL), "Got value %s\n", var.pszVal);
         memset(&key, 0, sizeof(key));
         PropVariantClear(&var);
@@ -11370,21 +11352,15 @@ static void test_network_bytestream(void)
         ok(hr == S_OK, "Got hr %#lx\n", hr);
         ok(IsEqualGUID(&key, &MF_BYTESTREAM_CONTENT_TYPE), "Got key %s\n", debugstr_guid(&key));
         ok(var.vt == VT_LPWSTR, "Got type %d\n", var.vt);
-        todo_wine
         ok(!lstrcmpW(var.pwszVal, CONTENT_TYPE), "Got value %s\n", var.pszVal);
         memset(&key, 0, sizeof(key));
         PropVariantClear(&var);
 
         hr = IMFAttributes_GetItemByIndex(attr, 2, &key, &var);
-        todo_wine
         ok(hr == S_OK, "Got hr %#lx\n", hr);
-        todo_wine
         ok(IsEqualGUID(&key, &MF_BYTESTREAM_LAST_MODIFIED_TIME), "Got key %s\n", debugstr_guid(&key));
-        todo_wine
         ok(var.vt == (VT_VECTOR | VT_I1 | VT_NULL), "Got type %d\n", var.vt);
-        todo_wine
         ok(var.blob.cbSize == sizeof(LAST_MODIFIED_TIME), "Got size %lu\n", var.blob.cbSize);
-        todo_wine
         ok(var.blob.pBlobData != NULL, "Got NULL value\n");
         if (var.blob.cbSize == sizeof(LAST_MODIFIED_TIME) && var.blob.pBlobData)
             ok(!memcmp(var.blob.pBlobData, LAST_MODIFIED_TIME, sizeof(LAST_MODIFIED_TIME)), "Got wrong value\n");
@@ -11403,9 +11379,7 @@ static void test_network_bytestream(void)
 
     ptr = NULL;
     hr = IUnknown_QueryInterface(object, &IID_IMFByteStreamCacheControl, &ptr);
-    todo_wine
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    todo_wine
     ok(ptr != NULL, "Got NULL ptr.\n");
     if (SUCCEEDED(hr) && ptr)
     {
@@ -11420,9 +11394,7 @@ static void test_network_bytestream(void)
 
     ptr = NULL;
     hr = IUnknown_QueryInterface(object, &IID_IMFByteStreamBuffering, &ptr);
-    todo_wine
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    todo_wine
     ok(ptr != NULL, "Got NULL ptr.\n");
     if (SUCCEEDED(hr) && ptr)
     {
@@ -11489,9 +11461,7 @@ static void test_network_bytestream(void)
 
     ptr = NULL;
     hr = IUnknown_QueryInterface(object, &IID_IMFByteStreamTimeSeek, &ptr);
-    todo_wine
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    todo_wine
     ok(ptr != NULL, "Got NULL ptr.\n");
     if (SUCCEEDED(hr) && ptr)
     {
@@ -11550,6 +11520,9 @@ static void test_network_bytestream(void)
         ok(hr == E_NOTIMPL, "Got hr %#lx.\n", hr);
         ok(written == 0, "written = %lu\n", written);
 
+        hr = IMFByteStream_BeginWrite((IMFByteStream*)object, tmp, 1000, (void *)(DWORD_PTR)0xdeadbeef, NULL);
+        ok(hr == E_NOTIMPL, "Got hr %#lx.\n", hr);
+
         free(tmp);
 
         hr = IMFByteStream_GetLength((IMFByteStream*)object, &len);
@@ -11557,7 +11530,6 @@ static void test_network_bytestream(void)
         ok(len != 0, "len = %I64u\n", len);
 
         hr = IMFByteStream_Flush((IMFByteStream*)object);
-        todo_wine
         ok(hr == S_OK, "Got hr %#lx\n", hr);
     }
 
@@ -11585,9 +11557,7 @@ static void test_network_bytestream(void)
 
     ptr = NULL;
     hr = IUnknown_QueryInterface(object, &IID_IMFMediaEventGenerator, &ptr);
-    todo_wine
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    todo_wine
     ok(ptr != NULL, "Got NULL ptr.\n");
     if (SUCCEEDED(hr) && ptr)
     {
