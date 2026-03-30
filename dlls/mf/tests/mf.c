@@ -11195,7 +11195,8 @@ static void test_media_session_sample_request(void)
     ok(hr == WAIT_OBJECT_0, "Unexpected hr %#lx.\n", hr);
     hr = IMFCollection_GetElementCount(stream->delayed_samples, &samples_count);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    ok(samples_count >= 1, "Unexpected delayed samples count %ld.\n", samples_count);
+    flaky_wine
+    ok(samples_count == 1, "Unexpected delayed samples count %ld.\n", samples_count);
 
     /* Mimic end of stream */
     SET_EXPECT(test_stream_sink_PlaceMarker);
