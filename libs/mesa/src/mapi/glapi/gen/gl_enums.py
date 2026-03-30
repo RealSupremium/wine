@@ -65,14 +65,14 @@ class PrintGlEnums(gl_XML.gl_print_base):
 typedef int (*cfunc)(const void *, const void *);
 
 /**
- * Compare a key enum value to an element in the \c enum_string_table_offsets array.
+ * Compare a key enum value to an element in the \\c enum_string_table_offsets array.
  *
- * \c bsearch always passes the key as the first parameter and the pointer
+ * \\c bsearch always passes the key as the first parameter and the pointer
  * to the array element as the second parameter.  We can elimiate some
  * extra work by taking advantage of that fact.
  *
- * \param a  Pointer to the desired enum name.
- * \param b  Pointer into the \c enum_string_table_offsets array.
+ * \\param a  Pointer to the desired enum name.
+ * \\param b  Pointer into the \\c enum_string_table_offsets array.
  */
 static int compar_nr( const int *a, enum_elt *b )
 {

@@ -58,7 +58,7 @@ header = r"""/**
  *
  * This function depends on ctx->Version.
  *
- * \param ctx  GL context
+ * \\param ctx  GL context
  */
 void
 _mesa_init_dispatch(struct gl_context *ctx)
