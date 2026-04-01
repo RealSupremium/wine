@@ -117,7 +117,7 @@ public:
     * new() operators are invoked, so UBSan shouldn't check vptrs.
     */
    DECLARE_LINEAR_ZALLOC_CXX_OPERATORS_NO_SANITIZE(ir_instruction,
-                                                        ((ir_instruction*)((uintptr_t)p))->node_linalloc = ctx;,
+                                                        { volatile ir_instruction* volatile x = (volatile ir_instruction *)p; x->node_linalloc = ctx; },
                                                         UNREACHABLE("don't allocate ir_instruction with new[]");,
                                                         VPTR)
 
