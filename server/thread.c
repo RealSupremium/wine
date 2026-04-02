@@ -692,7 +692,7 @@ static void dump_thread_apc( struct object *obj, int verbose )
     struct thread_apc *apc = (struct thread_apc *)obj;
     assert( obj->ops == &thread_apc_ops );
 
-    fprintf( stderr, "APC owner=%p type=%u\n", apc->owner, apc->call.type );
+    fprintf( stderr, "APC owner=%p type=%u\n", apc->owner, apc->call.common.type );
 }
 
 static struct object *thread_apc_get_sync( struct object *obj )
@@ -711,7 +711,7 @@ static void thread_apc_destroy( struct object *obj )
     {
         if (apc->result.type == APC_ASYNC_IO)
             async_set_result( apc->owner, apc->result.async_io.status, apc->result.async_io.total );
-        else if (apc->call.type == APC_ASYNC_IO)
+        else if (apc->call.common.type == APC_ASYNC_IO)
             async_set_result( apc->owner, apc->call.async_io.status, 0 );
         release_object( apc->owner );
     }
@@ -728,7 +728,7 @@ static struct thread_apc *create_apc( struct object *owner, const union apc_call
     {
         apc->sync        = NULL;
         if (call_data) apc->call = *call_data;
-        else apc->call.type = APC_NONE;
+        else apc->call.common.type = APC_NONE;
         apc->caller      = NULL;
         apc->owner       = owner;
         apc->reserve     = NULL;
@@ -1454,26 +1454,26 @@ static int queue_apc( struct process *process, struct thread *thread, struct thr
             }
         }
         if (!thread) return 0;  /* nothing found */
-        if (!(queue = get_apc_queue( thread, apc->call.type ))) return 1;
+        if (!(queue = get_apc_queue( thread, apc->call.common.type ))) return 1;
     }
     else
     {
         if (thread->state == TERMINATED) return 0;
-        if (!(queue = get_apc_queue( thread, apc->call.type ))) return 1;
+        if (!(queue = get_apc_queue( thread, apc->call.common.type ))) return 1;
         /* send signal for system APCs if needed */
         if (queue == &thread->system_apc && list_empty( queue ) && !is_in_apc_wait( thread ))
         {
             if (!send_thread_signal( thread, SIGUSR1 )) return 0;
         }
         /* cancel a possible previous APC with the same owner */
-        if (apc->owner) thread_cancel_apc( thread, apc->owner, apc->call.type );
+        if (apc->owner) thread_cancel_apc( thread, apc->owner, apc->call.common.type );
     }
 
     grab_object( apc );
     list_add_tail( queue, &apc->entry );
     if (!list_prev( queue, &apc->entry ))  /* first one */
     {
-        if (apc->call.type == APC_USER && thread->alert_sync)
+        if (apc->call.common.type == APC_USER && thread->alert_sync)
             signal_inproc_sync( thread->alert_sync );
         wake_thread( thread );
     }
@@ -2076,7 +2076,7 @@ DECL_HANDLER(queue_apc)
 
     if (!(apc = create_apc( NULL, call ))) return;
 
-    switch (apc->call.type)
+    switch (apc->call.common.type)
     {
     case APC_NONE:
     case APC_USER:

@@ -260,7 +260,7 @@ void async_terminate( struct async *async, unsigned int status )
         union apc_call data;
 
         memset( &data, 0, sizeof(data) );
-        data.type            = APC_ASYNC_IO;
+        data.async_io.type            = APC_ASYNC_IO;
         data.async_io.user   = async->data.user;
         data.async_io.result = iosb ? iosb->result : 0;
 
@@ -609,7 +609,7 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
             {
                 union apc_call data;
                 memset( &data, 0, sizeof(data) );
-                data.type         = APC_USER;
+                data.user.type         = APC_USER;
                 data.user.flags   = 0;
                 data.user.func    = async->data.apc;
                 data.user.args[0] = async->data.apc_context;

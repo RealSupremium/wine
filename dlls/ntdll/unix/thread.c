@@ -1763,7 +1763,7 @@ NTSTATUS WINAPI NtQueueApcThreadEx2( HANDLE handle, HANDLE reserve_handle, ULONG
         req->reserve_handle = wine_server_obj_handle( reserve_handle );
         if (func)
         {
-            call.type         = APC_USER;
+            call.user.type    = APC_USER;
             call.user.func    = wine_server_client_ptr( func );
             call.user.flags = 0;
             if (flags & QUEUE_USER_APC_FLAGS_SPECIAL_USER_APC) call.user.flags |= SERVER_USER_APC_SPECIAL;

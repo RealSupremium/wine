@@ -214,7 +214,7 @@ static void dump_ioctl_code( const char *prefix, const ioctl_code_t *code )
 static void dump_apc_call( const char *prefix, const union apc_call *call )
 {
     fprintf( stderr, "%s{", prefix );
-    switch(call->type)
+    switch(call->common.type)
     {
     case APC_NONE:
         fprintf( stderr, "APC_NONE" );
@@ -304,7 +304,7 @@ static void dump_apc_call( const char *prefix, const union apc_call *call )
                  call->dup_handle.attributes, call->dup_handle.options );
         break;
     default:
-        fprintf( stderr, "type=%u", call->type );
+        fprintf( stderr, "type=%u", call->common.type );
         break;
     }
     fputc( '}', stderr );
