@@ -378,7 +378,7 @@ static void set_config_dir(void)
     {
         if (!home_dir) fatal_error( "could not determine your home directory\n" );
         if (home_dir[0] != '/') fatal_error( "the home directory %s is not an absolute path\n", home_dir );
-        config_dir = build_path( home_dir, ".wine" );
+        config_dir = build_path( home_dir, ".local/share/wine" );
     }
 }
 

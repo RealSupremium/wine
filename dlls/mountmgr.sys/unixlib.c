@@ -99,7 +99,7 @@ static char *get_dosdevices_path( const char *dev )
     if (prefix)
         asprintf( &path, "%s/dosdevices/%s", prefix, dev );
     else
-        asprintf( &path, "%s/.wine/dosdevices/%s", getenv( "HOME" ), dev );
+        asprintf( &path, "%s/.local/share/wine/dosdevices/%s", getenv( "HOME" ), dev );
 
     return path;
 }
