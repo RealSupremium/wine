@@ -1046,6 +1046,7 @@ static const struct {
  {0, NULL, NULL, NULL, NULL} /* sentinel */
 };
 static unsigned kbd_layout=0; /* index into above table of layouts */
+static int xkb_event_base, xkb_error_base;
 #ifdef SONAME_LIBXKBREGISTRY
 static struct rxkb_context *rxkb_context;
 
@@ -2276,6 +2277,21 @@ BOOL X11DRV_ActivateKeyboardLayout(HKL hkl, UINT flags)
     return TRUE;
 }
 
+static void x11drv_update_input_lang( Display *display )
+{
+    unsigned old_kbd_layout = kbd_layout;
+    HWND hwnd;
+    HKL hkl;
+
+    init_keyboard_layouts( display );
+    if (kbd_layout != old_kbd_layout)
+    {
+        hwnd = get_focus();
+        if (!hwnd) hwnd = get_active_window();
+        hkl = get_hkl( main_key_tab[kbd_layout].lcid, 0 );
+        NtUserPostMessage( hwnd, WM_INPUTLANGCHANGEREQUEST, 0, (LPARAM)hkl );
+    }
+}
 
 void x11drv_keyboard_init_thread( struct x11drv_thread_data *data )
 {
@@ -2285,6 +2301,8 @@ void x11drv_keyboard_init_thread( struct x11drv_thread_data *data )
     Status status;
 
     XkbUseExtension( data->display, NULL, NULL );
+    XkbSelectEvents( data->display, XkbUseCoreKbd, XkbMapNotifyMask | XkbStateNotifyMask,
+                     XkbMapNotifyMask | XkbStateNotifyMask );
     XkbSetDetectableAutoRepeat( data->display, True, NULL );
     init_keyboard_layouts( data->display );
     status = XkbGetState( data->display, XkbUseCoreKbd, &xkb_state );
@@ -2315,6 +2333,27 @@ BOOL X11DRV_MappingNotify( HWND dummy, XEvent *event )
     return TRUE;
 }
 
+BOOL x11drv_xkb_event_handler( HWND dummy, XEvent *event )
+{
+    XkbEvent *e = (XkbEvent *)event;
+
+    switch (e->any.xkb_type)
+    {
+        case XkbStateNotify:
+            TRACE("Received XkbStateNotify event, changed %#x, group %u\n", e->state.changed, e->state.group);
+            if (!(e->state.changed & XkbGroupStateMask))
+                return TRUE;
+            TRACE("Switching to group %u\n", e->state.group);
+            x11drv_update_input_lang( e->state.display );
+            break;
+        case XkbMapNotify:
+            TRACE("Received XkbMapNotify event, changed %#x\n", e->map.changed);
+            XkbRefreshKeyboardMapping( &e->map );
+            x11drv_update_input_lang( e->map.display );
+            break;
+    }
+    return TRUE;
+}
 
 /***********************************************************************
  *           x11drv_init_keyboard
@@ -2322,6 +2361,9 @@ BOOL X11DRV_MappingNotify( HWND dummy, XEvent *event )
 void x11drv_init_keyboard( Display *display )
 {
     XkbUseExtension( display, NULL, NULL );
+    XkbQueryExtension( display, 0, &xkb_event_base, &xkb_error_base, 0, 0 );
+    TRACE("xkb_event_base %u, xkb_error_base %u\n", xkb_event_base, xkb_error_base);
+    X11DRV_register_event_handler( xkb_event_base, x11drv_xkb_event_handler, "Xkb" );
 
 #ifdef SONAME_LIBXKBREGISTRY
     if (!(xkbregistry_handle = dlopen( SONAME_LIBXKBREGISTRY, RTLD_NOW )))
