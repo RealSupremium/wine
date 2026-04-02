@@ -376,9 +376,20 @@ static void set_config_dir(void)
     }
     else
     {
+        const char *xdg_data_home = getenv( "XDG_DATA_HOME" );
+        char *data_home;
+        struct stat st;
         if (!home_dir) fatal_error( "could not determine your home directory\n" );
         if (home_dir[0] != '/') fatal_error( "the home directory %s is not an absolute path\n", home_dir );
-        config_dir = build_path( home_dir, ".local/share/wine" );
+        if (xdg_data_home && xdg_data_home[0] == '/')
+            data_home = strdup( xdg_data_home );
+        else
+            data_home = build_path( home_dir, ".local/share" );
+        if (stat( data_home, &st ) == 0 && S_ISDIR(st.st_mode))
+            config_dir = build_path( data_home, "wine" );
+        else
+            config_dir = build_path( home_dir, ".wine" );
+        free( data_home );
     }
 }
 

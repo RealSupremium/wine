@@ -612,6 +612,8 @@ static char *create_server_dir( int force )
     else
     {
         const char *home = getenv( "HOME" );
+        const char *xdg_data_home = getenv( "XDG_DATA_HOME" );
+        char *data_home;
         if (!home)
         {
             struct passwd *pwd = getpwuid( getuid() );
@@ -619,10 +621,26 @@ static char *create_server_dir( int force )
         }
         if (!home) fatal_error( "could not determine your home directory\n" );
         if (home[0] != '/') fatal_error( "your home directory %s is not an absolute path\n", home );
-        if (!(config_dir = malloc( strlen(home) + sizeof("/.local/share/wine") ))) fatal_error( "out of memory\n" );
-        strcpy( config_dir, home );
-        for (p = config_dir + strlen(config_dir); p > config_dir; p--) if (p[-1] != '/') break;
-        strcpy( p, "/.local/share/wine" );
+        if (xdg_data_home && xdg_data_home[0] == '/')
+        {
+            if (!(data_home = strdup( xdg_data_home ))) fatal_error( "out of memory\n" );
+        }
+        else
+        {
+            if (asprintf( &data_home, "%s/.local/share", home ) == -1) fatal_error( "out of memory\n" );
+        }
+        if (stat( data_home, &st ) == 0 && S_ISDIR(st.st_mode))
+        {
+            if (asprintf( &config_dir, "%s/wine", data_home ) == -1) fatal_error( "out of memory\n" );
+        }
+        else
+        {
+            if (!(config_dir = malloc( strlen(home) + sizeof("/.wine") ))) fatal_error( "out of memory\n" );
+            strcpy( config_dir, home );
+            for (p = config_dir + strlen(config_dir); p > config_dir; p--) if (p[-1] != '/') break;
+            strcpy( p, "/.wine" );
+        }
+        free( data_home );
     }
 
     if (chdir( config_dir ) == -1)

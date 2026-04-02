@@ -99,8 +99,25 @@ static char *get_dosdevices_path( const char *dev )
     if (prefix)
         asprintf( &path, "%s/dosdevices/%s", prefix, dev );
     else
-        asprintf( &path, "%s/.local/share/wine/dosdevices/%s", getenv( "HOME" ), dev );
-
+    {
+        const char *xdg_data_home = getenv( "XDG_DATA_HOME" );
+        const char *home = getenv( "HOME" );
+        char *data_home;
+        struct stat st;
+        if (xdg_data_home && xdg_data_home[0] == '/')
+        {
+            if (!(data_home = strdup( xdg_data_home ))) return NULL;
+        }
+        else
+        {
+            if (!home || asprintf( &data_home, "%s/.local/share", home ) == -1) return NULL;
+        }
+        if (stat( data_home, &st ) == 0 && S_ISDIR(st.st_mode))
+            asprintf( &path, "%s/wine/dosdevices/%s", data_home, dev );
+        else if (home)
+            asprintf( &path, "%s/.wine/dosdevices/%s", home, dev );
+        free( data_home );
+    }
     return path;
 }
 
