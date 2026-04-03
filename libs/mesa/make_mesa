@@ -1,0 +1,253 @@
+#!/usr/bin/perl -w
+use strict;
+use autodie qw( system );
+use File::Basename;
+use File::Copy;
+use File::Path qw( make_path );
+
+my $self = basename($0);
+chdir(dirname($0));
+
+my $old = "26.0.3";
+my $new = ($ARGV[0] or $old);
+
+my $cache = ($ENV{XDG_CACHE_HOME} || "$ENV{HOME}/.cache") . "/wine";
+my $meson_args="-Dplatforms=windows -Dgallium-drivers=zink -Dvulkan-drivers= -Degl=disabled -Dglx=disabled";
+my %new_files;
+
+my @makefile;
+open IN, "Makefile.in" or die "Can't open Makefile.in";
+for my $line (<IN>)
+{
+    last if $line =~ /SOURCES =/;
+    push @makefile, $line;
+}
+close IN;
+
+sub ignore_target($)
+{
+    my $name = shift;
+    return 1 if $name =~ /meson-generated_/;
+    return 1 if $name =~ /\.exe\.p\//;
+    return 1 if $name =~ /libgalliumvl(_stub|winsys)?\.a\.p/;
+    return 1 if $name =~ /libglcpp_standalone\.a\.p/;
+    return 1 if $name =~ /libglsl_standalone\.a\.p/;
+    return 1 if $name =~ /libgtest\.a\.p/;
+    return 1 if $name =~ /libloader\.a\.p/;
+    return 1 if $name =~ /libvulkan(_lite)?(_runtime|_instance|_wsi|)\.a\.p/;
+    return 1 if $name =~ /libws_null\.a\.p/;
+    return 1 if $name =~ /libz-1\.dll\.p\//;
+    return 0;
+}
+
+sub ignore_source($)
+{
+    my $name = shift;
+    return 1 if $name =~ /driver_ddebug/;
+    return 1 if $name =~ /driver_noop/;
+    return 1 if $name =~ /gen\/glapi_.*.S$/;
+    return 1 if $name =~ /gen\/indirect/;
+    return 1 if $name =~ /runtime\/vk_/;
+    return 1 if $name =~ /.def$/;
+    return 1 if $name eq "src/c11/impl/threads_win32_tls_callback.cpp";
+    return 1 if $name eq "src/compiler/isaspec/isaspec.c";
+    return 1 if $name eq "src/gallium/auxiliary/pipe-loader/pipe_loader.c";
+    return 1 if $name eq "src/gallium/auxiliary/pipe-loader/pipe_loader_sw.c";
+    return 1 if $name eq "src/gallium/auxiliary/pipebuffer/pb_buffer_fenced.c";
+    return 1 if $name eq "src/gallium/auxiliary/pipebuffer/pb_bufmgr_cache.c";
+    return 1 if $name eq "src/gallium/auxiliary/pipebuffer/pb_bufmgr_debug.c";
+    return 1 if $name eq "src/gallium/auxiliary/pipebuffer/pb_bufmgr_mm.c";
+    return 1 if $name eq "src/gallium/auxiliary/pipebuffer/pb_bufmgr_slab.c";
+    return 1 if $name eq "src/gallium/auxiliary/pipebuffer/pb_validate.c";
+    return 1 if $name eq "src/gallium/auxiliary/postprocess/pp_celshade.c";
+    return 1 if $name eq "src/gallium/auxiliary/postprocess/pp_colors.c";
+    return 1 if $name eq "src/gallium/auxiliary/postprocess/pp_init.c";
+    return 1 if $name eq "src/gallium/auxiliary/postprocess/pp_mlaa.c";
+    return 1 if $name eq "src/gallium/auxiliary/postprocess/pp_program.c";
+    return 1 if $name eq "src/gallium/auxiliary/postprocess/pp_run.c";
+    return 1 if $name eq "src/gallium/auxiliary/u_tracepoints.c";
+    return 1 if $name eq "src/gallium/auxiliary/u_unfilled_gen.c";
+    return 1 if $name eq "src/gallium/auxiliary/util/u_prim.c";
+    return 1 if $name eq "src/mesa/main/sse_minmax.c";
+    return 1 if $name eq "src/util/blake3/blake3_avx2_x86-64_windows_gnu.S";
+    return 1 if $name eq "src/util/blake3/blake3_avx512_x86-64_windows_gnu.S";
+    return 1 if $name eq "src/util/blake3/blake3_sse2_x86-64_windows_gnu.S";
+    return 1 if $name eq "src/util/blake3/blake3_sse41_x86-64_windows_gnu.S";
+    return 1 if $name eq "src/util/build_id.c";
+    return 1 if $name eq "src/util/cnd_monotonic.c";
+    return 1 if $name eq "src/util/cache_ops_x86.c";
+    return 1 if $name eq "src/util/cache_ops_x86_clflushopt.c";
+    return 1 if $name eq "src/util/fast_idiv_by_const.c";
+    return 1 if $name eq "src/util/fossilize_db.c";
+    return 1 if $name eq "src/util/mesa_cache_db.c";
+    return 1 if $name eq "src/util/mesa_cache_db_multipart.c";
+    return 1 if $name eq "src/util/os_memory_fd.c";
+    return 1 if $name eq "src/util/os_socket.c";
+    return 1 if $name eq "src/util/register_allocate.c";
+    return 1 if $name eq "src/util/simple_mtx.c";
+    return 1 if $name eq "src/util/shader_stats.h";
+    return 1 if $name eq "src/util/u_atomic.c";
+    return 1 if $name eq "src/util/vl_zscan_data.c";
+    return 0;
+}
+
+sub parse_filenames($)
+{
+    my ($str) = @_;
+    my @files;
+
+    for my $file (split /\s+/, $str)
+    {
+        next if $file =~ /^(build|PHONY|CUSTOM_COMMAND|cpp_COMPILER|c_COMPILER|.*python3?|\|+|)$/;
+        my $name = $file;
+        $name =~ s/.*mesa-[.0-9]+\/(build-x86_64\/|build-i386\/)?//;
+        $name =~ s/\/[^\/]+\/\.\.\//\//;
+        $name =~ s/^\.\.\///;
+        push @files, $name;
+    }
+
+    return @files;
+}
+
+sub generate_makefile($$)
+{
+    my ($mesa, $arch) = @_;
+    my $state = 0;
+    my %sources;
+    my %files;
+    my @rules;
+
+    open IN, "$mesa/build-$arch/build.ninja" or die "Can't open $mesa/build-$arch/build.ninja";
+    open OUT, ">$mesa/Makefile.in" or die "Can't create $mesa/Makefile.in";
+
+    for my $line (<IN>)
+    {
+        # print OUT "# $line";
+        $state = 0 if $line =~ /^$/;
+
+        if ($line =~ /^build/)
+        {
+            my ($left, $right) = (split /:/, $line);
+
+            my @targets = parse_filenames( $left );
+            my @sources = parse_filenames( $right );
+
+            if ($line =~ /CUSTOM_COMMAND.*(flex|bison)$/)
+            {
+                $sources{$sources[0]} = 1;
+            }
+            elsif ($line =~ /CUSTOM_COMMAND.*python3?/ && !ignore_source( $targets[0] ))
+            {
+                push @rules, join(" ", @targets) . ": " . join(" ", @sources) . "\n";
+                $state = 1;
+            }
+            elsif ($line =~ /c_COMPILER|cpp_COMPILER/)
+            {
+                next if ignore_target( $targets[0] ) || ignore_source( $sources[0] );
+                $sources{$sources[0]} = 1;
+            }
+            else
+            {
+                next;
+            }
+
+            for my $file (@sources)
+            {
+                my $head = $file;
+                $head =~ s/\.c(pp)?$/.h/;
+                $files{$file} = 1 if -f "$mesa/$file";
+                $files{$head} = 1 if -f "$mesa/$head";
+            }
+        }
+        elsif ($state == 1 and $line =~ /^\s*COMMAND/)
+        {
+            my @args;
+
+            $line =~ s/ \S+meson --internal exe --capture (.*) -- (.*)$/$2 > $1/;
+
+            for my $file (split /\s+/, $line)
+            {
+                next if $file =~ /^COMMAND$|^=$|^$|python/;
+                $file =~ s/.*$mesa\/build-$arch\//\$(objdir)\//;
+                $file =~ s/.*$mesa\///;
+                $file =~ s/^(>?)\.\.\//$1/;
+                push @args, $file;
+            }
+
+            push @rules, "\t\$(PYTHON) " . join(" ", @args) . "\n";
+            $state = 0;
+        }
+    }
+
+    foreach my $line (@makefile)
+    {
+        print OUT $line;
+    }
+    print OUT "SOURCES =";
+    foreach my $file (sort keys %sources)
+    {
+        my $head = $file;
+        $head =~ s/\.c(pp)?$/.h/;
+        $files{$file} = 1 if -f "$mesa/$file";
+        $files{$head} = 1 if -f "$mesa/$head";
+        print OUT " \\\n\t$file";
+    }
+    print OUT "\n\n";
+
+    foreach my $line (@rules)
+    {
+        print OUT $line;
+    }
+
+    close IN;
+    close OUT;
+
+    return keys %files;
+}
+
+if ($old ne $new)
+{
+    -f "$cache/mesa-$old.tar.xz" || system "wget https://archive.mesa3d.org/mesa-$old.tar.xz -O $cache/mesa-$old.tar.xz";
+    # system "rm -rf mesa-$old";
+    system "tar xf $cache/mesa-$old.tar.xz";
+
+    system "env -C mesa-$old meson setup build-i386 . --cross-file=../cross-i386.txt $meson_args";
+    system "env -C mesa-$old meson setup build-x86_64 . --cross-file=../cross-x86_64.txt $meson_args";
+
+    # generate_makefile( "mesa-$old", "i386" );
+    generate_makefile( "mesa-$old", "x86_64" );
+
+    system "git reset --hard";
+}
+
+-f "$cache/mesa-$new.tar.xz" || system "wget https://archive.mesa3d.org/mesa-$new.tar.xz -O $cache/mesa-$new.tar.xz";
+# system "rm -rf mesa-$new";
+system "tar xf $cache/mesa-$new.tar.xz";
+
+system "env -C mesa-$new meson setup build-i386 . --cross-file=../cross-i386.txt $meson_args";
+system "env -C mesa-$new meson setup build-x86_64 . --cross-file=../cross-x86_64.txt $meson_args";
+
+# my @sources_i386 = generate_makefile( "mesa-$new", "i386" );
+my @sources_x86_64 = generate_makefile( "mesa-$new", "x86_64" );
+
+if ($old ne $new)
+{
+    system "sed -i 's/old = \"$old\"/old = \"$new\"/' -i $self";
+    system "git ls-files . | xargs git diff -U2 --no-index --no-renames mesa-$old mesa-$new | sed -re 's:mesa-($old|$new):libs/mesa:g' | git apply --rej -";
+    system "git add -u";
+}
+
+# foreach (@sources_i386)
+# {
+#     $new_files{$_} = 1;
+#     make_path dirname($_);
+#     next if -f "$_" || copy "mesa-$new/$_", "$_";
+# }
+foreach (@sources_x86_64)
+{
+    $new_files{$_} = 1;
+    make_path dirname($_);
+    next if -f "$_" || copy "mesa-$new/$_", "$_";
+}
+system "git add " . join(" ", keys %new_files);
+system "git commit -m 'libs: Import mesa $new.' ||:";

@@ -4,6 +4,7 @@
 #pragma makedep unix
 #endif
 
+#ifndef ENABLE_MESA
 #include <stdarg.h>
 #include <stddef.h>
 
@@ -94614,3 +94615,4 @@ const struct registry_entry extension_registry[2758] =
     { "wglSetPixelFormatWINE", "WGL_WINE_pixel_format_passthrough\0", offsetof(struct opengl_funcs, p_wglSetPixelFormatWINE) },
     { "wglSwapIntervalEXT", "WGL_EXT_swap_control\0", offsetof(struct opengl_funcs, p_wglSwapIntervalEXT) },
 };
+#endif /* ENABLE_MESA */
