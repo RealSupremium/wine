@@ -13,7 +13,7 @@
 #include "wingdi.h"
 #include "ntuser.h"
 
-#include "wine/wgl.h"
+#include "wine/opengl_driver.h"
 #include "wine/unixlib.h"
 
 struct process_attach_params
@@ -49,13 +49,6 @@ struct wglGetPixelFormat_params
     TEB *teb;
     HDC hdc;
     int ret;
-};
-
-struct wglGetProcAddress_params
-{
-    TEB *teb;
-    LPCSTR lpszProc;
-    PROC ret;
 };
 
 struct wglMakeCurrent_params
@@ -25688,18 +25681,6 @@ struct wglBindTexImageARB_params
     BOOL ret;
 };
 
-struct wglChoosePixelFormatARB_params
-{
-    TEB *teb;
-    HDC hdc;
-    const int *piAttribIList;
-    const FLOAT *pfAttribFList;
-    UINT nMaxFormats;
-    int *piFormats;
-    UINT *nNumFormats;
-    BOOL ret;
-};
-
 struct wglCreateContextAttribsARB_params
 {
     TEB *teb;
@@ -25733,48 +25714,11 @@ struct wglFreeMemoryNV_params
     void *pointer;
 };
 
-struct wglGetExtensionsStringARB_params
-{
-    TEB *teb;
-    HDC hdc;
-    const char *ret;
-};
-
-struct wglGetExtensionsStringEXT_params
-{
-    TEB *teb;
-    const char *ret;
-};
-
 struct wglGetPbufferDCARB_params
 {
     TEB *teb;
     HPBUFFERARB hPbuffer;
     HDC ret;
-};
-
-struct wglGetPixelFormatAttribfvARB_params
-{
-    TEB *teb;
-    HDC hdc;
-    int iPixelFormat;
-    int iLayerPlane;
-    UINT nAttributes;
-    const int *piAttributes;
-    FLOAT *pfValues;
-    BOOL ret;
-};
-
-struct wglGetPixelFormatAttribivARB_params
-{
-    TEB *teb;
-    HDC hdc;
-    int iPixelFormat;
-    int iLayerPlane;
-    UINT nAttributes;
-    const int *piAttributes;
-    int *piValues;
-    BOOL ret;
 };
 
 struct wglGetSwapIntervalEXT_params
@@ -25894,7 +25838,6 @@ enum unix_funcs
     unix_wglCreateContext,
     unix_wglDeleteContext,
     unix_wglGetPixelFormat,
-    unix_wglGetProcAddress,
     unix_wglMakeCurrent,
     unix_wglSetPixelFormat,
     unix_wglShareLists,
@@ -28970,16 +28913,11 @@ enum unix_funcs
     unix_glWriteMaskEXT,
     unix_wglAllocateMemoryNV,
     unix_wglBindTexImageARB,
-    unix_wglChoosePixelFormatARB,
     unix_wglCreateContextAttribsARB,
     unix_wglCreatePbufferARB,
     unix_wglDestroyPbufferARB,
     unix_wglFreeMemoryNV,
-    unix_wglGetExtensionsStringARB,
-    unix_wglGetExtensionsStringEXT,
     unix_wglGetPbufferDCARB,
-    unix_wglGetPixelFormatAttribfvARB,
-    unix_wglGetPixelFormatAttribivARB,
     unix_wglGetSwapIntervalEXT,
     unix_wglMakeContextCurrentARB,
     unix_wglQueryCurrentRendererIntegerWINE,

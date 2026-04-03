@@ -5,7 +5,6 @@ typedef ULONG PTR32;
 extern BOOL wrap_wglCopyContext( TEB *teb, HGLRC hglrcSrc, HGLRC hglrcDst, UINT mask );
 extern HGLRC wrap_wglCreateContext( TEB *teb, HDC hDc, HGLRC handle );
 extern BOOL wrap_wglDeleteContext( TEB *teb, HGLRC oldContext );
-extern PROC wrap_wglGetProcAddress( TEB *teb, LPCSTR lpszProc );
 extern BOOL wrap_wglMakeCurrent( TEB *teb, HDC hDc, HGLRC newContext );
 extern BOOL wrap_wglShareLists( TEB *teb, HGLRC hrcSrvShare, HGLRC hrcSrvSource );
 extern BOOL wrap_wglSwapBuffers( TEB *teb, HDC hdc );
@@ -34,7 +33,6 @@ extern void wrap_glFramebufferDrawBuffersEXT( TEB *teb, GLuint framebuffer, GLsi
 extern void wrap_glFramebufferReadBufferEXT( TEB *teb, GLuint framebuffer, GLenum mode );
 extern void wrap_glGetFramebufferParameterivEXT( TEB *teb, GLuint framebuffer, GLenum pname, GLint *params );
 extern void wrap_glGetInteger64v( TEB *teb, GLenum pname, GLint64 *data );
-extern const GLubyte *wrap_glGetStringi( TEB *teb, GLenum name, GLuint index );
 extern void wrap_glGetUnsignedBytevEXT( TEB *teb, GLenum pname, GLubyte *data );
 extern GLsync wrap_glImportSyncEXT( TEB *teb, GLenum external_sync_type, GLintptr external_sync, GLbitfield flags, GLsync handle );
 extern void wrap_glNamedFramebufferDrawBuffer( TEB *teb, GLuint framebuffer, GLenum buf );

@@ -147,6 +147,7 @@ my %manual_win_functions =
     (
      "glDebugEntry" => 1,
      "wglChoosePixelFormat" => 1,
+     "wglChoosePixelFormatARB" => 1,
      "wglCreateLayerContext" => 1,
      "wglDescribeLayerPlane" => 1,
      "wglDescribePixelFormat" => 1,
@@ -154,7 +155,12 @@ my %manual_win_functions =
      "wglGetCurrentDC" => 1,
      "wglGetCurrentReadDCARB" => 1,
      "wglGetDefaultProcAddress" => 1,
+     "wglGetExtensionsStringARB" => 1,
+     "wglGetExtensionsStringEXT" => 1,
      "wglGetLayerPaletteEntries" => 1,
+     "wglGetPixelFormatAttribfvARB" => 1,
+     "wglGetPixelFormatAttribivARB" => 1,
+     "wglGetProcAddress" => 1,
      "wglRealizeLayerPalette" => 1,
      "wglSetLayerPaletteEntries" => 1,
      "wglSwapLayerBuffers" => 1,
@@ -168,21 +174,20 @@ my %manual_win_thunks =
      "glCreateSyncFromCLeventARB" => 1,
      "glDeleteSync" => 1,
      "glFenceSync" => 1,
+     "glGetBooleanv" => 1,
+     "glGetDoublev" => 1,
+     "glGetFloatv" => 1,
+     "glGetInteger64v" => 1,
+     "glGetIntegerv" => 1,
      "glGetString" => 1,
      "glGetStringi" => 1,
      "glImportSyncEXT" => 1,
-     "wglChoosePixelFormatARB" => 1,
      "wglCreateContext" => 1,
      "wglCreateContextAttribsARB" => 1,
      "wglCreatePbufferARB" => 1,
      "wglDeleteContext" => 1,
      "wglDestroyPbufferARB" => 1,
-     "wglGetExtensionsStringARB" => 1,
-     "wglGetExtensionsStringEXT" => 1,
      "wglGetPixelFormat" => 1,
-     "wglGetPixelFormatAttribfvARB" => 1,
-     "wglGetPixelFormatAttribivARB" => 1,
-     "wglGetProcAddress" => 1,
      "wglMakeContextCurrentARB" => 1,
      "wglMakeCurrent" => 1,
      "wglQueryCurrentRendererStringWINE" => 1,
@@ -213,7 +218,6 @@ my %manual_unix_thunks =
      "glGetInteger64v" => 1,
      "glGetIntegerv" => 1,
      "glGetString" => 1,
-     "glGetStringi" => 1,
      "glGetUnsignedBytevEXT" => 1,
      "glImportSyncEXT" => 1,
      "glNamedFramebufferDrawBuffer" => 1,
@@ -226,7 +230,6 @@ my %manual_unix_thunks =
      "wglCreateContext" => 1,
      "wglCreateContextAttribsARB" => 1,
      "wglDeleteContext" => 1,
-     "wglGetProcAddress" => 1,
      "wglMakeContextCurrentARB" => 1,
      "wglMakeCurrent" => 1,
      "wglShareLists" => 1,
@@ -1489,7 +1492,7 @@ print HEADER "\n";
 print HEADER "#define ALL_WGL_EXTS";
 foreach (sort keys %wgl_extensions)
 {
-    printf HEADER " \\\n    USE_GL_EXT(\%s)", $_;
+    printf HEADER " \\\n    USE_GL_EXT(\%s, 1)", $_;
 }
 print HEADER "\n\n";
 print HEADER "#define ALL_WGL_FUNCS";
@@ -1508,7 +1511,7 @@ print HEADER "\n\n";
 print HEADER "#define ALL_EGL_EXTS";
 foreach (sort keys %egl_extensions)
 {
-    printf HEADER " \\\n    USE_GL_EXT(\%s)", $_;
+    printf HEADER " \\\n    USE_GL_EXT(\%s, 0)", $_;
 }
 print HEADER "\n\n";
 print HEADER "#define ALL_EGL_FUNCS";
@@ -1525,18 +1528,10 @@ foreach (sort keys %ext_functions)
     printf HEADER " \\\n    USE_GL_FUNC(\%s)", $_;
 }
 print HEADER "\n\n";
-print HEADER "#define ALL_GL_CLIENT_EXTS";
+print HEADER "#define ALL_GL_EXTS";
 foreach (sort keys %gl_extensions)
 {
-    next unless is_exposed_extension($_);
-    printf HEADER " \\\n    USE_GL_EXT(\%s)", $_;
-}
-print HEADER "\n\n";
-print HEADER "#define ALL_GL_EXTS ALL_GL_CLIENT_EXTS";
-foreach (sort keys %gl_extensions)
-{
-    next if is_exposed_extension($_);
-    printf HEADER " \\\n    USE_GL_EXT(\%s)", $_;
+    printf HEADER " \\\n    USE_GL_EXT(\%s, \%u)", $_, is_exposed_extension($_);
 }
 print HEADER "\n\n";
 print HEADER "#define ALL_GL_FUNCS";
@@ -1590,7 +1585,7 @@ print OUT "#include \"winbase.h\"\n";
 print OUT "#include \"winternl.h\"\n";
 print OUT "#include \"wingdi.h\"\n";
 print OUT "#include \"ntuser.h\"\n\n";
-print OUT "#include \"wine/wgl.h\"\n";
+print OUT "#include \"wine/opengl_driver.h\"\n";
 print OUT "#include \"wine/unixlib.h\"\n\n";
 
 print OUT "struct process_attach_params\n";
@@ -1675,7 +1670,8 @@ open OUT, ">thunks.c" or die "cannot create thunks.c";
 print OUT "/* Automatically generated from http://www.opengl.org/registry files; DO NOT EDIT! */\n\n";
 
 print OUT "#include <stdarg.h>\n";
-print OUT "#include <stddef.h>\n\n";
+print OUT "#include <stddef.h>\n";
+print OUT "#include <stdlib.h>\n\n";
 
 print OUT "#include \"ntstatus.h\"\n";
 print OUT "#include \"windef.h\"\n";
@@ -1717,14 +1713,69 @@ foreach (sort keys %ext_functions)
     printf OUT "extern %s WINAPI %s(%s);\n", $func_ret, $_, $decl_args;
 }
 
-print OUT "const void *extension_procs[] =\n";
+print OUT "struct function_entry\n";
 print OUT "{\n";
+print OUT "    const char *name;\n";
+print OUT "    void *function;\n";
+print OUT "    enum opengl_extension supported[4];\n";
+print OUT "};\n";
+print OUT "\n";
+print OUT "static int function_entry_cmp( const void *a, const void *b )\n";
+print OUT "{\n";
+print OUT "    const struct function_entry *entry_a = a, *entry_b = b;\n";
+print OUT "    return strcmp( entry_a->name, entry_b->name );\n";
+print OUT "};\n";
+print OUT "\n";
+print OUT "static BOOL is_function_supported( const struct function_entry *entry, const struct opengl_client_context *ctx )\n";
+print OUT "{\n";
+print OUT "    for (const enum opengl_extension *ext = entry->supported; *ext != GL_EXTENSION_COUNT; ext++)\n";
+print OUT "    {\n";
+print OUT "         if (*ext < GL_EXTENSION_COUNT && ctx->extensions[*ext]) return TRUE;\n";
+print OUT "         if (*ext > GL_EXTENSION_COUNT && ctx->major_version > HIWORD(*ext)) return TRUE;\n";
+print OUT "         if (*ext > GL_EXTENSION_COUNT && ctx->major_version == HIWORD(*ext) && ctx->minor_version >= LOWORD(*ext)) return TRUE;\n";
+print OUT "    }\n";
+print OUT "    return FALSE;\n";
+print OUT "}\n";
+print OUT "\n";
+print OUT "void *get_proc_address( const char *name, const struct opengl_client_context *ctx )\n";
+print OUT "{\n";
+print OUT "    static const struct function_entry functions[] =\n";
+print OUT "    {\n";
 foreach (sort keys %ext_functions)
 {
     next unless is_exposed_function( $ext_functions{$_} );
-    printf OUT "    %s,\n", $_;
+    my $func = $ext_functions{$_};
+    my @checks;
+
+    print OUT "        { \"$_\", $_, ";
+    foreach my $ext (@{$func->[2]})
+    {
+        next unless is_exposed_extension( $ext );
+        $ext =~ s/GL_VERSION_(\d+)_(\d+)/MAKELONG($2, $1)/;
+        push @checks, $ext;
+        for my $alias (@{$extension_aliases{$ext}})
+        {
+            next unless is_exposed_extension( $alias );
+            $alias =~ s/GL_VERSION_(\d+)_(\d+)/MAKELONG($2, $1)/;
+            push @checks, $alias;
+        }
+    }
+    print OUT "{ " . join(", ", sort @checks) . ", GL_EXTENSION_COUNT } },\n";
 }
-print OUT "};\n";
+print OUT "    };\n";
+print OUT "    const struct function_entry *found, entry = { .name = name };\n";
+print OUT "    if (!(found = bsearch( &entry, functions, ARRAY_SIZE(functions), sizeof(entry), function_entry_cmp )))\n";
+print OUT "    {\n";
+print OUT "        WARN( \"Function %s unknown\\n\", name );\n";
+print OUT "        return NULL;\n";
+print OUT "    }\n";
+print OUT "    if (!is_function_supported( found, ctx ))\n";
+print OUT "    {\n";
+print OUT "        WARN( \"Function %s not supported\\n\", name );\n";
+print OUT "        return NULL;\n";
+print OUT "    }\n";
+print OUT "    return found->function;\n";
+print OUT "}\n";
 
 close OUT;
 
@@ -1919,32 +1970,4 @@ foreach (sort keys %norm_functions)
     print OUT "    .p_$_ = null_$_,\n";
 }
 print OUT "};\n";
-
-# Then the table giving the string <-> function correspondence */
-my $count = 0;
-foreach (keys %ext_functions)
-{
-    next unless is_exposed_function( $ext_functions{$_} );
-    $count += 1;
-}
-print OUT "\nconst int extension_registry_size = $count;\n";
-print OUT "const struct registry_entry extension_registry[$count] =\n";
-print OUT "{\n";
-foreach (sort keys %ext_functions)
-{
-    next unless is_exposed_function( $ext_functions{$_} );
-    my $func = $ext_functions{$_};
-    my @exts;
-    foreach my $ext (@{$func->[2]})
-    {
-        push @exts, $ext;
-        foreach my $alias (@{$extension_aliases{$ext}})
-        {
-            push @exts, $alias;
-        }
-    }
-    printf OUT "    { \"%s\", \"%s\\0\", offsetof(struct opengl_funcs, p_$_) },\n", $_, join("\\0", sort @exts);
-}
-print OUT "};\n";
-
 close OUT;

@@ -56,6 +56,18 @@ static CRITICAL_SECTION_DEBUG wgl_cs_debug = {
     0, 0, { (DWORD_PTR)(__FILE__ ": wgl_cs") }
 };
 static CRITICAL_SECTION wgl_cs = { &wgl_cs_debug, -1, 0, 0, 0, 0 };
+static char *wgl_extensions;
+
+struct extension_entry
+{
+    const char *name;
+    size_t len;
+    BOOLEAN exposed;
+};
+
+#define USE_GL_EXT(x, e) [x] = { .name = #x, .len = sizeof(#x) - 1, .exposed = e },
+static const struct extension_entry all_extensions[] = { ALL_GL_EXTS ALL_WGL_EXTS };
+#undef USE_GL_EXT
 
 #ifndef _WIN64
 
@@ -96,6 +108,29 @@ static void cleanup_wow64_strings(void)
 }
 
 #endif
+
+static void init_wgl_extensions( const BOOLEAN extensions[GL_EXTENSION_COUNT] )
+{
+    UINT pos = 0, len = 0;
+    char *str;
+
+    for (UINT i = 0; i < ARRAY_SIZE(all_extensions); i++)
+    {
+        if (strncmp( all_extensions[i].name, "WGL_", 4 )) continue;
+        if (extensions[i]) len += all_extensions[i].len + 1;
+    }
+
+    if (!(str = malloc( len + 1 ))) return;
+
+    for (UINT i = 0; i < ARRAY_SIZE(all_extensions); i++)
+    {
+        if (strncmp( all_extensions[i].name, "WGL_", 4 )) continue;
+        if (extensions[i]) pos += sprintf( str + pos, "%s ", all_extensions[i].name );
+    }
+    str[pos - 1] = 0;
+
+    wgl_extensions = str;
+}
 
 struct handle_entry
 {
@@ -241,6 +276,7 @@ struct context
 {
     struct opengl_client_context base;
     struct handle_table syncs;
+    char *extensions;
 };
 
 static struct context *context_from_opengl_client_context( struct opengl_client_context *base )
@@ -279,6 +315,11 @@ static struct handle_entry *alloc_client_context(void)
         return NULL;
     }
 
+    context->base.extensions[WGL_ARB_extensions_string] = TRUE;
+    context->base.extensions[WGL_ARB_multisample] = TRUE;
+    context->base.extensions[WGL_ARB_pixel_format] = TRUE;
+    context->base.extensions[WGL_EXT_extensions_string] = TRUE;
+
     return ptr;
 }
 
@@ -286,6 +327,7 @@ static void free_client_context( struct handle_entry *ptr )
 {
     struct context *context = context_from_opengl_client_context( ptr->context );
     free_handle( &contexts, ptr );
+    free( context->extensions );
     free( context );
 }
 
@@ -1057,28 +1099,6 @@ BOOL WINAPI wglChoosePixelFormatARB( HDC hdc, const int *attribs_int, const FLOA
 
     wgl_formats = get_pixel_formats( hdc, &num_wgl_formats, &num_wgl_onscreen_formats );
 
-    /* If the driver doesn't yet provide ARB attrib information in
-     * wgl_pixel_format, fall back to an explicit call. */
-    if (num_wgl_formats && !wgl_formats[0].pixel_type)
-    {
-        struct wglChoosePixelFormatARB_params args =
-        {
-            .teb = NtCurrentTeb(),
-            .hdc = hdc,
-            .piAttribIList = attribs_int,
-            .pfAttribFList = attribs_float,
-            .nMaxFormats = max_formats,
-            .piFormats = formats,
-            .nNumFormats = num_formats
-        };
-        NTSTATUS status;
-
-        if ((status = UNIX_CALL( wglChoosePixelFormatARB, &args )))
-            WARN( "wglChoosePixelFormatARB returned %#lx\n", status );
-
-        return args.ret;
-    }
-
     /* Gather, validate and deduplicate all attributes */
     for (i = 0; attribs_int && attribs_int[i]; i += 2)
     {
@@ -1160,28 +1180,6 @@ BOOL WINAPI wglGetPixelFormatAttribivARB( HDC hdc, int index, int plane, UINT co
            hdc, index, plane, count, attributes, values );
 
     formats = get_pixel_formats( hdc, &num_formats, &num_onscreen_formats );
-
-    /* If the driver doesn't yet provide ARB attrib information in
-     * wgl_pixel_format, fall back to an explicit call. */
-    if (num_formats && !formats[0].pixel_type)
-    {
-        struct wglGetPixelFormatAttribivARB_params args =
-        {
-            .teb = NtCurrentTeb(),
-            .hdc = hdc,
-            .iPixelFormat = index,
-            .iLayerPlane = plane,
-            .nAttributes = count,
-            .piAttributes = attributes,
-            .piValues = values
-        };
-        NTSTATUS status;
-
-        if ((status = UNIX_CALL( wglGetPixelFormatAttribivARB, &args )))
-            WARN( "wglGetPixelFormatAttribivARB returned %#lx\n", status );
-
-        return args.ret;
-    }
 
     if (!count) return TRUE;
     if (count == 1 && attributes[0] == WGL_NUMBER_PIXEL_FORMATS_ARB)
@@ -1332,16 +1330,21 @@ int WINAPI wglGetLayerPaletteEntries( HDC hdc, int plane, int start, int count, 
  */
 PROC WINAPI wglGetProcAddress( LPCSTR name )
 {
-    struct wglGetProcAddress_params args = { .teb = NtCurrentTeb(), .lpszProc = name };
+    struct context *ctx;
     const void *proc;
-    NTSTATUS status;
 
     if (!name) return NULL;
-    if ((status = UNIX_CALL( wglGetProcAddress, &args )))
-        WARN( "wglGetProcAddress %s returned %#lx\n", debugstr_a(name), status );
-    if (args.ret == (void *)-1) return NULL;
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
 
-    proc = extension_procs[(UINT_PTR)args.ret];
+    if (!(proc = get_proc_address( name, &ctx->base ))) return NULL;
+
+    if (!strncmp( name, "wglGetExtensionsString", 22 ))
+    {
+        EnterCriticalSection( &wgl_cs );
+        if (!wgl_extensions) init_wgl_extensions( ctx->base.extensions );
+        LeaveCriticalSection( &wgl_cs );
+    }
+
     TRACE( "returning %s -> %p\n", name, proc );
     return proc;
 }
@@ -1990,6 +1993,47 @@ GLsync WINAPI glImportSyncEXT( GLenum external_sync_type, GLintptr external_sync
     return NULL;
 }
 
+static const enum opengl_extension legacy_extensions[] =
+{
+    WGL_EXT_extensions_string,
+    WGL_EXT_swap_control,
+};
+
+static const char *enum_gl_extensions( struct context *ctx, UINT index, GLint *ret )
+{
+    UINT count = 0;
+    for (enum opengl_extension ext = 0; ext < ARRAY_SIZE(all_extensions); ext++)
+    {
+        if (strncmp( all_extensions[ext].name, "GL_", 3 )) continue;
+        if (ctx->base.extensions[ext] && count++ == index) return all_extensions[ext].name;
+    }
+    for (UINT i = 0; i < ARRAY_SIZE(legacy_extensions); i++)
+    {
+        enum opengl_extension ext = legacy_extensions[i];
+        if (ctx->base.extensions[ext] && count++ == index) return all_extensions[ext].name;
+    }
+    if (ret) *ret = count;
+    return NULL;
+}
+
+static BOOL get_integer( struct context *ctx, GLenum name, GLint *data )
+{
+    switch (name)
+    {
+    case GL_MAJOR_VERSION:
+        *data = ctx->base.major_version;
+        return TRUE;
+    case GL_MINOR_VERSION:
+        *data = ctx->base.minor_version;
+        return TRUE;
+    case GL_NUM_EXTENSIONS:
+        enum_gl_extensions( ctx, -1, data );
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
 const GLubyte * WINAPI glGetStringi( GLenum name, GLuint index )
 {
     struct glGetStringi_params args =
@@ -2002,8 +2046,20 @@ const GLubyte * WINAPI glGetStringi( GLenum name, GLuint index )
 #ifndef _WIN64
     GLubyte *wow64_str = NULL;
 #endif
+    struct context *ctx;
+    const char *str;
 
     TRACE( "name %d, index %d\n", name, index );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
+
+    switch (name)
+    {
+    case GL_EXTENSIONS:
+        if ((str = enum_gl_extensions( ctx, index, NULL ))) return (const GLubyte *)str;
+        set_gl_error( GL_INVALID_VALUE );
+        return NULL;
+    }
 
 #ifndef _WIN64
     if (UNIX_CALL( glGetStringi, &args ) == STATUS_BUFFER_TOO_SMALL) args.ret = wow64_str = malloc( (size_t)args.ret );
@@ -2022,12 +2078,47 @@ const GLubyte * WINAPI glGetStringi( GLenum name, GLuint index )
 const GLubyte * WINAPI glGetString( GLenum name )
 {
     struct glGetString_params args = { .teb = NtCurrentTeb(), .name = name };
+    struct context *ctx;
     NTSTATUS status;
 #ifndef _WIN64
     GLubyte *wow64_str = NULL;
 #endif
 
     TRACE( "name %d\n", name );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return NULL;
+
+    switch (name)
+    {
+    case GL_EXTENSIONS:
+        if (*ctx->base.compat_extensions == GL_EXTENSION_COUNT)
+        {
+            set_gl_error( GL_INVALID_ENUM );
+            return NULL;
+        }
+        if (!ctx->extensions)
+        {
+            const USHORT *indexes = ctx->base.compat_extensions;
+            UINT size = 0;
+            char *ptr;
+
+            for (UINT i = 0; indexes[i] != GL_EXTENSION_COUNT; i++) size += all_extensions[indexes[i]].len + 1;
+            if (ctx->base.extensions[GL_EXT_memory_object_win32]) size += strlen( "GL_EXT_memory_object_win32 " );
+            if (ctx->base.extensions[GL_EXT_semaphore_win32]) size += strlen( "GL_EXT_semaphore_win32 " );
+            if (ctx->base.extensions[WGL_EXT_extensions_string]) size += strlen( "WGL_EXT_extensions_string " );
+            if (ctx->base.extensions[WGL_EXT_swap_control]) size += strlen( "WGL_EXT_swap_control " );
+            if (!(ptr = ctx->extensions = malloc( size ))) return NULL;
+
+            for (UINT i = 0; indexes[i] != GL_EXTENSION_COUNT; i++) ptr += sprintf( ptr, "%s ", all_extensions[indexes[i]].name );
+            if (ctx->base.extensions[GL_EXT_memory_object_win32]) ptr += sprintf( ptr, "GL_EXT_memory_object_win32 " );
+            if (ctx->base.extensions[GL_EXT_semaphore_win32]) ptr += sprintf( ptr, "GL_EXT_semaphore_win32 " );
+            if (ctx->base.extensions[WGL_EXT_extensions_string]) ptr += sprintf( ptr, "WGL_EXT_extensions_string " );
+            if (ctx->base.extensions[WGL_EXT_swap_control]) ptr += sprintf( ptr, "WGL_EXT_swap_control " );
+            if (ptr != ctx->extensions) ptr[-1] = 0;
+        }
+
+        return (const GLubyte *)ctx->extensions;
+    }
 
 #ifndef _WIN64
     if (UNIX_CALL( glGetString, &args ) == STATUS_BUFFER_TOO_SMALL) args.ret = wow64_str = malloc( (size_t)args.ret );
@@ -2040,46 +2131,86 @@ const GLubyte * WINAPI glGetString( GLenum name )
     return args.ret;
 }
 
+void WINAPI glGetBooleanv( GLenum pname, GLboolean *data )
+{
+    struct glGetBooleanv_params args = { .teb = NtCurrentTeb(), .pname = pname, .data = data };
+    struct context *ctx;
+    NTSTATUS status;
+    GLint value;
+
+    TRACE( "pname %d, data %p\n", pname, data );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return;
+    if (get_integer( ctx, pname, &value )) *data = value;
+    else if ((status = UNIX_CALL( glGetBooleanv, &args ))) WARN( "glGetBooleanv returned %#lx\n", status );
+}
+
+void WINAPI glGetDoublev( GLenum pname, GLdouble *data )
+{
+    struct glGetDoublev_params args = { .teb = NtCurrentTeb(), .pname = pname, .data = data };
+    struct context *ctx;
+    NTSTATUS status;
+    GLint value;
+
+    TRACE( "pname %d, data %p\n", pname, data );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return;
+    if (get_integer( ctx, pname, &value )) *data = value;
+    else if ((status = UNIX_CALL( glGetDoublev, &args ))) WARN( "glGetDoublev returned %#lx\n", status );
+}
+
+void WINAPI glGetFloatv( GLenum pname, GLfloat *data )
+{
+    struct glGetFloatv_params args = { .teb = NtCurrentTeb(), .pname = pname, .data = data };
+    struct context *ctx;
+    NTSTATUS status;
+    GLint value;
+
+    TRACE( "pname %d, data %p\n", pname, data );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return;
+    if (get_integer( ctx, pname, &value )) *data = value;
+    else if ((status = UNIX_CALL( glGetFloatv, &args ))) WARN( "glGetFloatv returned %#lx\n", status );
+}
+
+void WINAPI glGetInteger64v( GLenum pname, GLint64 *data )
+{
+    struct glGetInteger64v_params args = { .teb = NtCurrentTeb(), .pname = pname, .data = data };
+    struct context *ctx;
+    NTSTATUS status;
+    GLint value;
+
+    TRACE( "pname %d, data %p\n", pname, data );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return;
+    if (get_integer( ctx, pname, &value )) *data = value;
+    else if ((status = UNIX_CALL( glGetInteger64v, &args ))) WARN( "glGetInteger64v returned %#lx\n", status );
+}
+
+void WINAPI glGetIntegerv( GLenum pname, GLint *data )
+{
+    struct glGetIntegerv_params args = { .teb = NtCurrentTeb(), .pname = pname, .data = data };
+    struct context *ctx;
+    NTSTATUS status;
+    GLint value;
+
+    TRACE( "pname %d, data %p\n", pname, data );
+
+    if (!(ctx = context_from_handle( NtCurrentTeb()->glCurrentRC ))) return;
+    if (get_integer( ctx, pname, &value )) *data = value;
+    else if ((status = UNIX_CALL( glGetIntegerv, &args ))) WARN( "glGetIntegerv returned %#lx\n", status );
+}
+
 const char * WINAPI wglGetExtensionsStringARB( HDC hdc )
 {
-    struct wglGetExtensionsStringARB_params args = { .teb = NtCurrentTeb(), .hdc = hdc };
-    NTSTATUS status;
-#ifndef _WIN64
-    char *wow64_str = NULL;
-#endif
-
     TRACE( "hdc %p\n", hdc );
-
-#ifndef _WIN64
-    if (UNIX_CALL( wglGetExtensionsStringARB, &args ) == STATUS_BUFFER_TOO_SMALL) args.ret = wow64_str = malloc( (size_t)args.ret );
-#endif
-    if ((status = UNIX_CALL( wglGetExtensionsStringARB, &args ))) WARN( "wglGetExtensionsStringARB returned %#lx\n", status );
-#ifndef _WIN64
-    if (args.ret != wow64_str) free( wow64_str );
-    else if (args.ret) append_wow64_string( wow64_str );
-#endif
-    return args.ret;
+    return wgl_extensions;
 }
 
 const char * WINAPI wglGetExtensionsStringEXT(void)
 {
-    struct wglGetExtensionsStringEXT_params args = { .teb = NtCurrentTeb() };
-    NTSTATUS status;
-#ifndef _WIN64
-    char *wow64_str = NULL;
-#endif
-
     TRACE( "\n" );
-
-#ifndef _WIN64
-    if (UNIX_CALL( wglGetExtensionsStringEXT, &args ) == STATUS_BUFFER_TOO_SMALL) args.ret = wow64_str = malloc( (size_t)args.ret );
-#endif
-    if ((status = UNIX_CALL( wglGetExtensionsStringEXT, &args ))) WARN( "wglGetExtensionsStringEXT returned %#lx\n", status );
-#ifndef _WIN64
-    if (args.ret != wow64_str) free( wow64_str );
-    else if (args.ret) append_wow64_string( wow64_str );
-#endif
-    return args.ret;
+    return wgl_extensions;
 }
 
 const GLchar * WINAPI wglQueryCurrentRendererStringWINE( GLenum attribute )
