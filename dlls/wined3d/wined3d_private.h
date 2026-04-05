@@ -485,6 +485,7 @@ struct wined3d_settings
     bool check_float_constants;
     bool cb_access_map_w;
     bool ffp_hlsl;
+    bool vk_swap_srgb;
 };
 
 extern struct wined3d_settings wined3d_settings;
@@ -4627,6 +4628,7 @@ struct wined3d_format
     enum wined3d_format_id typeless_id;
 };
 
+enum wined3d_format_id wined3d_get_format_srgb(enum wined3d_format_id format_id);
 const struct wined3d_format *wined3d_get_format(const struct wined3d_adapter *adapter,
         enum wined3d_format_id format_id, unsigned int bind_flags);
 enum wined3d_format_id wined3d_get_typed_format_id(const struct wined3d_adapter *adapter,
