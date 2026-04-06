@@ -1979,7 +1979,7 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
         flags &= ~(O_CREAT | O_EXCL | O_TRUNC);
     }
 
-    if ((access & FILE_UNIX_WRITE_ACCESS) && !(options & FILE_DIRECTORY_FILE))
+    if (((access & FILE_UNIX_WRITE_ACCESS) && !(options & FILE_DIRECTORY_FILE)) || (flags & O_TRUNC))
     {
         if (access & FILE_UNIX_READ_ACCESS) rw_mode = O_RDWR;
         else rw_mode = O_WRONLY;
@@ -1988,10 +1988,17 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
 
     if ((fd->unix_fd = open( name, rw_mode | (flags & ~O_TRUNC), *mode )) == -1)
     {
-        /* if we tried to open a directory for write access, retry read-only */
-        if (errno == EISDIR)
+        /* If write mode was only needed for truncation (not for actual write
+         * access), retry read-only. This handles read-only files being
+         * superseded, and directories being overwritten. */
+        if ((errno == EISDIR || errno == EACCES) && (flags & O_TRUNC) &&
+            !(access & (FILE_UNIX_WRITE_ACCESS | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA)))
         {
-            if ((access & FILE_UNIX_WRITE_ACCESS) || (flags & O_CREAT))
+            fd->unix_fd = open( name, O_RDONLY | (flags & ~(O_TRUNC | O_CREAT | O_EXCL)), *mode );
+        }
+        else if (errno == EISDIR)
+        {
+            if ((access & FILE_UNIX_WRITE_ACCESS) || (flags & O_CREAT) || (flags & O_TRUNC))
                 fd->unix_fd = open( name, O_RDONLY | (flags & ~(O_TRUNC | O_CREAT | O_EXCL)), *mode );
         }
 
