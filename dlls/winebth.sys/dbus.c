@@ -1109,12 +1109,13 @@ static void bluez_gatt_characteristic_read_callback( DBusPendingCall *pending, v
 NTSTATUS bluez_gatt_characteristic_read( void *connection, void *watcher_ctx, struct unix_name *characteristic,
                                          IRP *irp )
 {
-    DBusMessageIter args_iter, dict_iter = DBUS_MESSAGE_ITER_INIT_CLOSED;
+    DBusMessageIter args_iter, dict_iter;
     struct bluez_async_req_data *data = NULL;
     DBusPendingCall *pending_call = NULL;
     DBusMessage *request;
     NTSTATUS status;
     dbus_bool_t success;
+    BOOL dict_iter_open = FALSE;
 
     TRACE( "(%s, %p)\n", debugstr_a( characteristic->str ), irp );
 
@@ -1136,11 +1137,13 @@ NTSTATUS bluez_gatt_characteristic_read( void *connection, void *watcher_ctx, st
         status = STATUS_NO_MEMORY;
         goto failed;
     }
+    dict_iter_open = TRUE;
     if (!p_dbus_message_iter_close_container( &args_iter, &dict_iter ))
     {
         status = STATUS_NO_MEMORY;
         goto failed;
     }
+    dict_iter_open = FALSE;
     success = p_dbus_connection_send_with_reply( connection, request, &pending_call, bluez_timeout );
     if (!success)
     {
@@ -1163,7 +1166,10 @@ NTSTATUS bluez_gatt_characteristic_read( void *connection, void *watcher_ctx, st
     p_dbus_message_unref( request );
     return STATUS_PENDING;
 failed:
-    p_dbus_message_iter_abandon_container_if_open( &args_iter, &dict_iter );
+    /* Track dict_iter state explicitly instead of using
+     * dbus_message_iter_abandon_container_if_open, which requires dbus >= 1.12. */
+    if (dict_iter_open)
+        p_dbus_message_iter_abandon_container( &args_iter, &dict_iter );
     p_dbus_message_unref( request );
     return status;
 }
