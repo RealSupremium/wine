@@ -179,98 +179,6 @@ static void align_video_info_planes(MFVideoInfo *video_info, gsize plane_align, 
     }
 }
 
-typedef struct
-{
-    GstVideoBufferPool parent;
-    GstVideoInfo info;
-} WgVideoBufferPool;
-
-typedef struct
-{
-    GstVideoBufferPoolClass parent_class;
-} WgVideoBufferPoolClass;
-
-G_DEFINE_TYPE(WgVideoBufferPool, wg_video_buffer_pool, GST_TYPE_VIDEO_BUFFER_POOL);
-
-static void buffer_add_video_meta(GstBuffer *buffer, GstVideoInfo *info)
-{
-    GstVideoMeta *meta;
-
-    if (!(meta = gst_buffer_get_video_meta(buffer)))
-        meta = gst_buffer_add_video_meta(buffer, GST_VIDEO_FRAME_FLAG_NONE,
-                        info->finfo->format, info->width, info->height);
-
-    if (!meta)
-        GST_ERROR("Failed to add video meta to buffer %"GST_PTR_FORMAT, buffer);
-    else
-    {
-        memcpy(meta->offset, info->offset, sizeof(info->offset));
-        memcpy(meta->stride, info->stride, sizeof(info->stride));
-    }
-}
-
-static GstFlowReturn wg_video_buffer_pool_alloc_buffer(GstBufferPool *gst_pool, GstBuffer **buffer,
-        GstBufferPoolAcquireParams *params)
-{
-    GstBufferPoolClass *parent_class = GST_BUFFER_POOL_CLASS(wg_video_buffer_pool_parent_class);
-    WgVideoBufferPool *pool = (WgVideoBufferPool *)gst_pool;
-    GstFlowReturn ret;
-
-    GST_LOG("%"GST_PTR_FORMAT", buffer %p, params %p", pool, buffer, params);
-
-    if (!(ret = parent_class->alloc_buffer(gst_pool, buffer, params)))
-    {
-        buffer_add_video_meta(*buffer, &pool->info);
-        GST_INFO("%"GST_PTR_FORMAT" allocated buffer %"GST_PTR_FORMAT, pool, *buffer);
-    }
-
-    return ret;
-}
-
-static void wg_video_buffer_pool_init(WgVideoBufferPool *pool)
-{
-}
-
-static void wg_video_buffer_pool_class_init(WgVideoBufferPoolClass *klass)
-{
-    GstBufferPoolClass *pool_class = GST_BUFFER_POOL_CLASS(klass);
-    pool_class->alloc_buffer = wg_video_buffer_pool_alloc_buffer;
-}
-
-static WgVideoBufferPool *wg_video_buffer_pool_create(GstCaps *caps, gsize plane_align, gsize output_plane_stride,
-        GstAllocator *allocator, MFVideoInfo *video_info, GstVideoAlignment *align)
-{
-    WgVideoBufferPool *pool;
-    GstStructure *config;
-    gsize max_size;
-
-    if (!(pool = g_object_new(wg_video_buffer_pool_get_type(), NULL)))
-        return NULL;
-
-    gst_video_info_from_caps(&pool->info, caps);
-    max_size = pool->info.size;
-    align_video_info_planes(video_info, plane_align, output_plane_stride, &pool->info, align);
-    /* GStreamer assumes NV12 pools must accommodate a stride alignment of 4, but we use 2 */
-    max_size = max(max_size, pool->info.size);
-
-    if (!(config = gst_buffer_pool_get_config(GST_BUFFER_POOL(pool))))
-        GST_ERROR("Failed to get %"GST_PTR_FORMAT" config.", pool);
-    else
-    {
-        gst_buffer_pool_config_add_option(config, GST_BUFFER_POOL_OPTION_VIDEO_META);
-        gst_buffer_pool_config_add_option(config, GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT);
-        gst_buffer_pool_config_set_video_alignment(config, align);
-
-        gst_buffer_pool_config_set_params(config, caps, max_size, 0, 0);
-        gst_buffer_pool_config_set_allocator(config, allocator, NULL);
-        if (!gst_buffer_pool_set_config(GST_BUFFER_POOL(pool), config))
-            GST_ERROR("Failed to set %"GST_PTR_FORMAT" config.", pool);
-    }
-
-    GST_INFO("Created %"GST_PTR_FORMAT, pool);
-    return pool;
-}
-
 static GstFlowReturn transform_sink_chain_cb(GstPad *pad, GstObject *parent, GstBuffer *buffer)
 {
     struct wg_transform *transform = gst_pad_get_element_private(pad);
@@ -322,18 +230,25 @@ static gboolean transform_sink_query_allocation(struct wg_transform *transform, 
     const char *mime_type;
     GstStructure *params;
     gboolean needs_pool;
+    GstVideoInfo *info;
+    gsize max_size;
     GstCaps *caps;
 
     GST_LOG("transform %p, %"GST_PTR_FORMAT, transform, query);
 
     gst_query_parse_allocation(query, &caps, &needs_pool);
+    info = gst_video_info_new_from_caps(caps);
+    max_size = info->size;
+    align_video_info_planes(&transform->output_info, transform->attrs.output_plane_align,
+            transform->attrs.output_plane_stride, info, &align);
+    /* GStreamer assumes NV12 pools must accommodate a stride alignment of 4, but we use 2 */
+    max_size = max(max_size, info->size);
 
     mime_type = gst_structure_get_name(gst_caps_get_structure(caps, 0));
     if (strcmp(mime_type, "video/x-raw") || !needs_pool)
         return false;
 
-    if (!(pool = wg_video_buffer_pool_create(caps, transform->attrs.output_plane_align,
-            transform->attrs.output_plane_stride, transform->allocator, &transform->output_info, &align)))
+    if (!(pool = wg_video_buffer_pool_create(caps, info, max_size, transform->allocator, &align)))
         return false;
 
     if ((params = gst_structure_new("video-meta",
@@ -351,11 +266,11 @@ static gboolean transform_sink_query_allocation(struct wg_transform *transform, 
     if (!gst_buffer_pool_set_active(GST_BUFFER_POOL(pool), true))
         GST_ERROR("%"GST_PTR_FORMAT" failed to activate.", pool);
 
-    gst_query_add_allocation_pool(query, GST_BUFFER_POOL(pool), pool->info.size, 0, 0);
+    gst_query_add_allocation_pool(query, GST_BUFFER_POOL(pool), info->size, 0, 0);
     gst_query_add_allocation_param(query, transform->allocator, NULL);
 
     GST_INFO("Proposing %"GST_PTR_FORMAT", buffer size %#zx, %"GST_PTR_FORMAT", for %"GST_PTR_FORMAT,
-            pool, pool->info.size, transform->allocator, query);
+            pool, info->size, transform->allocator, query);
 
     g_object_unref(pool);
     return true;
