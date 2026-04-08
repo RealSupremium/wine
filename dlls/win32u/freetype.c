@@ -3392,12 +3392,16 @@ static BOOL freetype_set_outline_text_metrics( struct gdi_font *font )
 
     TM.tmHeight = TM.tmAscent + TM.tmDescent;
 
-    /* MSDN says:
-     el = MAX(0, LineGap - ((WinAscent + WinDescent) - (Ascender - Descender)))
-    */
-    TM.tmExternalLeading = max(0, SCALE_Y(pHori->Line_Gap -
-                                          ((ascent + descent) -
-                                           (pHori->Ascender - pHori->Descender))));
+    /* MSDN documents the formula:
+     *     el = MAX(0, LineGap - ((WinAscent + WinDescent) - (Ascender - Descender)))
+     * but Windows GDI does not follow this for OpenType-CFF fonts: for any font 
+     * containing a 'CFF ' table it reports tmExternalLeading = 0.
+     */
+    if (font->ntmFlags & NTM_PS_OPENTYPE)
+        TM.tmExternalLeading = 0;
+    else
+        TM.tmExternalLeading = max(0, 
+            SCALE_Y(pHori->Line_Gap - ((ascent + descent) - (pHori->Ascender - pHori->Descender))));
 
     TM.tmAveCharWidth = SCALE_X(pOS2->xAvgCharWidth);
     if (TM.tmAveCharWidth == 0) {
