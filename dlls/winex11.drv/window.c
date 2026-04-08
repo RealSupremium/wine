@@ -1271,12 +1271,13 @@ void window_set_user_time( struct x11drv_win_data *data, Time time, BOOL init )
                           32, PropModeReplace, (unsigned char *)&time, 1 );
 }
 
-static void window_set_monitors( struct x11drv_win_data *data, const struct monitor_indices *new_monitors )
+static void window_set_monitors( struct x11drv_win_data *data, const struct monitor_indices *new_monitors, BOOL force )
 {
+    BOOL is_fullscreen = data->pending_state.net_wm_state & (1 << NET_WM_STATE_FULLSCREEN);
     const struct monitor_indices *old_monitors = &data->pending_state.monitors;
     data->desired_state.monitors = *new_monitors;
 
-    if (!(data->pending_state.net_wm_state & (1 << NET_WM_STATE_FULLSCREEN)) || is_virtual_desktop()) return; /* window isn't fullscreen, delay updating */
+    if (!(force || is_fullscreen) || is_virtual_desktop()) return; /* window isn't fullscreen, delay updating */
     if (!data->whole_window || !data->managed || data->embedded) return; /* no window or not managed, nothing to update */
     if (!memcmp( old_monitors, new_monitors, sizeof(*new_monitors) )) return; /* states are the same, nothing to update */
 
@@ -1315,7 +1316,7 @@ static void window_set_monitors( struct x11drv_win_data *data, const struct moni
 
 /* Update _NET_WM_FULLSCREEN_MONITORS when _NET_WM_STATE_FULLSCREEN is set to support fullscreen
  * windows spanning multiple monitors */
-static void update_fullscreen_monitors( struct x11drv_win_data *data )
+static void update_fullscreen_monitors( struct x11drv_win_data *data, BOOL force )
 {
     struct monitor_indices monitors = {0};
 
@@ -1324,7 +1325,7 @@ static void update_fullscreen_monitors( struct x11drv_win_data *data )
      * indices because of stale xinerama monitor information */
     if (!X11DRV_DisplayDevices_SupportEventHandlers()) return;
     if (!xinerama_get_fullscreen_monitors( &data->rects.visible, &monitors.generation, monitors.indices )) return;
-    window_set_monitors( data, &monitors );
+    window_set_monitors( data, &monitors, force );
 }
 
 static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_state )
@@ -1387,6 +1388,13 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
             xev.xclient.data.l[1] = X11DRV_Atoms[net_wm_state_atoms[i] - FIRST_XATOM];
             xev.xclient.data.l[2] = ((net_wm_state_atoms[i] == XATOM__NET_WM_STATE_MAXIMIZED_VERT) ?
                                      x11drv_atom(_NET_WM_STATE_MAXIMIZED_HORZ) : 0);
+
+            /* update _NET_WM_FULLSCREEN_MONITORS before requesting _NET_WM_STATE when becoming fullscreen */
+            if (i == NET_WM_STATE_FULLSCREEN && xev.xclient.data.l[0] == _NET_WM_STATE_ADD)
+            {
+                WARN( "window %p/%lx becomes fullscreen, updating _NET_WM_STATE_FULLSCREEN_MONITORS\n", data->hwnd, data->whole_window );
+                update_fullscreen_monitors( data, TRUE );
+            }
 
             data->pending_state.net_wm_state ^= (1 << i);
             data->net_wm_state_serial = NextRequest( data->display );
@@ -1511,7 +1519,7 @@ static void update_net_wm_states( struct x11drv_win_data *data )
     }
 
     window_set_net_wm_state( data, new_state );
-    update_fullscreen_monitors( data );
+    update_fullscreen_monitors( data, FALSE );
 }
 
 /***********************************************************************
@@ -1615,7 +1623,7 @@ static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, B
         set_wm_hints( data );
         update_net_wm_states( data );
         sync_window_style( data );
-        update_fullscreen_monitors( data );
+        update_fullscreen_monitors( data, FALSE );
         break;
     case MAKELONG(IconicState, NormalState):
     case MAKELONG(NormalState, IconicState):
@@ -1862,7 +1870,7 @@ static void window_request_desired_state( struct x11drv_win_data *data )
 {
     window_set_wm_state( data, data->desired_state.wm_state, data->desired_state.activate );
     window_set_net_wm_state( data, data->desired_state.net_wm_state );
-    window_set_monitors( data, &data->desired_state.monitors );
+    window_set_monitors( data, &data->desired_state.monitors, FALSE );
     window_set_mwm_hints( data, &data->desired_state.mwm_hints );
     window_set_config( data, data->desired_state.rect, FALSE );
 }
