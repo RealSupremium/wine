@@ -16,12 +16,24 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <assert.h>
 #include <stdarg.h>
+#include <stdlib.h>
+
 #include "windef.h"
 #include "winbase.h"
 #include "ntsecapi.h"
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(bcrypt);
 
 BOOL WINAPI ProcessPrng(BYTE *data, SIZE_T size)
 {
-    return RtlGenRandom(data, size);
+    if (!RtlGenRandom( data, size ))
+    {
+        /* ProcessPrng is documented as always returning TRUE so abort the process if it fails */
+        ERR( "failed to generate random data\n" );
+        abort();
+    }
+    return TRUE;
 }
