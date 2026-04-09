@@ -4008,8 +4008,8 @@ static void test_WM_LBUTTONDOWN(void)
     ok(GetCapture() == hwEdit,"Capture is not on Edit Control, instead on %p\n", GetCapture());
 
     SendMessageA(hwEdit, WM_LBUTTONUP, 0, 0);
-    todo_wine ok(CheckCapture(), "Expected WM_CAPTURECHANGED was not recieved after WM_LBUTTONUP\n");
-    todo_wine ok(GetCapture() != hwEdit, "Capture is on Edit Control %p, expected to be released\n", GetCapture());
+    ok(CheckCapture(), "Expected WM_CAPTURECHANGED was not recieved after WM_LBUTTONUP\n");
+    ok(GetCapture() != hwEdit, "Capture is on Edit Control %p, expected to be released\n", GetCapture());
 
     DestroyWindow(hwEdit);
 }
