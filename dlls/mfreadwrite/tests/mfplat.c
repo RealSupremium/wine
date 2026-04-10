@@ -2126,7 +2126,7 @@ static void test_source_reader_stride(void)
     ok(IsEqualGUID(&subtype, &MFVideoFormat_NV12), "Got subtype %s.\n", debugstr_guid(&subtype));
     hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_DEFAULT_STRIDE, &stride);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    todo_wine ok(stride == 162, "Got stride %u.\n", stride);
+    ok(stride == 162, "Got stride %u.\n", stride);
     compressed = 0;
     hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_COMPRESSED, &compressed);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -2154,7 +2154,7 @@ static void test_source_reader_stride(void)
     ok(IsEqualGUID(&subtype, &MFVideoFormat_YV12), "Got subtype %s.\n", debugstr_guid(&subtype));
     hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_DEFAULT_STRIDE, &stride);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    todo_wine ok(stride == 162, "Got stride %u.\n", stride);
+    ok(stride == 162, "Got stride %u.\n", stride);
     compressed = 0;
     hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_COMPRESSED, &compressed);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -2182,7 +2182,7 @@ static void test_source_reader_stride(void)
     ok(IsEqualGUID(&subtype, &MFVideoFormat_I420), "Got subtype %s.\n", debugstr_guid(&subtype));
     hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_DEFAULT_STRIDE, &stride);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    todo_wine ok(stride == 162, "Got stride %u.\n", stride);
+    ok(stride == 162, "Got stride %u.\n", stride);
     compressed = 0;
     hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_COMPRESSED, &compressed);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);

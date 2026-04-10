@@ -860,7 +860,7 @@ unsigned int wg_format_get_stride(const struct wg_format *format)
         case WG_VIDEO_FORMAT_I420:
         case WG_VIDEO_FORMAT_NV12:
         case WG_VIDEO_FORMAT_YV12:
-            return ALIGN(width, 4); /* Y plane */
+            return ALIGN(width, 2); /* Y plane */
 
         case WG_VIDEO_FORMAT_UNKNOWN:
             FIXME("Cannot calculate stride for unknown video format.\n");
