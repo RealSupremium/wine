@@ -1271,7 +1271,7 @@ void window_set_user_time( struct x11drv_win_data *data, Time time, BOOL init )
                           32, PropModeReplace, (unsigned char *)&time, 1 );
 }
 
-static void window_set_net_wm_fullscreen_monitors( struct x11drv_win_data *data, const struct monitor_indices *new_monitors )
+static void window_set_monitors( struct x11drv_win_data *data, const struct monitor_indices *new_monitors )
 {
     const struct monitor_indices *old_monitors = &data->pending_state.monitors;
     data->desired_state.monitors = *new_monitors;
@@ -1284,8 +1284,9 @@ static void window_set_net_wm_fullscreen_monitors( struct x11drv_win_data *data,
     if (data->pending_state.wm_state == WithdrawnState)
     {
         memcpy( &data->pending_state.monitors, new_monitors, sizeof(*new_monitors) );
-        TRACE( "window %p/%lx, requesting _NET_WM_FULLSCREEN_MONITORS %s serial %lu\n", data->hwnd, data->whole_window,
-               debugstr_monitor_indices( new_monitors ), NextRequest( data->display ) );
+        data->monitors_serial = NextRequest( data->display );
+        TRACE( "window %p/%lx, requesting _NET_WM_FULLSCREEN_MONITORS %s serial %lu\n", data->hwnd,
+               data->whole_window, debugstr_monitor_indices( new_monitors ), data->monitors_serial );
         XChangeProperty( data->display, data->whole_window, x11drv_atom(_NET_WM_FULLSCREEN_MONITORS),
                          XA_CARDINAL, 32, PropModeReplace, (unsigned char *)new_monitors->indices, 4 );
     }
@@ -1304,19 +1305,17 @@ static void window_set_net_wm_fullscreen_monitors( struct x11drv_win_data *data,
         memcpy( xev.xclient.data.l, new_monitors->indices, sizeof(new_monitors->indices) );
 
         memcpy( &data->pending_state.monitors, new_monitors, sizeof(*new_monitors) );
-        TRACE( "window %p/%lx, requesting _NET_WM_FULLSCREEN_MONITORS %s serial %lu\n", data->hwnd, data->whole_window,
-               debugstr_monitor_indices( new_monitors ), NextRequest( data->display ) );
+        data->monitors_serial = NextRequest( data->display );
+        TRACE( "window %p/%lx, requesting _NET_WM_FULLSCREEN_MONITORS %s serial %lu\n", data->hwnd,
+               data->whole_window, debugstr_monitor_indices( new_monitors ), data->monitors_serial );
         XSendEvent( data->display, DefaultRootWindow( data->display ), False,
                     SubstructureRedirectMask | SubstructureNotifyMask, &xev );
     }
-
-    /* assume it changes immediately, we don't track the property for now */
-    memcpy( &data->current_state.monitors, new_monitors, sizeof(*new_monitors) );
 }
 
 /* Update _NET_WM_FULLSCREEN_MONITORS when _NET_WM_STATE_FULLSCREEN is set to support fullscreen
  * windows spanning multiple monitors */
-static void update_net_wm_fullscreen_monitors( struct x11drv_win_data *data )
+static void update_fullscreen_monitors( struct x11drv_win_data *data )
 {
     struct monitor_indices monitors = {0};
 
@@ -1325,7 +1324,7 @@ static void update_net_wm_fullscreen_monitors( struct x11drv_win_data *data )
      * indices because of stale xinerama monitor information */
     if (!X11DRV_DisplayDevices_SupportEventHandlers()) return;
     if (!xinerama_get_fullscreen_monitors( &data->rects.visible, &monitors.generation, monitors.indices )) return;
-    window_set_net_wm_fullscreen_monitors( data, &monitors );
+    window_set_monitors( data, &monitors );
 }
 
 static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_state )
@@ -1512,7 +1511,7 @@ static void update_net_wm_states( struct x11drv_win_data *data )
     }
 
     window_set_net_wm_state( data, new_state );
-    update_net_wm_fullscreen_monitors( data );
+    update_fullscreen_monitors( data );
 }
 
 /***********************************************************************
@@ -1554,6 +1553,20 @@ UINT get_window_net_wm_state( Display *display, Window window )
     return new_state;
 }
 
+void get_window_monitors( Display *display, Window window, long *indices )
+{
+    unsigned long count, remaining;
+    long *value;
+    int format;
+    Atom type;
+
+    if (!XGetWindowProperty( display, window, x11drv_atom( _NET_WM_FULLSCREEN_MONITORS ), 0, 65536, False,
+                             XA_CARDINAL, &type, &format, &count, &remaining, (unsigned char **)&value ))
+    {
+        if (type == XA_CARDINAL && format == 32) memcpy( indices, value, 4 * sizeof(*indices) );
+        XFree( value );
+    }
+}
 
 /***********************************************************************
  *     set_xembed_flags
@@ -1602,7 +1615,7 @@ static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, B
         set_wm_hints( data );
         update_net_wm_states( data );
         sync_window_style( data );
-        update_net_wm_fullscreen_monitors( data );
+        update_fullscreen_monitors( data );
         break;
     case MAKELONG(IconicState, NormalState):
     case MAKELONG(NormalState, IconicState):
@@ -1849,7 +1862,7 @@ static void window_request_desired_state( struct x11drv_win_data *data )
 {
     window_set_wm_state( data, data->desired_state.wm_state, data->desired_state.activate );
     window_set_net_wm_state( data, data->desired_state.net_wm_state );
-    window_set_net_wm_fullscreen_monitors( data, &data->desired_state.monitors );
+    window_set_monitors( data, &data->desired_state.monitors );
     window_set_mwm_hints( data, &data->desired_state.mwm_hints );
     window_set_config( data, data->desired_state.rect, FALSE );
 }
@@ -1888,6 +1901,25 @@ void window_net_wm_state_notify( struct x11drv_win_data *data, unsigned long ser
     prefix = wine_dbg_sprintf( "window %p/%lx ", data->hwnd, data->whole_window );
     received = wine_dbg_sprintf( "_NET_WM_STATE %#x/%lu", value, serial );
     expected = *expect_serial ? wine_dbg_sprintf( ", expected %#x/%lu", *pending, *expect_serial ) : "";
+
+    if (!handle_state_change( serial, expect_serial, sizeof(value), &value, desired, pending,
+                              current, expected, prefix, received, NULL ))
+        return;
+
+    /* send any pending changes from the desired state */
+    window_request_desired_state( data );
+}
+
+void window_monitors_notify( struct x11drv_win_data *data, unsigned long serial, const long *indices )
+{
+    struct monitor_indices *desired = &data->desired_state.monitors, *pending = &data->pending_state.monitors, *current = &data->current_state.monitors;
+    const struct monitor_indices value = {pending->generation, {indices[0], indices[1], indices[2], indices[3]}};
+    unsigned long *expect_serial = &data->monitors_serial;
+    const char *expected, *received, *prefix;
+
+    prefix = wine_dbg_sprintf( "window %p/%lx ", data->hwnd, data->whole_window );
+    received = wine_dbg_sprintf( "_NET_WM_FULLSCREEN_MONITORS %s/%lu", debugstr_monitor_indices( &value ), serial );
+    expected = *expect_serial ? wine_dbg_sprintf( ", expected %s/%lu", debugstr_monitor_indices( pending ), *expect_serial ) : "";
 
     if (!handle_state_change( serial, expect_serial, sizeof(value), &value, desired, pending,
                               current, expected, prefix, received, NULL ))
