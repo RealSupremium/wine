@@ -771,6 +771,79 @@ static GstFlowReturn sink_chain_cb(GstPad *pad, GstObject *parent, GstBuffer *bu
     return GST_FLOW_OK;
 }
 
+static gboolean sink_query_allocation(struct wg_parser *parser, GstQuery *query)
+{
+    gint gst_stride, native_stride;
+    GstVideoAlignment align = {0};
+    bool needs_alignment_fix;
+    WgVideoBufferPool *pool;
+    const char *mime_type;
+    GstCaps *caps = NULL;
+    gboolean needs_pool;
+    gint aligned_height;
+    GstVideoInfo *info;
+    gsize max_size;
+
+    GST_LOG("wg_parser %p, %"GST_PTR_FORMAT, parser, query);
+
+    gst_query_parse_allocation(query, &caps, &needs_pool);
+
+    mime_type = gst_structure_get_name(gst_caps_get_structure(caps, 0));
+    if (strcmp(mime_type, "video/x-raw") || !needs_pool)
+        return false;
+
+    info = gst_video_info_new_from_caps(caps);
+    gst_stride = GST_ROUND_UP_4(info->width);
+    native_stride = GST_ROUND_UP_2(info->width);
+
+    /* For NV12, Y and UV planes have the same stride, and need 2-bytes alignment instead of 4. */
+    needs_alignment_fix = (info->finfo->format == GST_VIDEO_FORMAT_NV12  && native_stride != gst_stride) ||
+    /* For YV12 or I420, Y plane stride needs 2-bytes alignment instead of 4, and both U and V
+     * planes need to have strides that are exactly half of the Y plane's stride. Yet gstreamer
+     * aligns both U and V to multiples of 4 as well. */
+            ((info->finfo->format == GST_VIDEO_FORMAT_YV12 || info->finfo->format == GST_VIDEO_FORMAT_I420) &&
+             (native_stride != gst_stride || (native_stride & 6)));
+
+    if (!needs_alignment_fix)
+        /* Don't bother with buffer pool if we don't need to realign the video frames. Unlike
+         * wg_transform we don't need a buffer pool to function.*/
+        return false;
+
+    max_size = info->size;
+    aligned_height = GST_ROUND_UP_2(info->height);
+    info->stride[0] = GST_ROUND_UP_2(info->width);
+    info->offset[0] = 0;
+    align.stride_align[0] = 1;
+
+    info->offset[1] = info->stride[0] * aligned_height;
+    if (info->finfo->format == GST_VIDEO_FORMAT_NV12)
+    {
+        /* NV12, UV packed plane has the same stride as the Y plane */
+        info->stride[1] = info->stride[0];
+        info->size = info->offset[1] + info->stride[0] * aligned_height / 2;
+    }
+    else
+    {
+        /* I420/YV12. U and V plane each has half of the stride of the Y plane. */
+        info->stride[1] = info->stride[2] = info->stride[0] / 2;
+        info->offset[2] = info->offset[1] + info->stride[1] * aligned_height / 2;
+        info->size = info->offset[2] + info->stride[1] * aligned_height / 2;
+    }
+    max_size = max(max_size, info->size);
+
+    if (!(pool = wg_video_buffer_pool_create(caps, info, max_size, NULL, &align)))
+        return false;
+    if (!gst_buffer_pool_set_active(GST_BUFFER_POOL(pool), true))
+        GST_ERROR("%"GST_PTR_FORMAT" failed to activate.", pool);
+
+    gst_query_add_allocation_pool(query, GST_BUFFER_POOL(pool), info->size, 0, 0);
+
+    GST_INFO("Proposing %"GST_PTR_FORMAT", buffer size %#zx, for %"GST_PTR_FORMAT, pool, info->size, query);
+
+    g_object_unref(pool);
+    return true;
+}
+
 static gboolean sink_query_cb(GstPad *pad, GstObject *parent, GstQuery *query)
 {
     struct wg_parser_stream *stream = gst_pad_get_element_private(pad);
@@ -842,9 +915,16 @@ static gboolean sink_query_cb(GstPad *pad, GstObject *parent, GstQuery *query)
             return TRUE;
         }
 
+        case GST_QUERY_ALLOCATION:
+            if (sink_query_allocation(parser, query))
+                return true;
+            break;
+
         default:
-            return gst_pad_query_default (pad, parent, query);
+            break;
     }
+
+    return gst_pad_query_default(pad, parent, query);
 }
 
 static struct wg_parser_stream *create_stream(struct wg_parser *parser)

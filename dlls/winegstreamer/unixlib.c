@@ -427,7 +427,13 @@ WgVideoBufferPool *wg_video_buffer_pool_create(GstCaps *caps, GstVideoInfo *info
         gst_buffer_pool_config_set_video_alignment(config, align);
 
         gst_buffer_pool_config_set_params(config, caps, max_size, 0, 0);
-        gst_buffer_pool_config_set_allocator(config, allocator, NULL);
+        if (allocator) gst_buffer_pool_config_set_allocator(config, allocator, NULL);
+        else
+        {
+            GstAllocationParams alloc_params;
+            gst_allocation_params_init(&alloc_params);
+            gst_buffer_pool_config_set_allocator(config, NULL, &alloc_params);
+        }
         if (!gst_buffer_pool_set_config(GST_BUFFER_POOL(pool), config))
             GST_ERROR("Failed to set %"GST_PTR_FORMAT" config.", pool);
     }
