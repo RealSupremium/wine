@@ -101,6 +101,7 @@ dnl **** Check for some programs ****
 
 AC_PROG_CC
 AC_PROG_CXX
+
 dnl We can't use AC_PROG_CPP for winegcc, it uses by default $(CC) -E
 AC_CHECK_TOOL(CPPBIN,cpp,cpp)
 AC_DEFINE_UNQUOTED(EXEEXT,["$ac_exeext"],[Define to the file extension for executables.])
@@ -173,7 +174,7 @@ case "$host_cpu" in
   x86_64)          HOST_ARCH=x86_64 ;;
 esac
 m4_set_add_all([_AC_SUBST_VARS],[HOST_ARCH]m4_foreach([cpu],[aarch64,arm,arm64ec,i386,x86_64],
-                                [m4_foreach([var],[CC,CXX,CFLAGS,CXXFLAGS,EXTLIBFLAGS,EXTRACFLAGS,EXTRACXXFLAGS,LDFLAGS,DEBUG,TARGET,STRIP,DELAYLOADFLAG,DISABLED_SUBDIRS],[,cpu[_]var])]))
+                                [m4_foreach([var],[CC,CXX,CFLAGS,CXXFLAGS,EXTRACFLAGS,EXTRACXXFLAGS,EXTLIBFLAGS,AS,ASMFLAGS,ASMDEFS,LDFLAGS,DEBUG,TARGET,STRIP,DELAYLOADFLAG,DISABLED_SUBDIRS],[,cpu[_]var])]))
 
 case $host_os in
   darwin*)
@@ -400,6 +401,8 @@ saved_CFLAGS=$CFLAGS
 saved_CPPFLAGS=$CPPFLAGS
 saved_CXXFLAGS=$CXXFLAGS
 saved_LDFLAGS=$LDFLAGS
+saved_AS=$AS
+saved_ASMFLAGS=$ASMFLAGS
 
 AS_UNSET(extra_arch)
 for arch in $cross_archs
@@ -591,6 +594,128 @@ This is an error since --enable-archs=$wine_arch was requested.])])
                  *mingw*|*-windows-gnu) enable_cppabi="$enable_cppabi,$wine_arch" ;;
                esac])
 
+    AS_VAR_IF([${wine_arch}_AS],[],
+        [case $wine_arch in
+          i386)   AC_CHECK_TOOL(NASM,nasm)
+                  AS_VAR_SET_IF([NASM],[AS_VAR_COPY([${wine_arch}_AS],[NASM])])
+                  AS_VAR_SET_IF([${wine_arch}_ASMFLAGS],[],[AS_VAR_SET([${wine_arch}_ASMFLAGS],["-fwin32 -D__i386__ --prefix=_ -DPIC=1"])])
+                  ;;
+          x86_64) AC_CHECK_TOOL(NASM,nasm)
+                  AS_VAR_SET_IF([NASM],[AS_VAR_COPY([${wine_arch}_AS],[NASM])])
+                  AS_VAR_SET_IF([${wine_arch}_ASMFLAGS],[],[AS_VAR_SET([${wine_arch}_ASMFLAGS],["-fwin64 -D__x86_64__"])])
+                  ;;
+          arm)    WINE_TRY_PE_CFLAGS([-mfpu=neon])
+                  AS_VAR_COPY([${wine_arch}_AS],[${wine_arch}_CC])
+                  AS_VAR_SET_IF([${wine_arch}_ASMFLAGS],[],[AS_VAR_SET([${wine_arch}_ASMFLAGS],["-c $CFLAGS"])])
+                  ;;
+          *)      AS_VAR_COPY([${wine_arch}_AS],[${wine_arch}_CC])
+                  AS_VAR_SET_IF([${wine_arch}_ASMFLAGS],[],[AS_VAR_SET([${wine_arch}_ASMFLAGS],["-c $CFLAGS"])])
+                  ;;
+         esac])
+    AS_VAR_COPY([AS],[${wine_arch}_AS])
+    AS_VAR_COPY([ASMFLAGS],[${wine_arch}_ASMFLAGS])
+
+    case $wine_arch in
+        arm64ec)
+            # disable FFmpeg x86 inline assembly for now on arm64ec, it does not compile
+            ;;
+        *)  WINE_TRY_PE_INLINE_ASM(have_inline_asm,                 [""])
+            WINE_TRY_PE_INLINE_ASM(have_inline_asm_labels,          ["1:\n"])
+            WINE_TRY_PE_INLINE_ASM(have_inline_asm_nonlocal_labels, ["Label:\n"])
+            ;;
+    esac
+
+    case $wine_arch in
+        i386|x86_64)
+            WINE_TRY_PE_INLINE_ASM(have_inline_asm_direct_symbol_refs,  ["mov test, %eax"])
+
+            WINE_TRY_PE_INLINE_ASM(have_ebx_available,  [""::"b"(0)], ["":::"%ebx"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_EBP_AVAILABLE=ARCH_X86_64"])
+            WINE_TRY_PE_INLINE_ASM(have_xmm_clobbers,   ["":::"%xmm0"])
+
+            WINE_TRY_PE_INLINE_ASM(have_ssse3_inline,   ["pabsw %xmm0, %xmm0"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_SSE2_INLINE=HAVE_SSSE3_INLINE"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_SSE_INLINE=HAVE_SSSE3_INLINE"])
+            WINE_TRY_PE_INLINE_ASM(have_mmxext_inline,  ["pmaxub %mm0, %mm1"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_MMX_INLINE=HAVE_MMXEXT_INLINE"])
+            WINE_TRY_PE_INLINE_ASM(have_xop_inline,     ["vpmacsdd xmm0, xmm1, xmm2, xmm3"])
+            WINE_TRY_PE_INLINE_ASM(have_fma4_inline,    ["vfmaddps %ymm0, %ymm1, %ymm2, %ymm3"])
+
+            WINE_TRY_PE_ASM(have_x86asm,              [movbe ecx, [[5]]])
+            WINE_TRY_PE_ASM(have_avx512_external,     [vmovdqa32 [[eax]]{k1}{z}, zmm0])
+            WINE_TRY_PE_ASM(have_avx512icl_external,  [vpdpwssds zmm31{k1}{z}, zmm29, zmm28])
+            WINE_TRY_PE_ASM(have_mmxext_external,     [pmaxub mm0, mm1])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_MMX_EXTERNAL=HAVE_MMXEXT_EXTERNAL"])
+            WINE_TRY_PE_ASM(have_avx2_external,       [vextracti128 xmm0, ymm0, 0])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_AVX_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_AESNI_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_SSE42_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_CLMUL_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_SSE4_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_SSSE3_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_SSE3_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_SSE2_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_SSE_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DHAVE_FMA3_EXTERNAL=HAVE_AVX2_EXTERNAL"])
+            WINE_TRY_PE_ASM(have_xop_external,        [vpmacsdd xmm0, xmm1, xmm2, xmm3])
+            WINE_TRY_PE_ASM(have_fma4_external,       [vfmaddps ymm0, ymm1, ymm2, ymm3])
+            ;;
+        aarch64|arm64ec)
+            WINE_TRY_PE_INLINE_ASM(have_armv8_inline, ["prfm pldl1strm, [x0]"])
+            WINE_TRY_PE_INLINE_ASM(have_neon_inline,  ["ext v0.8B, v0.8B, v1.8B, #1"])
+
+            WINE_TRY_PE_ASM(have_as_arch_directive, [.arch armv8-a])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DAS_ARCH_LEVEL=armv8-a"])
+
+            WINE_TRY_PE_ASM(have_as_archext_crc_directive,        [.arch_extension crc])
+            WINE_TRY_PE_ASM(have_as_archext_aes_directive,        [.arch_extension aes])
+            WINE_TRY_PE_ASM(have_as_archext_sha3_directive,       [.arch_extension sha3])
+            WINE_TRY_PE_ASM(have_as_archext_dotprod_directive,    [.arch_extension dotprod])
+            WINE_TRY_PE_ASM(have_as_archext_i8mm_directive,       [.arch_extension i8mm])
+            WINE_TRY_PE_ASM(have_as_archext_sve_directive,        [.arch_extension sve])
+            WINE_TRY_PE_ASM(have_as_archext_sve2_directive,       [.arch_extension sve2])
+            WINE_TRY_PE_ASM(have_as_archext_sme_directive,        [.arch_extension sme])
+            WINE_TRY_PE_ASM(have_as_archext_sme_i16i64_directive, [.arch_extension sme-i16i64])
+            WINE_TRY_PE_ASM(have_as_archext_sme2_directive,       [.arch_extension sme2])
+
+            WINE_TRY_PE_ASM(have_armv8_external,      [prfm pldl1strm, [[x0]]])
+            WINE_TRY_PE_ASM(have_neon_external,       [ext v0.8B, v0.8B, v1.8B, [#]1])
+            WINE_TRY_PE_ASM(have_arm_crc_external,    [crc32x w0, w0, x0],                             [.arch_extension crc])
+            WINE_TRY_PE_ASM(have_pmull_external,      [pmull v0.1q, v0.1d, v0.1d],                     [.arch_extension aes])
+            WINE_TRY_PE_ASM(have_eor3_external,       [eor3 v0.16b, v1.16b, v2.16b, v3.16b],           [.arch_extension sha3])
+            WINE_TRY_PE_ASM(have_dotprod_external,    [udot v0.4s, v0.16b, v0.16b],                    [.arch_extension dotprod])
+            WINE_TRY_PE_ASM(have_i8mm_external,       [usdot v0.4s, v0.16b, v0.16b],                   [.arch_extension i8mm])
+            WINE_TRY_PE_ASM(have_sve_external,        [whilelt p0.s, x0, x1],                          [.arch_extension sve])
+            WINE_TRY_PE_ASM(have_sve2_external,       [sqrdmulh z0.s, z0.s, z0.s],                     [.arch_extension sve2])
+            WINE_TRY_PE_ASM(have_sme_external,        [cntb x0],                                       [.arch_extension sme],[smstart])
+            WINE_TRY_PE_ASM(have_sme_i16i64_external, [smopa za0.d, p0/m, p0/m, z0.h, z1.h],           [.arch_extension sme-i16i64],[smstart])
+            WINE_TRY_PE_ASM(have_sme2_external,       [sdot za.s[[w10, 0]], {z0.b-z3.b}, {z4.b-z7.b}], [.arch_extension sme2],[smstart])
+            ;;
+        arm)
+            WINE_TRY_PE_INLINE_ASM(have_armv5te_inline,   ["qadd r0, r0, r0"])
+            WINE_TRY_PE_INLINE_ASM(have_armv6_inline,     ["sadd16 r0, r0, r0"])
+            WINE_TRY_PE_INLINE_ASM(have_armv6t2_inline,   ["movt r0, #0"])
+            WINE_TRY_PE_INLINE_ASM(have_neon_inline,      ["vadd.i16 q0, q0, q0"])
+            WINE_TRY_PE_INLINE_ASM(have_vfp_inline,       ["fadds s0, s0, s0"])
+            WINE_TRY_PE_INLINE_ASM(have_vfpv3_inline,     ["vmov.f32 s0, #1.0"])
+            WINE_TRY_PE_INLINE_ASM(have_setend_inline,    ["setend be"])
+            WINE_TRY_PE_INLINE_ASM(have_asm_mod_q_inline, ["add r0, %Q0, %R0" :: "r"((long long)0)])
+
+            WINE_TRY_PE_ASM(have_as_arch_directive, [.arch armv7-a])
+            AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -DAS_ARCH_LEVEL=armv7-a"])
+            WINE_TRY_PE_ASM(have_as_dn_directive,   [ra .dn d0.i16])
+            WINE_TRY_PE_ASM(have_as_fpu_directive,  [.fpu neon])
+
+            WINE_TRY_PE_ASM(have_armv5te_external,  [qadd r0, r0, r0])
+            WINE_TRY_PE_ASM(have_armv6_external,    [sadd16 r0, r0, r0])
+            WINE_TRY_PE_ASM(have_armv6t2_external,  [movt r0, [#]0])
+            WINE_TRY_PE_ASM(have_neon_external,     [vadd.i16 q0, q0, q0])
+            WINE_TRY_PE_ASM(have_vfp_external,      [fadds s0, s0, s0])
+            WINE_TRY_PE_ASM(have_vfpv3_external,    [vmov.f32 s0, [#]1.0])
+            WINE_TRY_PE_ASM(have_setend_external,   [setend be])
+            ;;
+    esac
+
     WINE_TRY_PE_CFLAGS([-fno-strict-aliasing])
     dnl clang needs to be told to fail on unknown options
     WINE_TRY_PE_CFLAGS([-Werror=unknown-warning-option],[CFLAGS="$CFLAGS -Werror=unknown-warning-option"])
@@ -695,7 +820,6 @@ This is an error since --enable-archs=$wine_arch was requested.])])
     WINE_TRY_PE_CFLAGS([-Wstrict-prototypes])
     WINE_TRY_PE_CFLAGS([-Wabsolute-value])
     WINE_TRY_PE_CFLAGS([-fasync-exceptions -DMIN_CLANG_VERSION=19], AS_VAR_APPEND([${wine_arch}_EXTRACFLAGS],[" -fasync-exceptions"]))
-
 done
 
 CC=$saved_CC
@@ -704,6 +828,8 @@ CFLAGS=$saved_CFLAGS
 CPPFLAGS=$saved_CPPFLAGS
 CXXFLAGS=$saved_CXXFLAGS
 LDFLAGS=$saved_LDFLAGS
+AS=$saved_AS
+ASMFLAGS=$saved_ASMFLAGS
 
 case $HOST_ARCH-$host_os in
   x86_64-darwin*|arm-*|aarch64-*)
