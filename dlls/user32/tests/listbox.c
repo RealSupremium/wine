@@ -93,7 +93,6 @@ struct listbox_test {
   struct listbox_stat  init;
   struct listbox_stat click;
   struct listbox_stat  step;
-  struct listbox_stat   sel;
 };
 
 static void
@@ -164,10 +163,6 @@ check (DWORD style, const struct listbox_test test)
 
   DestroyWindow (hLB);
   hLB = create_listbox(style, 0);
-
-  SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(1, 2));
-  listbox_query (hLB, &answer);
-  listbox_ok (test, sel, answer);
 
   for (i = 0; i < 4 && !(style & LBS_NODATA); i++) {
 	DWORD size = SendMessageA(hLB, LB_GETTEXTLEN, i, 0);
@@ -453,6 +448,72 @@ static void test_ownerdraw(void)
     DestroyWindow(parent);
 }
 
+/* Tests that APIs exclusively intended for multiselect listboxes fail for all
+ * single-select listbox styles.
+ */
+static void test_invalid_multiselect(void)
+{
+    static const INT TEST_INDEX = 1;
+    static const DWORD single_select_styles[] = {
+        0,
+        LBS_NOSEL,
+        LBS_NODATA | LBS_OWNERDRAWFIXED,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_NOSEL
+    };
+    int i;
+    LRESULT ret;
+    INT items[2];
+    HWND listbox;
+
+    for (i = 0; i < ARRAY_SIZE(single_select_styles); i++)
+    {
+        winetest_push_context("listbox style %#lx", single_select_styles[i]);
+
+        /* Recall that create_listbox initializes the control with four items. */
+        listbox = create_listbox(single_select_styles[i], 0);
+
+        /* Set non-default single-select indexes to ensure they are not modified. */
+        SendMessageA(listbox, LB_SETCARETINDEX, TEST_INDEX, 0);
+        if (!(single_select_styles[i] & LBS_NOSEL))
+        {
+            SendMessageA(listbox, LB_SETCURSEL, TEST_INDEX + 1, 0);
+        }
+
+        ret = SendMessageA(listbox, LB_SETSEL, TRUE, 1);
+        if (!(single_select_styles[i] & LBS_NOSEL)) todo_wine
+        ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+
+        ret = SendMessageA(listbox, LB_SELITEMRANGE, TRUE, MAKELPARAM(1, 2));
+        ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+
+        ret = SendMessageA(listbox, LB_SELITEMRANGEEX, 1, 2);
+        ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+
+        ret = SendMessageA(listbox, LB_GETSELCOUNT, 0, 0);
+        ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+
+        ret = SendMessageA(listbox, LB_GETSELITEMS, 2, (LPARAM)items);
+        ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+
+        /* Verify the single-select values are unmodified. */
+        if (!(single_select_styles[i] & LBS_NOSEL))
+        {
+            ret = SendMessageA(listbox, LB_GETCURSEL, 0, 0);
+            todo_wine ok(ret == TEST_INDEX + 1, "Expected %d, got %Id\n", TEST_INDEX + 1, ret);
+
+            /* Caret index follows selection if set. */
+            ret = SendMessageA(listbox, LB_GETCARETINDEX, 0, 0);
+            todo_wine ok(ret == TEST_INDEX + 1, "Expected %d, got %Id\n", TEST_INDEX + 1, ret);
+        } else {
+            ret = SendMessageA(listbox, LB_GETCARETINDEX, 0, 0);
+            todo_wine ok(ret == TEST_INDEX, "Expected %d, got %Id\n", TEST_INDEX, ret);
+        }
+
+        DestroyWindow(listbox);
+        winetest_pop_context();
+    }
+}
+
 #define listbox_test_query(exp, got) \
   ok(exp.selected == got.selected, "expected selected %d, got %d\n", exp.selected, got.selected); \
   ok(exp.anchor == got.anchor, "expected anchor %d, got %d\n", exp.anchor, got.anchor); \
@@ -465,78 +526,92 @@ static void test_LB_SELITEMRANGE(void)
     static const struct listbox_stat test_1 = { 0, LB_ERR, 0, 2 };
     static const struct listbox_stat test_2 = { 0, LB_ERR, 0, 3 };
     static const struct listbox_stat test_3 = { 0, LB_ERR, 0, 4 };
+    static const DWORD multiselect_styles[] = {
+        LBS_MULTIPLESEL,
+        LBS_EXTENDEDSEL,
+        LBS_MULTIPLESEL | LBS_EXTENDEDSEL,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_MULTIPLESEL,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_EXTENDEDSEL,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_MULTIPLESEL | LBS_EXTENDEDSEL
+    };
+
     HWND hLB;
     struct listbox_stat answer;
-    INT ret;
+    LRESULT ret;
+    int i;
 
-    trace("testing LB_SELITEMRANGE\n");
+    for (i = 0; i < ARRAY_SIZE(multiselect_styles); i++)
+    {
+        winetest_push_context("listbox style %#lx", multiselect_styles[i]);
 
-    hLB = create_listbox(LBS_EXTENDEDSEL, 0);
-    assert(hLB);
+        hLB = create_listbox(multiselect_styles[i], 0);
+        assert(hLB);
 
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(1, 2));
-    ok(ret == LB_OKAY, "LB_SELITEMRANGE returned %d instead of LB_OKAY\n", ret);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_1, answer);
+        ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(1, 2));
+        ok(ret == LB_OKAY, "LB_SELITEMRANGE returned %Id instead of LB_OKAY\n", ret);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_1, answer);
 
-    SendMessageA(hLB, LB_SETSEL, FALSE, -1);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        SendMessageA(hLB, LB_SETSEL, FALSE, -1);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(0, 4));
-    ok(ret == LB_OKAY, "LB_SELITEMRANGE returned %d instead of LB_OKAY\n", ret);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_3, answer);
+        ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(0, 4));
+        ok(ret == LB_OKAY, "Expected LB_OKAY, got %Id\n", ret);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_3, answer);
 
-    SendMessageA(hLB, LB_SETSEL, FALSE, -1);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        SendMessageA(hLB, LB_SETSEL, FALSE, -1);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(-5, 5));
-    ok(ret == LB_OKAY, "LB_SELITEMRANGE returned %d instead of LB_OKAY\n", ret);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(-5, 5));
+        ok(ret == LB_OKAY, "Expected LB_OKAY, got %Id\n", ret);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    SendMessageA(hLB, LB_SETSEL, FALSE, -1);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        SendMessageA(hLB, LB_SETSEL, FALSE, -1);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(2, 10));
-    ok(ret == LB_OKAY, "LB_SELITEMRANGE returned %d instead of LB_OKAY\n", ret);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_1, answer);
+        ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(2, 10));
+        ok(ret == LB_OKAY, "Expected LB_OKAY, got %Id\n", ret);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_1, answer);
 
-    SendMessageA(hLB, LB_SETSEL, FALSE, -1);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        SendMessageA(hLB, LB_SETSEL, FALSE, -1);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(4, 10));
-    ok(ret == LB_OKAY, "LB_SELITEMRANGE returned %d instead of LB_OKAY\n", ret);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(4, 10));
+        ok(ret == LB_OKAY, "Expected LB_OKAY, got %Id\n", ret);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    SendMessageA(hLB, LB_SETSEL, FALSE, -1);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        SendMessageA(hLB, LB_SETSEL, FALSE, -1);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(10, 1));
-    ok(ret == LB_OKAY, "LB_SELITEMRANGE returned %d instead of LB_OKAY\n", ret);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_2, answer);
+        ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(10, 1));
+        ok(ret == LB_OKAY, "Expected LB_OKAY, got %Id\n", ret);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_2, answer);
 
-    SendMessageA(hLB, LB_SETSEL, FALSE, -1);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_nosel, answer);
+        SendMessageA(hLB, LB_SETSEL, FALSE, -1);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_nosel, answer);
 
-    ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(1, -1));
-    ok(ret == LB_OKAY, "LB_SELITEMRANGE returned %d instead of LB_OKAY\n", ret);
-    listbox_query(hLB, &answer);
-    listbox_test_query(test_2, answer);
+        ret = SendMessageA(hLB, LB_SELITEMRANGE, TRUE, MAKELPARAM(1, -1));
+        ok(ret == LB_OKAY, "Expected LB_OKAY, got %Id\n", ret);
+        listbox_query(hLB, &answer);
+        listbox_test_query(test_2, answer);
 
-    DestroyWindow(hLB);
+        DestroyWindow(hLB);
+        winetest_pop_context();
+    }
 }
 
 static void test_LB_SETCURSEL(void)
@@ -2585,44 +2660,36 @@ START_TEST(listbox)
 /*   {add_style} */
     {{LB_ERR, LB_ERR,      0, LB_ERR},
      {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR},
-     {LB_ERR, LB_ERR,      0, LB_ERR}};
+     {     2,      2,      2, LB_ERR}};
 /* {selected, anchor,  caret, selcount} */
   const struct listbox_test SS_NS =
     {{LB_ERR, LB_ERR,      0, LB_ERR},
      {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR},
-     {LB_ERR, LB_ERR,      0, LB_ERR}};
+     {     2,      2,      2, LB_ERR}};
   const struct listbox_test MS =
     {{     0, LB_ERR,      0,      0},
      {     1,      1,      1,      1},
-     {     2,      1,      2,      1},
-     {     0, LB_ERR,      0,      2}};
+     {     2,      1,      2,      1}};
   const struct listbox_test MS_NS =
     {{LB_ERR, LB_ERR,      0, LB_ERR},
      {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR},
-     {LB_ERR, LB_ERR,      0, LB_ERR}};
+     {     2,      2,      2, LB_ERR}};
   const struct listbox_test ES =
     {{     0, LB_ERR,      0,      0},
      {     1,      1,      1,      1},
-     {     2,      2,      2,      1},
-     {     0, LB_ERR,      0,      2}};
+     {     2,      2,      2,      1}};
   const struct listbox_test ES_NS =
     {{LB_ERR, LB_ERR,      0, LB_ERR},
      {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR},
-     {LB_ERR, LB_ERR,      0, LB_ERR}};
+     {     2,      2,      2, LB_ERR}};
   const struct listbox_test EMS =
     {{     0, LB_ERR,      0,      0},
      {     1,      1,      1,      1},
-     {     2,      2,      2,      1},
-     {     0, LB_ERR,      0,      2}};
+     {     2,      2,      2,      1}};
   const struct listbox_test EMS_NS =
     {{LB_ERR, LB_ERR,      0, LB_ERR},
      {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR},
-     {LB_ERR, LB_ERR,      0, LB_ERR}};
+     {     2,      2,      2, LB_ERR}};
 
   trace (" Testing single selection...\n");
   check (0, SS);
@@ -2662,6 +2729,7 @@ START_TEST(listbox)
 
   check_item_height();
   test_ownerdraw();
+  test_invalid_multiselect();
   test_LB_SELITEMRANGE();
   test_LB_SETCURSEL();
   test_listbox_height();
