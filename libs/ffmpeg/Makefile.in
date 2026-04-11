@@ -19,7 +19,12 @@ INCLUDES = \
 	libavutil/arm/asm.S \
 	libavutil/tx_template.c \
 	libavutil/x86/x86inc.asm \
-	libavutil/x86/x86util.asm
+	libavutil/x86/x86util.asm \
+	libswresample/dither_template.c \
+	libswresample/log2_tab.c \
+	libswresample/noise_shaping_data.c \
+	libswresample/rematrix_template.c \
+	libswresample/resample_template.c
 
 SOURCES = \
 	libavutil/aarch64/cpu.c \
@@ -143,5 +148,31 @@ SOURCES = \
 	libavutil/x86/tx_float.asm \
 	libavutil/x86/tx_float_init.c \
 	libavutil/xga_font_data.c \
-	libavutil/xtea.c
+	libavutil/xtea.c \
+	libswresample/aarch64/audio_convert_init.c \
+	libswresample/aarch64/audio_convert_neon.S \
+	libswresample/aarch64/neontest.c \
+	libswresample/aarch64/resample.S \
+	libswresample/aarch64/resample_init.c \
+	libswresample/arm/audio_convert_init.c \
+	libswresample/arm/audio_convert_neon.S \
+	libswresample/arm/neontest.c \
+	libswresample/arm/resample.S \
+	libswresample/arm/resample_init.c \
+	libswresample/audioconvert.c \
+	libswresample/dither.c \
+	libswresample/options.c \
+	libswresample/rematrix.c \
+	libswresample/resample.c \
+	libswresample/resample_dsp.c \
+	libswresample/swresample.c \
+	libswresample/swresample_frame.c \
+	libswresample/version.c \
+	libswresample/x86/audio_convert.asm \
+	libswresample/x86/audio_convert_init.c \
+	libswresample/x86/rematrix.asm \
+	libswresample/x86/rematrix_init.c \
+	libswresample/x86/resample.asm \
+	libswresample/x86/resample_init.c \
+	libswresample/x86/w64xmmtest.c
 
