@@ -173,7 +173,7 @@ case "$host_cpu" in
   x86_64)          HOST_ARCH=x86_64 ;;
 esac
 m4_set_add_all([_AC_SUBST_VARS],[HOST_ARCH]m4_foreach([cpu],[aarch64,arm,arm64ec,i386,x86_64],
-                                [m4_foreach([var],[CC,CXX,CFLAGS,CXXFLAGS,EXTRACFLAGS,EXTRACXXFLAGS,LDFLAGS,DEBUG,TARGET,STRIP,DELAYLOADFLAG,DISABLED_SUBDIRS],[,cpu[_]var])]))
+                                [m4_foreach([var],[CC,CXX,CFLAGS,CXXFLAGS,EXTLIBFLAGS,EXTRACFLAGS,EXTRACXXFLAGS,LDFLAGS,DEBUG,TARGET,STRIP,DELAYLOADFLAG,DISABLED_SUBDIRS],[,cpu[_]var])]))
 
 case $host_os in
   darwin*)
@@ -612,6 +612,17 @@ This is an error since --enable-archs=$wine_arch was requested.])])
     WINE_TRY_PE_CFLAGS([-Wenum-enum-conversion],[:],WINE_TRY_PE_CFLAGS([-Wenum-conversion]))
     WINE_TRY_PE_CFLAGS([-ffunction-sections])
     WINE_TRY_PE_CFLAGS([-ffp-exception-behavior=maytrap])
+
+    WINE_TRY_PE_CFLAGS([-Walloc-size-larger-than=1],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-alloc-size-larger-than"])])
+    WINE_TRY_PE_CFLAGS([-Wdangling-else],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-dangling-else"])])
+    WINE_TRY_PE_CFLAGS([-Wdeprecated-declarations],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-deprecated-declarations"])])
+    WINE_TRY_PE_CFLAGS([-Wdiscarded-qualifiers],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-discarded-qualifiers"])])
+    WINE_TRY_PE_CFLAGS([-Wimplicit-const-int-float-conversion],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-implicit-const-int-float-conversion"])])
+    WINE_TRY_PE_CFLAGS([-Wparentheses],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-parentheses"])])
+    WINE_TRY_PE_CFLAGS([-Wpass-failed],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-pass-failed"])])
+    WINE_TRY_PE_CFLAGS([-Wpointer-sign],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-pointer-sign"])])
+    WINE_TRY_PE_CFLAGS([-Wshift-op-parentheses],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-shift-op-parentheses"])])
+    WINE_TRY_PE_CFLAGS([-Wswitch],[AS_VAR_APPEND(${wine_arch}_EXTLIBFLAGS,[" -Wno-switch"])])
 
     dnl clang had broken -fms-hotpatch support before version 18 (https://github.com/llvm/llvm-project/pull/77245)
     WINE_TRY_PE_CFLAGS([-fms-hotpatch -DMIN_CLANG_VERSION=18],

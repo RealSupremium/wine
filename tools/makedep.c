@@ -182,6 +182,7 @@ static const char *delay_load_flags[MAX_ARCHS];
 static struct strarray debug_flags[MAX_ARCHS];
 static struct strarray target_flags[MAX_ARCHS];
 static struct strarray extra_cflags[MAX_ARCHS];
+static struct strarray extlib_flags[MAX_ARCHS];
 static struct strarray extra_cxxflags[MAX_ARCHS];
 static struct strarray disabled_dirs[MAX_ARCHS];
 static unsigned int native_archs[MAX_ARCHS];
@@ -2731,13 +2732,16 @@ static struct strarray get_version_defines( struct makefile *make )
 /*******************************************************************
  *         remove_warning_flags
  */
-static struct strarray remove_warning_flags( struct strarray flags )
+static struct strarray remove_warning_flags( struct strarray flags, const char *which )
 {
     struct strarray ret = empty_strarray;
 
     STRARRAY_FOR_EACH( flag, &flags )
-        if (strncmp( flag, "-W", 2 ) || !strncmp( flag, "-Wno-", 5 ))
-            strarray_add( &ret, flag );
+    {
+        if (which && strcmp( flag, which )) strarray_add( &ret, flag );
+        if (!which && !strncmp( flag, "-Wno-", 5 )) strarray_add( &ret, flag );
+        else if (!which && strncmp( flag, "-W", 2 )) strarray_add( &ret, flag );
+    }
     return ret;
 }
 
@@ -3589,7 +3593,12 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         var_cc     = arch_make_variable( "CXX", arch );
         var_cflags = arch_make_variable( "CXXFLAGS", arch );
         if (make->external)
-            strarray_addall( &cflags, remove_warning_flags( extra_cxxflags[arch] ));
+        {
+            struct strarray cxx_warnings = remove_warning_flags( extlib_flags[arch], "-Wno-pointer-sign" );
+            cxx_warnings = remove_warning_flags( cxx_warnings, "-Wno-discarded-qualifiers" );
+            strarray_addall( &cflags, cxx_warnings );
+            strarray_addall( &cflags, remove_warning_flags( extra_cxxflags[arch], NULL ));
+        }
         else
             strarray_addall( &cflags, extra_cxxflags[arch] );
     }
@@ -3598,7 +3607,10 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         var_cc     = arch_make_variable( "CC", arch );
         var_cflags = arch_make_variable( "CFLAGS", arch );
         if (make->external)
-            strarray_addall( &cflags, remove_warning_flags( extra_cflags[arch] ));
+        {
+            strarray_addall( &cflags, extlib_flags[arch] );
+            strarray_addall( &cflags, remove_warning_flags( extra_cflags[arch], NULL ));
+        }
         else
             strarray_addall( &cflags, extra_cflags[arch] );
     }
@@ -5053,6 +5065,7 @@ int main( int argc, char *argv[] )
     {
         arch_pe_dirs[arch] = strmake( "%s-windows", archs.str[arch] );
         extra_cflags[arch] = get_expanded_arch_var_array( top_makefile, "EXTRACFLAGS", arch );
+        extlib_flags[arch] = get_expanded_arch_var_array( top_makefile, "EXTLIBFLAGS", arch );
         extra_cxxflags[arch] = get_expanded_arch_var_array( top_makefile, "EXTRACXXFLAGS", arch );
         disabled_dirs[arch] = get_expanded_arch_var_array( top_makefile, "DISABLED_SUBDIRS", arch );
         if (!is_multiarch( arch )) continue;
