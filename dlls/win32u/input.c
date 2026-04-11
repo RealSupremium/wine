@@ -407,6 +407,19 @@ static const KBDTABLES kbdus_tables =
 
 static LONG clipping_cursor; /* clipping thread counter */
 static LONG enable_mouse_in_pointer = -1;
+static LONG last_frame = 0;
+
+struct pointer
+{
+    UINT32 id;
+    struct list entry;
+    POINTER_INFO info;
+};
+
+struct pointer_thread_data
+{
+    struct list known_pointers;
+};
 
 BOOL grab_pointer = TRUE;
 BOOL grab_fullscreen = FALSE;
@@ -2855,6 +2868,91 @@ INT WINAPI NtUserScheduleDispatchNotification( HWND hwnd )
     return 0;
 }
 
+static struct pointer_thread_data *get_pointer_thread_data(void)
+{
+    struct user_thread_info *thread_info = get_user_thread_info();
+    if (!thread_info->pointer_data && (thread_info->pointer_data = calloc( 1, sizeof(*thread_info->pointer_data) )))
+        list_init( &thread_info->pointer_data->known_pointers );
+    return thread_info->pointer_data;
+};
+
+static struct pointer *find_pointerid(UINT32 id)
+{
+    struct pointer_thread_data *thread_data = get_pointer_thread_data();
+    struct pointer *pointer;
+
+    TRACE( "looking for pointer id %d\n", id );
+
+    if (!thread_data)
+        return NULL;
+
+    LIST_FOR_EACH_ENTRY(pointer, &thread_data->known_pointers, struct pointer, entry)
+        if (pointer->id == id)
+            return pointer;
+
+    TRACE( "allocating pointer id %d\n", id );
+
+    if (!(pointer = calloc( 1, sizeof(*pointer) )))
+        return NULL;
+
+    pointer->id = id;
+    list_add_tail( &thread_data->known_pointers, &pointer->entry );
+
+    return pointer;
+}
+
+static POINTER_INFO pointer_info_from_msg( const MSG *msg )
+{
+    POINT location = { LOWORD( msg->lParam ), HIWORD( msg->lParam ) };
+    LARGE_INTEGER counter;
+    POINTER_INFO info = {
+        .pointerId = GET_POINTERID_WPARAM( msg->wParam ),
+        .sourceDevice = INVALID_HANDLE_VALUE,
+        .frameId = InterlockedIncrement( &last_frame ),
+        .hwndTarget = msg->hwnd,
+        .historyCount = 1,
+        .dwTime = msg->time,
+    };
+
+    info.pointerFlags = HIWORD( msg->wParam );
+    switch (msg->message)
+    {
+    case WM_POINTERUPDATE: info.pointerFlags |= POINTER_FLAG_UPDATE; break;
+    case WM_POINTERDOWN: info.pointerFlags |= POINTER_FLAG_DOWN; break;
+    case WM_POINTERUP: info.pointerFlags |= POINTER_FLAG_UP; break;
+    }
+    info.ptPixelLocation = info.ptPixelLocationRaw = location;
+    info.ptHimetricLocation = info.ptHimetricLocationRaw = map_dpi_point( location, HIMETRIC, get_system_dpi() );
+
+    NtQueryPerformanceCounter( &counter, NULL );
+    info.PerformanceCount = counter.QuadPart;
+
+    return info;
+}
+
+static POINTER_BUTTON_CHANGE_TYPE compare_button( const POINTER_INFO *old, const POINTER_INFO *new )
+{
+    POINTER_BUTTON_CHANGE_TYPE change = POINTER_CHANGE_NONE;
+    static const struct
+    {
+        POINTER_FLAGS flag;
+        POINTER_BUTTON_CHANGE_TYPE down, up;
+    } map[] = {
+        { POINTER_FLAG_FIRSTBUTTON,  POINTER_CHANGE_FIRSTBUTTON_DOWN,  POINTER_CHANGE_FIRSTBUTTON_UP  },
+        { POINTER_FLAG_SECONDBUTTON, POINTER_CHANGE_SECONDBUTTON_DOWN, POINTER_CHANGE_SECONDBUTTON_UP },
+        { POINTER_FLAG_THIRDBUTTON,  POINTER_CHANGE_THIRDBUTTON_DOWN,  POINTER_CHANGE_THIRDBUTTON_UP  },
+        { POINTER_FLAG_FOURTHBUTTON, POINTER_CHANGE_FOURTHBUTTON_DOWN, POINTER_CHANGE_FOURTHBUTTON_UP },
+        { POINTER_FLAG_FIFTHBUTTON,  POINTER_CHANGE_FIFTHBUTTON_DOWN,  POINTER_CHANGE_FIFTHBUTTON_UP  },
+    };
+
+    for (size_t i = 0; i < ARRAY_SIZE(map); i++)
+        if (!(old->pointerFlags & map[i].flag) && new->pointerFlags & map[i].flag)
+            change |= map[i].down;
+        else if (old->pointerFlags & map[i].flag && !(new->pointerFlags & map[i].flag))
+            change |= map[i].up;
+    return change;
+}
+
 /***********************************************************************
  *          process_pointer_message
  g*
@@ -2862,7 +2960,15 @@ INT WINAPI NtUserScheduleDispatchNotification( HWND hwnd )
  */
 BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_data *msg_data )
 {
+    struct pointer *pointer;
+    POINTER_INFO info;
+
     msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
+    if (!(pointer = find_pointerid( GET_POINTERID_WPARAM( msg->wParam ) )))
+        return TRUE;
+    info = pointer_info_from_msg( msg );
+    info.ButtonChangeType = compare_button( &pointer->info, &info );
+    pointer->info = info;
     return TRUE;
 }
 
