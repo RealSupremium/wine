@@ -232,75 +232,7 @@ static void check_item_height(void)
 
 static unsigned int got_selchange, got_drawitem;
 
-static LRESULT WINAPI main_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
-{
-    switch (msg)
-    {
-    case WM_MEASUREITEM:
-    {
-        DWORD style = GetWindowLongA(GetWindow(hwnd, GW_CHILD), GWL_STYLE);
-        MEASUREITEMSTRUCT *mi = (void*)lparam;
-
-        ok(wparam == mi->CtlID, "got wParam=%08Ix, expected %08x\n", wparam, mi->CtlID);
-        ok(mi->CtlType == ODT_LISTBOX, "mi->CtlType = %u\n", mi->CtlType);
-        ok(mi->CtlID == 1, "mi->CtlID = %u\n", mi->CtlID);
-        ok(mi->itemHeight, "mi->itemHeight = 0\n");
-
-        if (mi->itemID > 4 || style & LBS_OWNERDRAWFIXED)
-            break;
-
-        if (style & LBS_HASSTRINGS)
-        {
-            ok(!strcmp_aw((WCHAR*)mi->itemData, strings[mi->itemID]),
-                    "mi->itemData = %s (%d)\n", wine_dbgstr_w((WCHAR*)mi->itemData), mi->itemID);
-        }
-        else
-        {
-            ok((void*)mi->itemData == strings[mi->itemID],
-                    "mi->itemData = %08Ix, expected %p\n", mi->itemData, strings[mi->itemID]);
-        }
-        break;
-    }
-    case WM_DRAWITEM:
-    {
-        RECT rc_item, rc_client, rc_clip;
-        DRAWITEMSTRUCT *dis = (DRAWITEMSTRUCT *)lparam;
-
-        trace("%p WM_DRAWITEM %08Ix %08Ix\n", hwnd, wparam, lparam);
-
-        ok(wparam == dis->CtlID, "got wParam=%08Ix instead of %08x\n",
-			wparam, dis->CtlID);
-        ok(dis->CtlType == ODT_LISTBOX, "wrong CtlType %04x\n", dis->CtlType);
-
-        GetClientRect(dis->hwndItem, &rc_client);
-        trace("hwndItem %p client rect %s\n", dis->hwndItem, wine_dbgstr_rect(&rc_client));
-        GetClipBox(dis->hDC, &rc_clip);
-        trace("clip rect %s\n", wine_dbgstr_rect(&rc_clip));
-        ok(EqualRect(&rc_client, &rc_clip) || IsRectEmpty(&rc_clip),
-           "client rect of the listbox should be equal to the clip box,"
-           "or the clip box should be empty\n");
-
-        trace("rcItem %s\n", wine_dbgstr_rect(&dis->rcItem));
-        SendMessageA(dis->hwndItem, LB_GETITEMRECT, dis->itemID, (LPARAM)&rc_item);
-        trace("item rect %s\n", wine_dbgstr_rect(&rc_item));
-        ok(EqualRect(&dis->rcItem, &rc_item), "item rects are not equal\n");
-
-        got_drawitem++;
-        break;
-    }
-
-    case WM_COMMAND:
-        if (HIWORD( wparam ) == LBN_SELCHANGE) got_selchange++;
-        break;
-
-    default:
-        break;
-    }
-
-    return DefWindowProcA(hwnd, msg, wparam, lparam);
-}
-
-static HWND create_parent( void )
+static HWND create_parent(WNDPROC proc)
 {
     WNDCLASSA cls;
     HWND parent;
@@ -309,7 +241,7 @@ static HWND create_parent( void )
     if (!class)
     {
         cls.style = 0;
-        cls.lpfnWndProc = main_window_proc;
+        cls.lpfnWndProc = DefWindowProcA;
         cls.cbClsExtra = 0;
         cls.cbWndExtra = 0;
         cls.hInstance = GetModuleHandleA(NULL);
@@ -318,7 +250,7 @@ static HWND create_parent( void )
         cls.hbrBackground = GetStockObject(WHITE_BRUSH);
         cls.lpszMenuName = NULL;
         cls.lpszClassName = "main_window_class";
-        class = RegisterClassA( &cls );
+        class = RegisterClassA(&cls);
     }
 
     parent = CreateWindowExA(0, "main_window_class", NULL,
@@ -326,7 +258,69 @@ static HWND create_parent( void )
                             100, 100, 400, 400,
                             GetDesktopWindow(), 0,
                             GetModuleHandleA(NULL), NULL);
+
+    if (proc) SetWindowLongPtrA(parent, GWLP_WNDPROC, (LONG_PTR)proc);
+
     return parent;
+}
+
+static LRESULT WINAPI ownerdraw_parent_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+        case WM_MEASUREITEM:
+        {
+            DWORD style = GetWindowLongA(GetWindow(hwnd, GW_CHILD), GWL_STYLE);
+            MEASUREITEMSTRUCT *mi = (void*)lparam;
+
+            ok(wparam == mi->CtlID, "got wParam=%08Ix, expected %08x\n", wparam, mi->CtlID);
+            ok(mi->CtlType == ODT_LISTBOX, "mi->CtlType = %u\n", mi->CtlType);
+            ok(mi->CtlID == 1, "mi->CtlID = %u\n", mi->CtlID);
+            ok(mi->itemHeight, "mi->itemHeight = 0\n");
+
+            if (mi->itemID <= 4 && !(style & LBS_OWNERDRAWFIXED))
+            {
+                if (style & LBS_HASSTRINGS)
+                {
+                    ok(!strcmp_aw((WCHAR*)mi->itemData, strings[mi->itemID]),
+                       "mi->itemData = %s (%d)\n",
+                       wine_dbgstr_w((WCHAR*)mi->itemData), mi->itemID);
+                }
+                else
+                {
+                    ok((void*)mi->itemData == strings[mi->itemID],
+                       "mi->itemData = %08Ix, expected %p\n",
+                       mi->itemData, strings[mi->itemID]);
+                }
+            }
+            break;
+        }
+        case WM_DRAWITEM:
+        {
+            RECT rc_item, rc_client, rc_clip;
+            DRAWITEMSTRUCT *dis = (DRAWITEMSTRUCT *)lparam;
+
+            trace("%p WM_DRAWITEM %08Ix %08Ix\n", hwnd, wparam, lparam);
+
+            ok(wparam == dis->CtlID,
+               "got wParam=%08Ix instead of %08x\n", wparam, dis->CtlID);
+            ok(dis->CtlType == ODT_LISTBOX, "wrong CtlType %04x\n", dis->CtlType);
+
+            GetClientRect(dis->hwndItem, &rc_client);
+            GetClipBox(dis->hDC, &rc_clip);
+            ok(EqualRect(&rc_client, &rc_clip) || IsRectEmpty(&rc_clip),
+            "client rect of the listbox should be equal to the clip box,"
+            "or the clip box should be empty\n");
+
+            SendMessageA(dis->hwndItem, LB_GETITEMRECT, dis->itemID, (LPARAM)&rc_item);
+            ok(EqualRect(&dis->rcItem, &rc_item), "item rects are not equal\n");
+
+            got_drawitem++;
+            break;
+        }
+    }
+
+    return DefWindowProcA(hwnd, msg, wparam, lparam);
 }
 
 static void test_ownerdraw(void)
@@ -354,7 +348,7 @@ static void test_ownerdraw(void)
     RECT rc;
     UINT i;
 
-    parent = create_parent();
+    parent = create_parent(ownerdraw_parent_proc);
     assert(parent);
 
     for (i = 0; i < ARRAY_SIZE(styles); i++)
@@ -621,7 +615,7 @@ static void test_LB_SETCURSEL(void)
 
     trace("testing LB_SETCURSEL\n");
 
-    parent = create_parent();
+    parent = create_parent(NULL);
     assert(parent);
 
     hLB = create_listbox(LBS_NOINTEGRALHEIGHT | WS_CHILD, parent);
@@ -857,7 +851,7 @@ static void test_changing_selection_styles(void)
     LONG ret;
     UINT i, j, k;
 
-    parent = create_parent();
+    parent = create_parent(NULL);
     ok(parent != NULL, "Failed to create parent window.\n");
     for (i = 0; i < ARRAY_SIZE(styles); i++)
     {
@@ -2045,7 +2039,7 @@ static void test_set_count( void )
     LONG ret;
     RECT r;
 
-    parent = create_parent();
+    parent = create_parent(NULL);
     listbox = create_listbox( LBS_OWNERDRAWFIXED | LBS_NODATA | WS_CHILD | WS_VISIBLE, parent );
 
     UpdateWindow( listbox );
@@ -2125,7 +2119,7 @@ static void test_GetListBoxInfo(void)
         return;
     }
 
-    parent = create_parent();
+    parent = create_parent(NULL);
     listbox = create_listbox(WS_CHILD | WS_VISIBLE, parent);
 
     oldproc = (WNDPROC)SetWindowLongPtrA(listbox, GWLP_WNDPROC, (LONG_PTR)listbox_subclass_proc);
@@ -2152,7 +2146,7 @@ static void test_init_storage( void )
     LONG ret, items_size;
     int i, j;
 
-    parent = create_parent();
+    parent = create_parent(NULL);
     for (i = 0; i < ARRAY_SIZE(styles); i++)
     {
         listbox = CreateWindowA("listbox", "TestList", styles[i] | WS_CHILD,
@@ -2204,11 +2198,20 @@ static void test_init_storage( void )
     DestroyWindow(parent);
 }
 
+static LRESULT WINAPI lbuttonup_parent_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    if (msg == WM_COMMAND && HIWORD(wparam) == LBN_SELCHANGE)
+    {
+        got_selchange++;
+    }
+    return DefWindowProcA(hwnd, msg, wparam, lparam);
+}
+
 static void test_missing_lbuttonup( void )
 {
     HWND listbox, parent, capture;
 
-    parent = create_parent();
+    parent = create_parent(lbuttonup_parent_proc);
     listbox = create_listbox(WS_CHILD | WS_VISIBLE, parent);
 
     /* Send button down without a corresponding button up */
@@ -2234,7 +2237,7 @@ static void test_extents(void)
     SCROLLINFO sinfo;
     BOOL br;
 
-    parent = create_parent();
+    parent = create_parent(NULL);
 
     listbox = create_listbox(WS_CHILD | WS_VISIBLE, parent);
 
@@ -2412,14 +2415,14 @@ static void test_WM_MEASUREITEM(void)
     HWND parent, listbox;
     LRESULT data;
 
-    parent = create_parent();
+    parent = create_parent(NULL);
     listbox = create_listbox(WS_CHILD | LBS_OWNERDRAWVARIABLE, parent);
 
     data = SendMessageA(listbox, LB_GETITEMDATA, 0, 0);
     ok(data == (LRESULT)strings[0], "data = %08Ix, expected %p\n", data, strings[0]);
     DestroyWindow(parent);
 
-    parent = create_parent();
+    parent = create_parent(NULL);
     listbox = create_listbox(WS_CHILD | LBS_OWNERDRAWVARIABLE | LBS_HASSTRINGS, parent);
 
     data = SendMessageA(listbox, LB_GETITEMDATA, 0, 0);
@@ -2519,7 +2522,7 @@ static void test_LBS_NODATA(void)
     DestroyWindow(listbox);
 
     /* Invalid window style combinations. */
-    parent = create_parent();
+    parent = create_parent(NULL);
     ok(parent != NULL, "Failed to create parent window.\n");
 
     for (i = 0; i < ARRAY_SIZE(invalid_styles); ++i)
@@ -2626,7 +2629,7 @@ static void test_integral_resize(void)
     RECT rect, expect;
     int ret;
 
-    parent = create_parent();
+    parent = create_parent(NULL);
     listbox = CreateWindowExA(WS_EX_CLIENTEDGE, "listbox", NULL,
             WS_CHILD | WS_HSCROLL, 0, 0, 199, 199, parent, NULL, NULL, NULL);
     ok(!!listbox, "got error %lu\n", GetLastError());
