@@ -40,6 +40,8 @@
 WINE_DEFAULT_DEBUG_CHANNEL(win);
 WINE_DECLARE_DEBUG_CHANNEL(keyboard);
 
+#define HIMETRIC 2540
+
 static const WCHAR keyboard_layouts_keyW[] =
 {
     '\\','R','e','g','i','s','t','r','y',
@@ -2868,7 +2870,26 @@ BOOL WINAPI NtUserGetPointerType(UINT32 id, POINTER_INPUT_TYPE *type)
  */
 BOOL WINAPI NtUserGetPointerDeviceRects( HANDLE handle, RECT *pointerDeviceRect, RECT *displayRect )
 {
-    FIXME( "(%p, %p, %p) stub!\n", handle, pointerDeviceRect, displayRect );
-    RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
+    UINT ctx, dpi;
+
+    TRACE( "%p, %p, %p\n", handle, pointerDeviceRect, displayRect );
+
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+        FIXME( "Pointer devices are not implemented!\n" );
+        RtlSetLastWin32Error( ERROR_NO_DATA );
+        return FALSE;
+    }
+
+    *displayRect = get_virtual_screen_rect( get_thread_dpi(), MDT_RAW_DPI );
+
+    ctx = set_thread_dpi_awareness_context( NTUSER_DPI_PER_MONITOR_AWARE );
+
+    dpi = get_system_dpi();
+    pointerDeviceRect->right = get_system_metrics( SM_CXVIRTUALSCREEN ) * HIMETRIC / dpi;
+    pointerDeviceRect->bottom = get_system_metrics( SM_CYVIRTUALSCREEN ) * HIMETRIC / dpi;
+
+    set_thread_dpi_awareness_context(ctx);
+
+    return TRUE;
 }
