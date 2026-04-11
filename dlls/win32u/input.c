@@ -2868,16 +2868,35 @@ INT WINAPI NtUserScheduleDispatchNotification( HWND hwnd )
     return 0;
 }
 
+static struct pointer *allocate_pointerid( UINT32 id );
+
 static struct pointer_thread_data *get_pointer_thread_data(void)
 {
     struct user_thread_info *thread_info = get_user_thread_info();
     if (!thread_info->pointer_data && (thread_info->pointer_data = calloc( 1, sizeof(*thread_info->pointer_data) )))
+    {
         list_init( &thread_info->pointer_data->known_pointers );
+        allocate_pointerid( 1 );
+    }
     return thread_info->pointer_data;
 };
 
-static struct pointer *find_pointerid(UINT32 id)
+static struct pointer *allocate_pointerid( UINT32 id )
 {
+    struct pointer_thread_data *thread_data = get_pointer_thread_data();
+    struct pointer *pointer;
+
+    TRACE( "allocating pointer id %d\n", id );
+
+    if (!thread_data || !(pointer = calloc( 1, sizeof(*pointer) )))
+        return NULL;
+    pointer->id = id;
+    list_add_tail( &thread_data->known_pointers, &pointer->entry );
+
+    return pointer;
+}
+
+static struct pointer *find_pointerid( UINT32 id ) {
     struct pointer_thread_data *thread_data = get_pointer_thread_data();
     struct pointer *pointer;
 
@@ -2890,15 +2909,7 @@ static struct pointer *find_pointerid(UINT32 id)
         if (pointer->id == id)
             return pointer;
 
-    TRACE( "allocating pointer id %d\n", id );
-
-    if (!(pointer = calloc( 1, sizeof(*pointer) )))
-        return NULL;
-
-    pointer->id = id;
-    list_add_tail( &thread_data->known_pointers, &pointer->entry );
-
-    return pointer;
+    return allocate_pointerid( id );
 }
 
 static POINTER_INFO pointer_info_from_msg( const MSG *msg )
