@@ -2852,3 +2852,13 @@ INT WINAPI NtUserScheduleDispatchNotification( HWND hwnd )
 
     return 0;
 }
+
+/**********************************************************************
+ *       NtUserGetPointerType    (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerType(UINT32 id, POINTER_INPUT_TYPE *type)
+{
+    FIXME( "(%u, %p) stub!\n", id, type );
+    RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
