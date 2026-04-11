@@ -18,10 +18,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdio.h>
+#include <wchar.h>
 #include <windows.h>
 #include <winscard.h>
 
+#include <winnt.h>
+#include <winreg.h>
+
+#include "minwindef.h"
 #include "wine/test.h"
 
 static void test_SCardEstablishContext(void)
@@ -254,7 +258,256 @@ static void test_SCardEstablishContext(void)
     ok( ret == ERROR_INVALID_HANDLE, "got %lx\n", ret );
 }
 
+static const char *subkey_smartcards_database = "SOFTWARE\\Microsoft\\Cryptography\\Calais\\SmartCards";
+static const char *card_name_1 = "PKI-test-1";
+static const char *card_name_2 = "PKI-test-2";
+static const WCHAR *card_name_1W = L"PKI-test-1";
+static const WCHAR *card_name_2W = L"PKI-test-2";
+static const BYTE card_atr_1[] = {
+    0x3b, 0xda, 0x13, 0xff, 0x81, 0x31, 0xfb, 0x46, 0x80, 0x12, 0x39, 0x2f, 0x31, 0xc1, 0x73, 0xc6, 0x01, 0xc0, 0x3b
+};
+static const BYTE card_atr_2[] = { 0x3b, 0xd2, 0x18, 0x00, 0x81, 0x31, 0xfe, 0x58, 0xC9, 0x03, 0x16 };
+
+static LONG populate_smartcard_db(void)
+{
+    HKEY key_db, key_card1, key_card2;
+    LONG ret;
+
+    const char *crypto_provider_1 = "Microsoft Base Smart Card Crypto Provider";
+    const char *crypto_provider_2 = "Test Crypto Provider";
+    const char *storage_provider_1 = "Microsoft Smart Card Key Storage Provider";
+    const char *storage_provider_2 = "Test Key Storage Provider";
+    const char *dll_1 = "opensc-driver.dll";
+    const char *dll_2 = "cardoscm64.dll";
+    const BYTE atr_mask_2[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x16 };
+
+    /* open the smartcard db, create it if needed */
+    ret = RegCreateKeyExA(
+            HKEY_LOCAL_MACHINE, subkey_smartcards_database, 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &key_db, NULL);
+    ok(ret == ERROR_SUCCESS, "failed to open HKLM\\%s: %ld\n", subkey_smartcards_database, ret);
+    if (ret) return ret;
+
+    /* delete the test keys, in case they have not been deleted properly by the previous test run */
+    RegDeleteTreeA(key_db, card_name_1);
+    RegDeleteTreeA(key_db, card_name_2);
+
+    /* create the test keys */
+    ret = RegCreateKeyExA(key_db, card_name_1, 0, NULL, 0, KEY_WRITE, NULL, &key_card1, NULL);
+    if (ret) return ret;
+    ret = RegCreateKeyExA(key_db, card_name_2, 0, NULL, 0, KEY_WRITE, NULL, &key_card2, NULL);
+    if (ret) return ret;
+
+    ret = RegSetValueExA(
+            key_card1, "Crypto Provider", 0, REG_SZ, (const BYTE *)crypto_provider_1, strlen(crypto_provider_1));
+    if (ret) return ret;
+    ret = RegSetValueExA(
+            key_card2, "Crypto Provider", 0, REG_SZ, (const BYTE *)crypto_provider_2, strlen(crypto_provider_2));
+    if (ret) return ret;
+
+    ret = RegSetValueExA(key_card1,
+            "Smart Card Key Storage Provider",
+            0,
+            REG_SZ,
+            (const BYTE *)storage_provider_1,
+            strlen(storage_provider_1));
+    if (ret) return ret;
+    ret = RegSetValueExA(key_card2,
+            "Smart Card Key Storage Provider",
+            0,
+            REG_SZ,
+            (const BYTE *)storage_provider_2,
+            strlen(storage_provider_2));
+    if (ret) return ret;
+
+    ret = RegSetValueExA(key_card1, "80000001", 0, REG_SZ, (const BYTE *)dll_1, strlen(dll_1));
+    if (ret) return ret;
+    ret = RegSetValueExA(key_card2, "80000001", 0, REG_SZ, (const BYTE *)dll_2, strlen(dll_2));
+    if (ret) return ret;
+
+    ret = RegSetValueExA(key_card1, "ATR", 0, REG_BINARY, (const BYTE *)card_atr_1, sizeof(card_atr_1));
+    if (ret) return ret;
+    ret = RegSetValueExA(key_card2, "ATR", 0, REG_BINARY, (const BYTE *)card_atr_2, sizeof(card_atr_2));
+    if (ret) return ret;
+
+    /* don't create ATRMask for the first card, it will default to a mask full of ones */
+    ret = RegSetValueExA(key_card2, "ATRMask", 0, REG_BINARY, (const BYTE *)atr_mask_2, sizeof(atr_mask_2));
+    if (ret) return ret;
+
+    ret = RegCloseKey(key_card1);
+    if (ret) return ret;
+    ret = RegCloseKey(key_card2);
+    if (ret) return ret;
+    ret = RegCloseKey(key_db);
+    if (ret) return ret;
+
+    return 0;
+}
+
+static void test_SCardGetCardTypeProviderName(void)
+{
+    LONG ret;
+    SCARDCONTEXT ctx;
+    DWORD len = 0;
+    WCHAR *provider;
+
+    /* test basic error conditions */
+    provider = malloc(sizeof(WCHAR));
+    ret = SCardGetCardTypeProviderNameW(0, NULL, SCARD_PROVIDER_CARD_MODULE, provider, &len);
+    ok(ret == SCARD_E_INVALID_PARAMETER, "should fail when card_type is null\n");
+
+    ret = SCardGetCardTypeProviderNameW(0, card_name_1W, SCARD_PROVIDER_CARD_MODULE, provider, NULL);
+    ok(ret == SCARD_E_INVALID_PARAMETER, "should fail when length is null\n");
+    free(provider);
+
+    /* test get length and allocate */
+    ret = SCardGetCardTypeProviderNameW(0, card_name_1W, SCARD_PROVIDER_CARD_MODULE, NULL, &len);
+    ok(len == 18, "invalid length: got %lu, expected %lu\n", len, 18L);
+    provider = calloc(len, sizeof(WCHAR));
+    ret = SCardGetCardTypeProviderNameW(0, card_name_1W, SCARD_PROVIDER_CARD_MODULE, provider, &len);
+    ok(ret == ERROR_SUCCESS, "SCardGetCardTypeProviderNameW returned an error: %#lx\n", ret);
+    ok(len == 18, "invalid length: got %lu, expected %lu\n", len, 18L);
+    ok(wcscmp(provider, L"opensc-driver.dll") == 0,
+            "bad output of SCardGetCardTypeProviderNameW: '%ls' (len %ld)\n",
+            provider,
+            len);
+    free(provider);
+
+    /* test lookup with a pre-allocated space */
+    len = 4; /* too small */
+    provider = calloc(len, sizeof(WCHAR));
+    ret = SCardGetCardTypeProviderNameW(0, card_name_1W, SCARD_PROVIDER_CARD_MODULE, provider, &len);
+    ok(ret == SCARD_E_INSUFFICIENT_BUFFER,
+            "should have failed with SCARD_E_INSUFFICIENT_BUFFER but returned %#lx\n",
+            ret);
+    ok(len == 4, "the length should not have been set, but was %ld\n", len);
+    ok(provider[0] == 0, "the provider should not have been set, but was %s\n", debugstr_w(provider));
+    free(provider);
+
+    len = 32; /* ok */
+    provider = malloc(len * sizeof(WCHAR));
+    for (int i = 0; i < 32; i++) { provider[i] = 0xcafe; }
+    ret = SCardGetCardTypeProviderNameW(0, card_name_1W, SCARD_PROVIDER_CARD_MODULE, provider, &len);
+    ok(ret == ERROR_SUCCESS, "SCardGetCardTypeProviderNameW returned an error: %#lx\n", ret);
+    ok(wcscmp(provider, L"opensc-driver.dll") == 0,
+            "bad output of SCardGetCardTypeProviderNameW: '%ls' (len %ld)\n",
+            provider,
+            len);
+    for (int i = len; i < 32; i++)
+    {
+        ok(provider[i] == 0xcafe, "memory corruption: provider[%d] = %u\n", i, provider[i]);
+    }
+    free(provider);
+
+    len = 32;
+    provider = calloc(len, sizeof(WCHAR));
+    ret = SCardGetCardTypeProviderNameW(0, card_name_2W, SCARD_PROVIDER_CARD_MODULE, provider, &len);
+    ok(ret == ERROR_SUCCESS, "SCardGetCardTypeProviderNameW returned an error: %#lx\n", ret);
+    ok(wcscmp(provider, L"cardoscm64.dll") == 0,
+            "bad output of SCardGetCardTypeProviderNameW: '%ls' (len %ld)\n",
+            provider,
+            len);
+    free(provider);
+
+    len = 32;
+    provider = calloc(len, sizeof(WCHAR));
+    ret = SCardGetCardTypeProviderNameW(0, card_name_2W, SCARD_PROVIDER_KSP, provider, &len);
+    ok(ret == ERROR_SUCCESS, "SCardGetCardTypeProviderNameW returned an error: %#lx\n", ret);
+    ok(wcscmp(provider, L"Test Key Storage Provider") == 0,
+            "bad output of SCardGetCardTypeProviderNameW: '%ls' (len %ld)\n",
+            provider,
+            len);
+    free(provider);
+
+    len = 32;
+    provider = calloc(len, sizeof(WCHAR));
+    ret = SCardGetCardTypeProviderNameW(0, card_name_2W, SCARD_PROVIDER_CSP, provider, &len);
+    ok(ret == ERROR_SUCCESS, "SCardGetCardTypeProviderNameW returned an error: %#lx\n", ret);
+    ok(wcscmp(provider, L"Test Crypto Provider") == 0,
+            "bad output of SCardGetCardTypeProviderNameW: '%ls' (len %ld)\n",
+            provider,
+            len);
+    free(provider);
+
+    /* test with a context */
+    ret = SCardEstablishContext(SCARD_SCOPE_USER, NULL, NULL, &ctx);
+    ok(ret == ERROR_SUCCESS, "failed to establish context: error %ld\n", ret);
+    if (ret) return;
+
+    len = 32;
+    provider = calloc(len, sizeof(WCHAR));
+    ret = SCardGetCardTypeProviderNameW(ctx, card_name_1W, SCARD_PROVIDER_CARD_MODULE, provider, &len);
+    ok(ret == ERROR_SUCCESS, "SCardGetCardTypeProviderNameW returned an error: %#lx\n", ret);
+    ok(wcscmp(provider, L"opensc-driver.dll") == 0,
+            "bad output of SCardGetCardTypeProviderNameW: '%ls' (len %ld)\n",
+            provider,
+            len);
+    free(provider);
+
+    /* test with auto alloc */
+    len = SCARD_AUTOALLOCATE;
+    provider = NULL;
+    ret = SCardGetCardTypeProviderNameW(ctx, card_name_1W, SCARD_PROVIDER_CARD_MODULE, (LPWSTR)&provider, &len);
+    ok(ret == ERROR_SUCCESS, "SCardGetCardTypeProviderNameW returned an error: %#lx\n", ret);
+    ok(wcscmp(provider, L"opensc-driver.dll") == 0,
+            "bad output of SCardGetCardTypeProviderNameW: '%ls' (len %ld)\n",
+            provider,
+            len);
+    ok(len == wcslen(provider) + 1,
+            "bad length from SCardGetCardTypeProviderNameW: got %lu, expected %Iu\n",
+            len,
+            wcslen(provider) + 1);
+    SCardFreeMemory(0, provider);
+
+    len = SCARD_AUTOALLOCATE;
+    provider = NULL;
+    ret = SCardGetCardTypeProviderNameW(ctx, card_name_1W, SCARD_PROVIDER_CSP, (LPWSTR)&provider, &len);
+    ok(ret == ERROR_SUCCESS, "SCardGetCardTypeProviderNameW returned an error: %#lx\n", ret);
+    ok(wcscmp(provider, L"Microsoft Base Smart Card Crypto Provider") == 0,
+            "bad output of SCardGetCardTypeProviderNameW: '%ls' (len %ld)\n",
+            provider,
+            len);
+    ok(len == wcslen(provider) + 1,
+            "bad length from SCardGetCardTypeProviderNameW: got %lu, expected %Iu\n",
+            len,
+            wcslen(provider) + 1);
+    SCardFreeMemory(0, provider);
+
+    ret = SCardReleaseContext(ctx);
+    ok(ret == ERROR_SUCCESS, "failed to release context: error %ld\n", ret);
+}
+
+static void test_smartcard_db(void)
+{
+    LONG ret;
+    HKEY key;
+
+    /* prepare the database */
+    ret = populate_smartcard_db();
+    ok(ret == ERROR_SUCCESS, "failed to populate database: error %ld\n", ret);
+    if (ret) return;
+
+    /* run the tests */
+    test_SCardGetCardTypeProviderName();
+
+    /* delete the test keys */
+    ret = RegOpenKeyExA(HKEY_LOCAL_MACHINE, subkey_smartcards_database, 0, KEY_READ | KEY_WRITE, &key);
+    ok(ret == ERROR_SUCCESS, "failed to open the smartcard database: error %ld\n", ret);
+    ret = RegDeleteTreeA(key, card_name_1);
+    ok(ret == ERROR_SUCCESS,
+            "failed to delete HKLM\\%s\\%s: error %ld\n",
+            subkey_smartcards_database,
+            card_name_1,
+            ret);
+    ret = RegDeleteTreeA(key, card_name_2);
+    ok(ret == ERROR_SUCCESS,
+            "failed to delete HKLM\\%s\\%s: error %ld\n",
+            subkey_smartcards_database,
+            card_name_1,
+            ret);
+}
+
 START_TEST(winscard)
 {
     test_SCardEstablishContext();
+    test_smartcard_db();
 }

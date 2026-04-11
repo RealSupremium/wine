@@ -1,5 +1,6 @@
 MODULE    = winscard.dll
 IMPORTLIB = winscard
+IMPORTS   = kernelbase
 UNIXLIB   = winscard.so
 UNIX_LIBS = $(PCSCLITE_LIBS)
 

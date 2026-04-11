@@ -22,7 +22,7 @@
 @ stdcall SCardFreeMemory(long ptr)
 @ stdcall SCardGetAttrib(long long ptr ptr)
 @ stub SCardGetCardTypeProviderNameA
-@ stub SCardGetCardTypeProviderNameW
+@ stdcall SCardGetCardTypeProviderNameW(long wstr long wstr ptr)
 @ stub SCardGetProviderIdA
 @ stub SCardGetProviderIdW
 @ stdcall SCardGetStatusChangeA(long long ptr long)

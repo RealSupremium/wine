@@ -17,12 +17,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
 #define WINSCARDAPI
+#include "assert.h"
+#include <stdarg.h>
+#include "winerror.h"
 #include "windef.h"
 #include "winbase.h"
+#include "winreg.h"
 #include "winscard.h"
-#include "winternl.h"
 
 #include "wine/debug.h"
 #include "wine/unixlib.h"
@@ -963,6 +965,98 @@ LONG WINAPI SCardFreeMemory( SCARDCONTEXT context, const void *mem )
     TRACE( "%Ix, %p\n", context, mem );
 
     free( (void *)mem );
+    return SCARD_S_SUCCESS;
+}
+
+/* subkey of the db in HKLM */
+const WCHAR* SUBKEY_SMARTCARDS_DATABASE = L"SOFTWARE\\Microsoft\\Cryptography\\Calais\\SmartCards";
+
+/* The ATR is between 2 and 33 bytes, but winscard pads it to 36 bytes (see struct SCARD_READERSTATEW) */
+#define ATR_N_BYTES 36
+
+LONG WINAPI SCardGetCardTypeProviderNameW(
+        SCARDCONTEXT context, const WCHAR *card_type, DWORD provider_id, WCHAR *out_provider, DWORD *inout_provider_len)
+{
+    struct handle *handle = (struct handle *)context;
+    HKEY key;
+    LONG ret;
+    DWORD value_len_wchars;
+    DWORD value_len_bytes = MAX_PATH * sizeof(WCHAR);
+    WCHAR value[MAX_PATH];
+    BYTE **new_output;
+
+    TRACE("%Ix, %s, %lu, %p, %p\n", context, debugstr_w(card_type), provider_id, out_provider, inout_provider_len);
+
+    if (!card_type || !inout_provider_len) return SCARD_E_INVALID_PARAMETER;
+
+    if (handle != NULL)
+    {
+        if (handle->magic != CONTEXT_MAGIC)
+        {
+            return ERROR_INVALID_HANDLE;
+        }
+        /* the handle should be used to restrict the visible cards, continue anyway */
+        FIXME("card scopes not implemented\n");
+    }
+
+    ret = RegOpenKeyExW(HKEY_LOCAL_MACHINE, SUBKEY_SMARTCARDS_DATABASE, 0, KEY_READ, &key);
+    if (ret != ERROR_SUCCESS)
+    {
+        WARN("could not open the SmartCard database: error %ld\n", ret);
+        return SCARD_E_UNKNOWN_CARD;
+    }
+
+    /* read the value that corresponds to the requested type of provider (given by provider_id) */
+    switch (provider_id)
+    {
+        case SCARD_PROVIDER_PRIMARY:
+            FIXME("SCARD_PROVIDER_PRIMARY not implemented\n");
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return SCARD_F_INTERNAL_ERROR;
+        case SCARD_PROVIDER_CSP:
+            ret = RegGetValueW(key, card_type, L"Crypto Provider", RRF_RT_REG_SZ, NULL, &value, &value_len_bytes);
+            break;
+        case SCARD_PROVIDER_KSP:
+            ret = RegGetValueW(
+                    key, card_type, L"Smart Card Key Storage Provider", RRF_RT_REG_SZ, NULL, &value, &value_len_bytes);
+            break;
+        case SCARD_PROVIDER_CARD_MODULE:
+            ret = RegGetValueW(key, card_type, L"80000001", RRF_RT_REG_SZ, NULL, &value, &value_len_bytes);
+            break;
+        default: return SCARD_E_INVALID_PARAMETER;
+    }
+    RegCloseKey(key);
+    if (ret != ERROR_SUCCESS) return ret;
+
+    /* note: the value includes a trailing zero thanks to RegGetValueW */
+    assert(value_len_bytes % sizeof(WCHAR) == 0);
+    value_len_wchars = value_len_bytes / sizeof(WCHAR);
+
+    /* store the value in out_provider (its length *in wchars* will go in inout_provider_len, including the trailing NUL char) */
+    if (out_provider == NULL)
+    {
+        /* this is fine (even if it's not clear from msdn), just return the length */
+    }
+    else if (*inout_provider_len == SCARD_AUTOALLOCATE)
+    {
+        /* write the value to a new buffer */
+        new_output = (BYTE**)out_provider;
+        *new_output = malloc(value_len_bytes);
+        if (*new_output == NULL) return ERROR_NOT_ENOUGH_MEMORY;
+        memcpy(*new_output, value, value_len_bytes);
+        TRACE("returning %s at %p, length %lu\n", debugstr_w((WCHAR*)*new_output), *new_output, value_len_wchars);
+    }
+    else if (*inout_provider_len < value_len_wchars)
+    {
+        return SCARD_E_INSUFFICIENT_BUFFER;
+    }
+    else
+    {
+        /* write the value to out_provider */
+        memcpy(out_provider, value, value_len_bytes);
+        TRACE("returning %s, length %lu\n", debugstr_w(out_provider), value_len_wchars);
+    }
+    *inout_provider_len = value_len_wchars;
     return SCARD_S_SUCCESS;
 }
 
