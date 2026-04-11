@@ -141,7 +141,6 @@ check (DWORD style, const struct listbox_test test)
 {
   struct listbox_stat answer;
   RECT second_item;
-  int i;
   int res;
   HWND hLB;
 
@@ -163,26 +162,6 @@ check (DWORD style, const struct listbox_test test)
 
   DestroyWindow (hLB);
   hLB = create_listbox(style, 0);
-
-  for (i = 0; i < 4 && !(style & LBS_NODATA); i++) {
-	DWORD size = SendMessageA(hLB, LB_GETTEXTLEN, i, 0);
-	CHAR *txt;
-	WCHAR *txtw;
-	int resA, resW;
-
-	txt = calloc(1, size + 1);
-	resA=SendMessageA(hLB, LB_GETTEXT, i, (LPARAM)txt);
-        ok(!strcmp (txt, strings[i]), "returned string for item %d does not match %s vs %s\n", i, txt, strings[i]);
-
-	txtw = calloc(1, 2 * size + 2);
-	resW=SendMessageW(hLB, LB_GETTEXT, i, (LPARAM)txtw);
-	ok(resA == resW, "Unexpected text length.\n");
-	WideCharToMultiByte( CP_ACP, 0, txtw, -1, txt, size, NULL, NULL );
-        ok(!strcmp (txt, strings[i]), "returned string for item %d does not match %s vs %s\n", i, txt, strings[i]);
-
-	free(txtw);
-	free(txt);
-  }
   
   /* Confirm the count of items, and that an invalid delete does not remove anything */
   res = SendMessageA(hLB, LB_GETCOUNT, 0, 0);
@@ -2657,6 +2636,127 @@ static void test_integral_resize(void)
     DestroyWindow(parent);
 }
 
+static void test_LB_GETTEXT(void)
+{
+    static const DWORD standard_styles[] = {
+        0,
+        LBS_SORT,
+        LBS_NOSEL,
+        LBS_MULTIPLESEL,
+        LBS_EXTENDEDSEL,
+        LBS_MULTIPLESEL | LBS_EXTENDEDSEL,
+        LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
+        LBS_OWNERDRAWVARIABLE | LBS_HASSTRINGS
+    };
+
+    static const DWORD nodata_styles[] = {
+        LBS_NODATA | LBS_OWNERDRAWFIXED,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_NOSEL,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_MULTIPLESEL,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_EXTENDEDSEL,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_MULTIPLESEL | LBS_EXTENDEDSEL
+    };
+
+    static const char *test_string = "listbox";
+    static const ULONG_PTR zero_data = 0;
+
+    HWND parent, listbox;
+    char buffer[32], reference[32];
+    WCHAR bufW[256];
+    ULONG_PTR data;
+    LRESULT ret;
+    int i;
+
+    parent = create_parent(NULL);
+    ok(parent != NULL, "Failed to create parent window.\n");
+
+    for (i = 0; i < ARRAY_SIZE(standard_styles); i++)
+    {
+        winetest_push_context("standard style %#lx", standard_styles[i]);
+
+        listbox = CreateWindowA("listbox", "TestList", 
+                                WS_CHILD | standard_styles[i],
+                                0, 0, 100, 100, parent, (HMENU)1, NULL, 0);
+        ok(listbox != NULL, "Failed to create listbox.\n");
+
+        ret = SendMessageA(listbox, LB_ADDSTRING, 0, (LPARAM)test_string);
+        ok(ret >= 0, "Failed to add string, got %Id\n", ret);
+
+        ret = SendMessageA(listbox, LB_GETTEXTLEN, 0, 0);
+        ok(ret == strlen(test_string), "Expected %Iu, got %Id\n", strlen(test_string), ret);
+
+        memset(buffer, 0xee, sizeof(buffer));
+        ret = SendMessageA(listbox, LB_GETTEXT, 0, (LPARAM)buffer);
+        ok(ret == strlen(test_string), "Expected return length %Iu, got %Id\n", strlen(test_string), ret);
+        ok(!strcmp(buffer, test_string), "Expected %s, got %s\n", test_string, buffer);
+
+        ret = SendMessageW(listbox, LB_GETTEXTLEN, 0, 0);
+        ok(ret == strlen(test_string), "Expected %Iu, got %Id\n", strlen(test_string), ret);
+
+        memset(bufW, 0xee, sizeof(bufW));
+        ret = SendMessageW(listbox, LB_GETTEXT, 0, (LPARAM)bufW);
+        ok(ret == strlen(test_string), "Expected %Iu, got %Id\n", strlen(test_string), ret);
+        ok(!strcmp_aw(bufW, test_string), "Expected %s, got %s\n", test_string, wine_dbgstr_w(bufW));
+
+        DestroyWindow(listbox);
+        winetest_pop_context();
+    }
+
+    for (i = 0; i < ARRAY_SIZE(nodata_styles); i++)
+    {
+        winetest_push_context("nodata style %#lx", nodata_styles[i]);
+
+        listbox = CreateWindowA("listbox", "TestList", 
+                                WS_CHILD | WS_VISIBLE | nodata_styles[i],
+                                0, 0, 100, 100, parent, (HMENU)1, NULL, 0);
+        ok(listbox != NULL, "Failed to create listbox.\n");
+
+        /* LBS_NODATA relies on setting the count rather than adding data. */
+        ret = SendMessageA(listbox, LB_SETCOUNT, 1, 0);
+        ok(ret == 0, "Expected 0, got %Id\n", ret);
+
+        /* LB_GETTEXTLEN returns the size of a pointer. */
+        ret = SendMessageA(listbox, LB_GETTEXTLEN, 0, 0);
+        ok(ret == sizeof(ULONG_PTR), "Expected %d, got %Id\n", (int)sizeof(ULONG_PTR), ret);
+
+        /* LB_GETTEXT clears the buffer with zeroes. */
+        memset(&data, 0xee, sizeof(data));
+        ret = SendMessageA(listbox, LB_GETTEXT, 0, (LPARAM)&data);
+        ok(ret == sizeof(ULONG_PTR), "Expected %d, got %Id\n", (int)sizeof(ULONG_PTR), ret);
+        ok(!memcmp(&data, &zero_data, sizeof(data)), "Expected buffer to be zeroed out.\n");
+
+        DestroyWindow(listbox);
+        winetest_pop_context();
+    }
+
+    listbox = CreateWindowA("listbox", "TestList", WS_CHILD,
+                            0, 0, 100, 100, parent, (HMENU)1, NULL, 0);
+    ok(listbox != NULL, "Failed to create listbox.\n");
+
+    ret = SendMessageA(listbox, LB_ADDSTRING, 0, (LPARAM)test_string);
+    ok(ret >= 0, "Failed to add string, got %Id\n", ret);
+
+    /* wParam is ignored. */
+    ret = SendMessageW(listbox, LB_GETTEXTLEN, 0, 0xdeadbeef);
+    ok(ret == strlen(test_string), "Expected %Iu, got %Id\n", strlen(test_string), ret);
+
+    ret = SendMessageA(listbox, LB_GETTEXTLEN, -1, 0);
+    ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+
+    ret = SendMessageA(listbox, LB_GETTEXT, 5, (LPARAM)buffer);
+    ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+
+    /* Out of bounds index. */
+    memset(buffer, 0xee, sizeof(buffer));
+    memset(reference, 0xee, sizeof(reference));
+    ret = SendMessageA(listbox, LB_GETTEXT, 100, (LPARAM)buffer);
+    ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+    ok(!memcmp(buffer, reference, sizeof(buffer)), "Expected buffer to be unchanged\n");
+
+    DestroyWindow(listbox);
+    DestroyWindow(parent);
+}
+
 START_TEST(listbox)
 {
   const struct listbox_test SS =
@@ -2751,4 +2851,5 @@ START_TEST(listbox)
   test_LBS_NODATA();
   test_LB_FINDSTRING();
   test_integral_resize();
+  test_LB_GETTEXT();
 }
