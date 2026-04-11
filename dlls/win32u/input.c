@@ -2898,7 +2898,7 @@ static struct pointer *allocate_pointerid( UINT32 id, POINTER_INPUT_TYPE type )
     return pointer;
 }
 
-static struct pointer *find_pointerid( UINT32 id, POINTER_INPUT_TYPE type )
+static struct pointer *find_pointerid( UINT32 id )
 {
     struct pointer_thread_data *thread_data = get_pointer_thread_data();
     struct pointer *pointer;
@@ -2912,7 +2912,7 @@ static struct pointer *find_pointerid( UINT32 id, POINTER_INPUT_TYPE type )
         if (pointer->id == id)
             return pointer;
 
-    return allocate_pointerid( id, type );
+    return NULL;
 }
 
 static POINTER_INFO pointer_info_from_msg( const MSG *msg )
@@ -2986,11 +2986,13 @@ static POINTER_INPUT_TYPE pointer_type_from_hw( const struct hw_msg_source *sour
  */
 BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_data *msg_data )
 {
+    UINT32 pointer_id = GET_POINTERID_WPARAM( msg->wParam );
     struct pointer *pointer;
     POINTER_INFO info;
 
     msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
-    if (!(pointer = find_pointerid( GET_POINTERID_WPARAM( msg->wParam ), pointer_type_from_hw( &msg_data->source ) )))
+    if (!(pointer = find_pointerid( pointer_id )) &&
+        !(pointer = allocate_pointerid( pointer_id, pointer_type_from_hw( &msg_data->source ) )))
         return TRUE;
     info = pointer_info_from_msg( msg );
     info.ButtonChangeType = compare_button( &pointer->info, &info );
@@ -3004,9 +3006,18 @@ BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_da
  */
 BOOL WINAPI NtUserGetPointerType(UINT32 id, POINTER_INPUT_TYPE *type)
 {
-    FIXME( "(%u, %p) stub!\n", id, type );
-    RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
+    struct pointer *pointer;
+
+    TRACE( "%u, %p\n", id, type );
+
+    if (!id || !type || !(pointer = find_pointerid( id )) )
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+
+    *type = pointer->type;
+    return TRUE;
 }
 
 /**********************************************************************

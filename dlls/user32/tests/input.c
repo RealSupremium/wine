@@ -5527,9 +5527,7 @@ static void test_GetPointerInfo( BOOL mouse_in_pointer_enabled )
     ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %lu\n", GetLastError() );
     SetLastError( 0xdeadbeef );
     ret = pGetPointerType( 0xdead, &type );
-    todo_wine
     ok( !ret, "GetPointerType succeeded\n" );
-    todo_wine
     ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %lu\n", GetLastError() );
     ret = pGetPointerType( 1, &type );
     ok( ret, "GetPointerType failed, error %lu\n", GetLastError() );
