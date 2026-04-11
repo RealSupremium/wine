@@ -5416,7 +5416,9 @@ static DWORD CALLBACK test_GetPointerInfo_thread( void *arg )
 
     memset( &pointer_info, 0xcd, sizeof(pointer_info) );
     ret = pGetPointerInfo( 1, &pointer_info );
+    todo_wine
     ok( !ret, "GetPointerInfo succeeded\n" );
+    todo_wine
     ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %lu\n", GetLastError() );
 
     DestroyWindow( hwnd );
@@ -5545,13 +5547,13 @@ static void test_GetPointerInfo( BOOL mouse_in_pointer_enabled )
 
     ret = pGetPointerInfo( 1, invalid_ptr );
     ok( !ret, "GetPointerInfo succeeded\n" );
-    todo_wine
     ok( GetLastError() == ERROR_NOACCESS || broken(GetLastError() == ERROR_INVALID_PARAMETER) /* w10 32bit */,
         "got error %lu\n", GetLastError() );
 
     memset( pointer_info, 0xcd, sizeof(pointer_info) );
     ret = pGetPointerInfo( 1, pointer_info );
     ok( !ret, "GetPointerInfo succeeded\n" );
+    todo_wine
     ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %lu\n", GetLastError() );
 
     SetCursorPos( 500, 500 );  /* avoid generating mouse message on window creation */
@@ -5563,6 +5565,7 @@ static void test_GetPointerInfo( BOOL mouse_in_pointer_enabled )
     memset( pointer_info, 0xcd, sizeof(pointer_info) );
     ret = pGetPointerInfo( 1, pointer_info );
     ok( !ret, "GetPointerInfo succeeded\n" );
+    todo_wine
     ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %lu\n", GetLastError() );
 
     SetCursorPos( 200, 200 );
@@ -5648,30 +5651,26 @@ static void test_GetPointerInfo( BOOL mouse_in_pointer_enabled )
     memset( pointer_info, 0xcd, sizeof(pointer_info) );
     ret = pGetPointerInfo( 0xdead, pointer_info );
     ok( !ret, "GetPointerInfo succeeded\n" );
+    todo_wine
     ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %lu\n", GetLastError() );
 
     memset( pointer_info, 0xcd, sizeof(pointer_info) );
     ret = pGetPointerInfo( 1, pointer_info );
-    todo_wine_if(mouse_in_pointer_enabled)
     ok( ret == mouse_in_pointer_enabled, "GetPointerInfo failed, error %lu\n", GetLastError() );
     if (!mouse_in_pointer_enabled)
     {
+        todo_wine
         ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %lu\n", GetLastError() );
         return;
     }
 
-    todo_wine
     ok( pointer_info[0].pointerType == PT_MOUSE, "got pointerType %lu\n", pointer_info[0].pointerType );
-    todo_wine
     ok( pointer_info[0].pointerId == 1, "got pointerId %u\n", pointer_info[0].pointerId );
     ok( !!pointer_info[0].frameId, "got frameId %u\n", pointer_info[0].frameId );
-    todo_wine
     ok( pointer_info[0].pointerFlags == (0x40000 | POINTER_MESSAGE_FLAG_INRANGE),
         "got pointerFlags %#x\n", pointer_info[0].pointerFlags );
-    todo_wine
     ok( pointer_info[0].sourceDevice == INVALID_HANDLE_VALUE || broken(!!pointer_info[0].sourceDevice) /* < w10 & 32bit */,
         "got sourceDevice %p\n", pointer_info[0].sourceDevice );
-    todo_wine
     ok( pointer_info[0].hwndTarget == hwnd, "got hwndTarget %p\n", pointer_info[0].hwndTarget );
     ok( !!pointer_info[0].ptPixelLocation.x, "got ptPixelLocation %s\n", wine_dbgstr_point( &pointer_info[0].ptPixelLocation ) );
     ok( !!pointer_info[0].ptPixelLocation.y, "got ptPixelLocation %s\n", wine_dbgstr_point( &pointer_info[0].ptPixelLocation ) );
@@ -5682,14 +5681,10 @@ static void test_GetPointerInfo( BOOL mouse_in_pointer_enabled )
     ok( !!pointer_info[0].ptHimetricLocationRaw.x, "got ptHimetricLocationRaw %s\n", wine_dbgstr_point( &pointer_info[0].ptHimetricLocationRaw ) );
     ok( !!pointer_info[0].ptHimetricLocationRaw.y, "got ptHimetricLocationRaw %s\n", wine_dbgstr_point( &pointer_info[0].ptHimetricLocationRaw ) );
     ok( !!pointer_info[0].dwTime, "got dwTime %lu\n", pointer_info[0].dwTime );
-    todo_wine
     ok( pointer_info[0].historyCount == 1, "got historyCount %u\n", pointer_info[0].historyCount );
-    todo_wine
     ok( pointer_info[0].InputData == 0, "got InputData %u\n", pointer_info[0].InputData );
-    todo_wine
     ok( pointer_info[0].dwKeyStates == 0, "got dwKeyStates %lu\n", pointer_info[0].dwKeyStates );
     ok( !!pointer_info[0].PerformanceCount, "got PerformanceCount %I64u\n", pointer_info[0].PerformanceCount );
-    todo_wine
     ok( pointer_info[0].ButtonChangeType == POINTER_CHANGE_FIRSTBUTTON_UP, "got ButtonChangeType %u\n", pointer_info[0].ButtonChangeType );
 
     thread = CreateThread( NULL, 0, test_GetPointerInfo_thread, NULL, 0, NULL );
