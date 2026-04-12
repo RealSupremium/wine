@@ -141,7 +141,6 @@ check (DWORD style, const struct listbox_test test)
 {
   struct listbox_stat answer;
   RECT second_item;
-  int res;
   HWND hLB;
 
   hLB = create_listbox (style, 0);
@@ -159,19 +158,6 @@ check (DWORD style, const struct listbox_test test)
 
   listbox_query (hLB, &answer);
   listbox_ok (test, step, answer);
-
-  DestroyWindow (hLB);
-  hLB = create_listbox(style, 0);
-  
-  /* Confirm the count of items, and that an invalid delete does not remove anything */
-  res = SendMessageA(hLB, LB_GETCOUNT, 0, 0);
-  ok((res==4), "Expected 4 items, got %d\n", res);
-  res = SendMessageA(hLB, LB_DELETESTRING, -1, 0);
-  ok((res==LB_ERR), "Expected LB_ERR items, got %d\n", res);
-  res = SendMessageA(hLB, LB_DELETESTRING, 4, 0);
-  ok((res==LB_ERR), "Expected LB_ERR items, got %d\n", res);
-  res = SendMessageA(hLB, LB_GETCOUNT, 0, 0);
-  ok((res==4), "Expected 4 items, got %d\n", res);
 
   WAIT;
   DestroyWindow (hLB);
@@ -2757,6 +2743,79 @@ static void test_LB_GETTEXT(void)
     DestroyWindow(parent);
 }
 
+static void test_LB_GETCOUNT(void)
+{
+    HWND parent, listbox;
+    LRESULT ret;
+
+    parent = create_parent(NULL);
+    ok(parent != NULL, "Failed to create parent.\n");
+
+    listbox = CreateWindowA("listbox", "Test", WS_CHILD,
+                            0, 0, 100, 100, parent, NULL, NULL, NULL);
+    ok(listbox != NULL, "Failed to create listbox.\n");
+    
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 0, "Expected 0, got %Id\n", ret);
+
+    SendMessageA(listbox, LB_ADDSTRING, 0, (LPARAM)"Item 1");
+    SendMessageA(listbox, LB_ADDSTRING, 0, (LPARAM)"Item 2");
+    
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 2, "Expected 2, got %Id\n", ret);
+
+    /* Invalid delete does not affect the count. */
+    ret = SendMessageA(listbox, LB_DELETESTRING, -1, 0);
+    ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 2, "Expected 2, got %Id\n", ret);
+
+    /* wParam and lParam are ignored. */
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0xdeadbeef, 0xcafebabe);
+    ok(ret == 2, "Expected 2, got %Id\n", ret);
+    ret = SendMessageW(listbox, LB_GETCOUNT, 0xbaadf00d, 0xfeedface);
+    ok(ret == 2, "Expected 2, got %Id\n", ret);
+
+    SendMessageA(listbox, LB_RESETCONTENT, 0, 0);
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 0, "Expected 0, got %Id\n", ret);
+
+    /* Internal storage does not affect the item count. */
+    ret = SendMessageA(listbox, LB_INITSTORAGE, 100, 100 * 256);
+    todo_wine ok(ret == 100, "Expected 100, got %Id\n", ret);
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 0, "Expected count 0 after LB_INITSTORAGE, got %Id\n", ret);
+
+    DestroyWindow(listbox);
+
+    listbox = CreateWindowA("listbox", "Test", WS_CHILD | LBS_NODATA | LBS_OWNERDRAWFIXED,
+                            0, 0, 100, 100, parent, NULL, NULL, NULL);
+    ok(listbox != NULL, "Failed to create listbox.\n");
+
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 0, "Expected 0, got %Id\n", ret);
+
+    SendMessageA(listbox, LB_SETCOUNT, 250, 0);
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 250, "Expected 250, got %Id\n", ret);
+
+    SendMessageA(listbox, LB_RESETCONTENT, 0, 0);
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 0, "Expected 0, got %Id\n", ret);
+
+    /* LB_GETCOUNT keeps track of the error state from LB_SETCOUNT. */
+    SendMessageA(listbox, LB_SETCOUNT, -1, 0);
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == LB_ERR, "Expected LB_ERR, got %Id\n", ret);
+
+    /* Test using more than 16 bits for internal storage. */
+    SendMessageA(listbox, LB_SETCOUNT, 0x12345678, 0);
+    ret = SendMessageA(listbox, LB_GETCOUNT, 0, 0);
+    ok(ret == 0x12345678, "Expected 0x12345678, got %Id\n", ret);
+
+    DestroyWindow(listbox);
+}
+
 START_TEST(listbox)
 {
   const struct listbox_test SS =
@@ -2852,4 +2911,5 @@ START_TEST(listbox)
   test_LB_FINDSTRING();
   test_integral_resize();
   test_LB_GETTEXT();
+  test_LB_GETCOUNT();
 }
