@@ -609,6 +609,138 @@ static void test_SCardListCardsW(void)
     free(matching_cards);
 }
 
+static void test_SCardListCardsA(void)
+{
+    LONG ret;
+    const CHAR *expected;
+    BYTE atr_full[36];
+    DWORD match_len = 0;
+    CHAR *matching_cards;
+
+    /* test basic error conditions */
+    ret = SCardListCardsA(0, NULL, NULL, 0, NULL, NULL);
+    ok(ret == SCARD_E_INVALID_PARAMETER, "should fail when inout_cards_len is null\n");
+
+    match_len = 2;
+    matching_cards = calloc(match_len, sizeof(WCHAR));
+    ret = SCardListCardsA(0, NULL, NULL, 0, matching_cards, &match_len);
+    ok(ret == SCARD_E_INSUFFICIENT_BUFFER, "should fail when the output buffer is too small\n");
+    free(matching_cards);
+
+    /* get length of match */
+    ret = SCardListCardsA(0, NULL, NULL, 0, NULL, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list all cards: error %#lx\n", ret);
+    ok(match_len > 0, "match size should not be empty");
+
+    /* allocate and call */
+    matching_cards = calloc(match_len, sizeof(WCHAR));
+    ret = SCardListCardsA(0, NULL, NULL, 0, matching_cards, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list all cards: error %#lx\n", ret);
+    expected = "PKI-test-1\0PKI-test-2\0";
+    ok(match_len == 23, "invalid length: expected %ld, got %ld\n", 23L, match_len);
+    ok(memcmp(matching_cards, expected, match_len) == 0,
+            "bad output of SCardListCardsA: %s\n",
+            debugstr_an(matching_cards, match_len));
+    free(matching_cards);
+
+    /* test with pre-allocated */
+    match_len = 32;
+    matching_cards = malloc(match_len);
+    memset(matching_cards, 0xca, match_len);
+    ret = SCardListCardsA(0, NULL, NULL, 0, matching_cards, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list all cards: error %#lx\n", ret);
+    expected = "PKI-test-1\0PKI-test-2\0";
+    ok(match_len == 23, "invalid length: expected %ld, got %ld\n", 23L, match_len);
+    ok(memcmp(matching_cards, expected, match_len) == 0,
+            "bad output of SCardListCardsA: %s\n",
+            debugstr_an(matching_cards, match_len));
+    for (int i = match_len + 1; i < 32; i++) { ok((BYTE)matching_cards[i] == 0xca, "memory corruption\n"); }
+    free(matching_cards);
+
+    /* test with auto alloc */
+    match_len = SCARD_AUTOALLOCATE;
+    matching_cards = NULL;
+    ret = SCardListCardsA(0, NULL, NULL, 0, (CHAR *)&matching_cards, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list all cards: error %#lx\n", ret);
+    expected = "PKI-test-1\0PKI-test-2\0\0";
+    ok(match_len == 23, "invalid length: expected %ld, got %ld\n", 23L, match_len);
+    ok(matching_cards != NULL, "the buffer should have been allocated, is NULL\n");
+    ok(memcmp(matching_cards, expected, match_len) == 0,
+            "bad output of SCardListCardsA: %s\n",
+            debugstr_an(matching_cards, match_len));
+
+    ret = SCardFreeMemory(0, matching_cards);
+    ok(ret == ERROR_SUCCESS, "failed to free auto-allocated memory\n");
+
+    /* test with ATRs that match exactly card 1 */
+    match_len = 32;
+    matching_cards = calloc(match_len, sizeof(WCHAR));
+    ret = SCardListCardsA(0, card_atr_1, NULL, 0, matching_cards, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list card 1: error %#lx\n", ret);
+    expected = "PKI-test-1\0";
+    ok(match_len == 12, "invalid length: expected %ld, got %ld\n", 12L, match_len);
+    ok(matching_cards != NULL, "the buffer should have been allocated, is NULL\n");
+    ok(memcmp(matching_cards, expected, match_len) == 0,
+            "bad output of SCardListCardsA: %s\n",
+            debugstr_an(matching_cards, match_len));
+
+    /* test with ATRs that match exactly card 2 */
+    match_len = 32;
+    ret = SCardListCardsA(0, card_atr_2, NULL, 0, matching_cards, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list card 2: error %#lx\n", ret);
+    expected = "PKI-test-2\0";
+    ok(match_len == 12, "invalid length: expected %ld, got %ld\n", 12L, match_len);
+    ok(matching_cards != NULL, "the buffer should have been allocated, is NULL\n");
+    ok(memcmp(matching_cards, expected, match_len) == 0,
+            "bad output of SCardListCardsA: %s\n",
+            debugstr_an(matching_cards, match_len));
+
+    /* test with zero-padded ATR that match */
+    for (int i = 0; i < sizeof(card_atr_2); i++) { atr_full[i] = card_atr_2[i]; }
+    for (int i = sizeof(card_atr_2); i < sizeof(atr_full); i++) { atr_full[i] = 0; }
+    match_len = 32;
+    ret = SCardListCardsA(0, atr_full, NULL, 0, matching_cards, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list card 2: error %#lx\n", ret);
+    expected = "PKI-test-2\0";
+    ok(match_len == 12, "invalid length: expected %ld, got %ld\n", 12L, match_len);
+    ok(matching_cards != NULL, "the buffer should have been allocated, is NULL\n");
+    ok(memcmp(matching_cards, expected, match_len) == 0,
+            "bad output of SCardListCardsA: %s\n",
+            debugstr_an(matching_cards, match_len));
+
+    /* test with an ATR that matches thanks to the mask */
+    for (int i = 0; i < sizeof(card_atr_2) - 1; i++) { atr_full[i] = card_atr_2[i]; }
+    atr_full[sizeof(card_atr_2) - 1] = 0xff;
+    for (int i = sizeof(card_atr_2); i < sizeof(atr_full); i++) { atr_full[i] = 0; }
+    match_len = 32;
+    ret = SCardListCardsA(0, atr_full, NULL, 0, matching_cards, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list card 2: error %#lx\n", ret);
+    expected = "PKI-test-2\0";
+    ok(match_len == 12, "invalid length: expected %ld, got %ld\n", 12L, match_len);
+    ok(matching_cards != NULL, "the buffer should have been allocated, is NULL\n");
+    ok(memcmp(matching_cards, expected, match_len) == 0,
+            "bad output of SCardListCardsA: %s\n",
+            debugstr_an(matching_cards, match_len));
+
+    /* test with an ATR that doesn't match */
+    atr_full[0] = 0x3B;
+    atr_full[1] = 0x02;
+    atr_full[2] = 0x14;
+    atr_full[3] = 0x50;
+    for (int i = 4; i < sizeof(atr_full); i++) { atr_full[i] = 0; }
+    match_len = 32;
+    ret = SCardListCardsA(0, atr_full, NULL, 0, matching_cards, &match_len);
+    ok(ret == ERROR_SUCCESS, "failed to list no card: error %#lx\n", ret);
+    expected = "";
+    ok(match_len == 1, "invalid length: expected %ld, got %ld\n", 1L, match_len);
+    ok(matching_cards != NULL, "the buffer should have been allocated, is NULL\n");
+    ok(memcmp(matching_cards, expected, match_len) == 0,
+            "bad output of SCardListCardsA: %s\n",
+            debugstr_an(matching_cards, match_len));
+
+    free(matching_cards);
+}
+
 static void test_smartcard_db(void)
 {
     LONG ret;
@@ -622,6 +754,7 @@ static void test_smartcard_db(void)
     /* run the tests */
     test_SCardGetCardTypeProviderName();
     test_SCardListCardsW();
+    test_SCardListCardsA();
 
     /* delete the test keys */
     ret = RegOpenKeyExA(HKEY_LOCAL_MACHINE, subkey_smartcards_database, 0, KEY_READ | KEY_WRITE, &key);

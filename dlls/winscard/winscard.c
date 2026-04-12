@@ -188,14 +188,6 @@ LONG WINAPI SCardIsValidContext( SCARDCONTEXT context )
     return ret;
 }
 
-LONG WINAPI SCardListCardsA( SCARDCONTEXT context, const BYTE *atr, const GUID *interfaces, DWORD interface_count,
-                             char *cards, DWORD *cards_len )
-{
-    FIXME( "%Ix, %p, %p, %lu, %p, %p stub\n", context, atr, interfaces, interface_count, cards, cards_len );
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return SCARD_F_INTERNAL_ERROR;
-}
-
 LONG WINAPI SCardReleaseContext( SCARDCONTEXT context )
 {
     struct handle *handle = (struct handle *)context;
@@ -1324,6 +1316,85 @@ LONG WINAPI SCardListCardsW(SCARDCONTEXT context,
     *inout_cards_len = res_len_wchars + 1;
     TRACE("returning %s, length %ld\n", debugstr_wn(out_cards, *inout_cards_len), *inout_cards_len);
     return SCARD_S_SUCCESS;
+}
+
+/** Look up known cards in the smart card database. */
+LONG WINAPI SCardListCardsA(SCARDCONTEXT context,
+        const BYTE *atr,
+        const GUID *interfaces,
+        DWORD interface_count,
+        char *cards,
+        DWORD *cards_len)
+{
+    WCHAR *cardsW;
+    DWORD cards_lenW;
+    LONG ret;
+    int converted_len;
+
+    TRACE("%Ix, %s, %p, %lu, %p, %p\n", context, debug_atr(atr), interfaces, interface_count, cards, cards_len);
+
+    if (!cards_len) return SCARD_E_INVALID_PARAMETER;
+    if (!cards) return SCardListCardsW(context, atr, interfaces, interface_count, NULL, cards_len);
+
+    if (*cards_len == SCARD_AUTOALLOCATE)
+    {
+        char **new_output;
+        cards_lenW = SCARD_AUTOALLOCATE;
+        cardsW = NULL;
+        ret = SCardListCardsW(context, atr, interfaces, interface_count, (LPWSTR)&cardsW, &cards_lenW);
+        if (ret != ERROR_SUCCESS) return ret;
+
+        /* determine the size that we need to allocate */
+        converted_len = WideCharToMultiByte(CP_ACP, 0, cardsW, cards_lenW, NULL, 0, NULL, NULL);
+        if (converted_len == 0)
+        {
+            FIXME("can't convert %s to ANSI codepage\n", debugstr_w(cardsW));
+            return SCARD_F_INTERNAL_ERROR;
+        }
+        new_output = (char**)cards;
+        *new_output = malloc(converted_len);
+        if (*new_output == NULL) return ERROR_NOT_ENOUGH_MEMORY;
+
+        /* convert */
+        WideCharToMultiByte(CP_ACP, 0, cardsW, cards_lenW, *new_output, converted_len, NULL, NULL);
+        *cards_len = converted_len;
+        SCardFreeMemory(context, cardsW);
+
+        TRACE("returning %s at %p, length %lu\n", debugstr_an(*new_output, *cards_len), *new_output, *cards_len);
+    }
+    else
+    {
+        cards_lenW = *cards_len; /* includes trailing NUL */
+        cardsW = calloc(cards_lenW, sizeof(WCHAR));
+
+        ret = SCardListCardsW(context, atr, interfaces, interface_count, cardsW, &cards_lenW);
+        if (ret != ERROR_SUCCESS)
+        {
+            free(cardsW);
+            return ret;
+        }
+
+        /* determine the size after conversion and check it */
+        converted_len = WideCharToMultiByte(CP_ACP, 0, cardsW, cards_lenW, NULL, 0, NULL, NULL);
+        if (converted_len == 0)
+        {
+            FIXME("can't convert %s to ANSI codepage\n", debugstr_w(cardsW));
+            return SCARD_F_INTERNAL_ERROR;
+        }
+
+        if (converted_len > *cards_len)
+        {
+            return SCARD_E_INSUFFICIENT_BUFFER;
+        }
+
+        /* convert */
+        WideCharToMultiByte(CP_ACP, 0, cardsW, cards_lenW, cards, converted_len, NULL, NULL);
+        *cards_len = converted_len;
+        free(cardsW);
+
+        TRACE("returning %s, length %lu\n", debugstr_an(cards, *cards_len), *cards_len);
+    }
+    return ERROR_SUCCESS;
 }
 
 BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, void *reserved )
