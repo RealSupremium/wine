@@ -1052,6 +1052,86 @@ LONG WINAPI SCardGetCardTypeProviderNameW(
     return SCARD_S_SUCCESS;
 }
 
+LONG WINAPI SCardGetCardTypeProviderNameA(
+        SCARDCONTEXT context, const CHAR *card_type, DWORD provider_id, char *out_provider, DWORD *inout_provider_len)
+{
+    LONG ret = SCARD_S_SUCCESS;
+    WCHAR *card_typeW;
+    WCHAR *providerW;
+    DWORD provider_lenW;
+    int converted_len;
+
+    TRACE("%Ix, %s, %lu, %p, %p\n", context, debugstr_a(card_type), provider_id, out_provider, inout_provider_len);
+
+    if (!card_type || !out_provider || !inout_provider_len) return SCARD_E_INVALID_PARAMETER;
+    if (ansi_to_utf16(card_type, &card_typeW) < 0) return ERROR_NOT_ENOUGH_MEMORY;
+
+    if (*inout_provider_len == SCARD_AUTOALLOCATE)
+    {
+        char **new_output;
+        provider_lenW = SCARD_AUTOALLOCATE;
+        providerW = NULL;
+        ret = SCardGetCardTypeProviderNameW(context, card_typeW, provider_id, (LPWSTR)&providerW, &provider_lenW);
+        if (ret != ERROR_SUCCESS) goto end;
+
+        /* determine the size that we need to allocate */
+        converted_len = WideCharToMultiByte(CP_ACP, 0, providerW, provider_lenW, NULL, 0, NULL, NULL);
+        if (converted_len == 0)
+        {
+            FIXME("can't convert %s to ANSI codepage\n", debugstr_w(providerW));
+            ret = SCARD_F_INTERNAL_ERROR;
+            goto end;
+        }
+        new_output = (char**)out_provider;
+        *new_output = malloc(converted_len);
+        if (*new_output == NULL)
+        {
+            ret = ERROR_NOT_ENOUGH_MEMORY;
+            goto end;
+        }
+
+        /* convert */
+        WideCharToMultiByte(CP_ACP, 0, providerW, provider_lenW, *new_output, converted_len, NULL, NULL);
+        *inout_provider_len = converted_len;
+        SCardFreeMemory(context, providerW);
+    } else {
+        provider_lenW = *inout_provider_len;
+        providerW = calloc(provider_lenW, sizeof(WCHAR));
+
+        ret = SCardGetCardTypeProviderNameW(context, card_typeW, provider_id, providerW, &provider_lenW);
+        if (ret != ERROR_SUCCESS) {
+            free(providerW);
+            goto end;
+        }
+
+        /* determine the size after conversion and check it */
+        converted_len = WideCharToMultiByte(CP_ACP, 0, providerW, provider_lenW, NULL, 0, NULL, NULL);
+        if (converted_len == 0)
+        {
+            FIXME("can't convert %s to ANSI codepage\n", debugstr_w(providerW));
+            ret = SCARD_F_INTERNAL_ERROR;
+            goto end;
+        }
+
+        if (converted_len > *inout_provider_len)
+        {
+            ret = SCARD_E_INSUFFICIENT_BUFFER;
+            goto end;
+        }
+
+        /* convert */
+        WideCharToMultiByte(CP_ACP, 0, providerW, provider_lenW, out_provider, converted_len, NULL, NULL);
+        *inout_provider_len = converted_len;
+        free(providerW);
+    }
+
+    end:
+    free(card_typeW);
+    if (ret != SCARD_S_SUCCESS) TRACE("returning %#lx\n", ret);
+    else TRACE("returning %#lx: %s\n", ret, debugstr_an(out_provider, *inout_provider_len));
+    return ret;
+}
+
 /**
  * Parses an ATR string and returns its length, or -1 if the ATR is invalid.
  *

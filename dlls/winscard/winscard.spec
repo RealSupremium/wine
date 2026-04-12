@@ -21,7 +21,7 @@
 @ stub SCardForgetReaderW
 @ stdcall SCardFreeMemory(long ptr)
 @ stdcall SCardGetAttrib(long long ptr ptr)
-@ stub SCardGetCardTypeProviderNameA
+@ stdcall SCardGetCardTypeProviderNameA(long str long str ptr)
 @ stdcall SCardGetCardTypeProviderNameW(long wstr long wstr ptr)
 @ stub SCardGetProviderIdA
 @ stub SCardGetProviderIdW
