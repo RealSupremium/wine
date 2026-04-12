@@ -1,0 +1,261 @@
+#!/usr/bin/perl -w
+use strict;
+use autodie qw( system );
+use File::Basename;
+use File::Copy;
+use File::Path qw( make_path );
+
+my $self = basename($0);
+chdir(dirname($0));
+
+my $old = "8.1";
+my $new = ($ARGV[0] or $old);
+
+my $cache = ($ENV{XDG_CACHE_HOME} || "$ENV{HOME}/.cache") . "/wine";
+my @configure_args =
+(
+    "--disable-autodetect",
+    "--disable-iconv",
+    "--disable-all",
+    "--enable-pic",
+    "--enable-avutil",
+);
+my %new_files;
+
+my @makefile;
+open IN, "Makefile.in" or die "Can't open Makefile.in";
+for my $line (<IN>)
+{
+    last if $line =~ /SOURCES =/;
+    push @makefile, $line;
+}
+close IN;
+
+my @makefiles = (
+    "libavutil/aarch64/Makefile",
+    "libavutil/arm/Makefile",
+    "libavutil/Makefile",
+    "libavutil/x86/Makefile",
+);
+
+sub parse_objects($)
+{
+    my $str = shift;
+    my @files;
+
+    for my $file (split /\s+/, $str)
+    {
+        last if $file =~ /#/;
+        next if $file =~ /^\$|^$/;
+        push @files, $file;
+    }
+
+    return @files;
+}
+
+sub generate_makefile($)
+{
+    my $ffmpeg = shift;
+    my %configs = ();
+    my %sources;
+    my %files;
+
+    # fixup test_cmd so it always succeeds as we don't want to run any check
+    system "sed -re 's/test_cmd\\(\\)\\{/test_cmd(){\\n    return 0/' -i $ffmpeg/configure";
+    system "cd $ffmpeg && ./configure " . join(" ", @configure_args);
+
+    open IN, "$ffmpeg/config.h" or die "Can't open $ffmpeg/config.h";
+    for my $line (<IN>)
+    {
+        next if $line !~ /^#define/;
+        next if $line =~ /^#define FFMPEG_CONFIG_H$/;
+
+        my ($var, $val) = ($line =~ /^#define (\w+) (.*)$/);
+        next if $var =~ /AVCONV_DATADIR|BUILDSUF|CC_IDENT|CONFIG_THIS_YEAR|FFMPEG_DATADIR|OS_NAME|SLIBSUF/;
+
+        $val = "\"\"" if $var =~ /^EXTERN_PREFIX/;
+        $val = "" if $var =~ /^EXTERN_ASM/;
+        $val = 0 if $var =~ /^(HAVE|ARCH)/;
+
+        $configs{$var} = $val;
+    }
+    close IN;
+
+    unlink "$ffmpeg/config.h";
+    unlink "$ffmpeg/config.asm";
+
+    open OUT, ">$ffmpeg/default_config.h" or die "Can't create $ffmpeg/default_config.h";
+    open ASM, ">$ffmpeg/default_config.asm" or die "Can't create $ffmpeg/default_config.asm";
+
+    foreach (sort keys %configs)
+    {
+        next if defined $configs{$_ . "_EXTERNAL"};
+        next if $_ =~ /^CONFIG_/;
+        my $val = $configs{$_};
+
+        print OUT "#ifndef $_\n";
+        print OUT "#define $_ $val\n";
+        print OUT "#endif\n";
+
+        next unless $val =~ /^\d+$/;
+        print ASM "\%ifndef $_\n";
+        print ASM "\%define $_ $val\n";
+        print ASM "\%endif\n";
+    }
+
+    foreach (sort keys %configs)
+    {
+        next unless defined $configs{$_ . "_EXTERNAL"};
+        my $ext = $_ . "_EXTERNAL";
+        my $inl = $_ . "_INLINE";
+        print OUT "#define $_ ($inl || $ext)\n";
+        print ASM "\%define $_ ($inl || $ext)\n";
+    }
+
+    foreach (sort keys %configs)
+    {
+        next unless $_ =~ /^CONFIG_/;
+        print OUT "#define $_ $configs{$_}\n";
+    }
+
+    close ASM;
+    close OUT;
+
+    open IN, "$ffmpeg/config_components.h" or die "Can't open $ffmpeg/config_components.h";
+    for my $line (<IN>)
+    {
+        next if $line !~ /^#define/;
+        next if $line =~ /^#define FFMPEG_CONFIG_COMPONENTS_H$/;
+        my ($var, $val) = ($line =~ /^#define (\w+) (.*)$/);
+        $configs{$var} = $val;
+    }
+    close IN;
+
+    $configs{"CONFIG_NEON_CLOBBER_TEST"} = 1;
+    $configs{"CONFIG_XMM_CLOBBER_TEST"} = 1;
+    $configs{"HAVE_LIBC_MSVCRT"} = 1;
+    $configs{"HAVE_MMX_EXTERNAL"} = 1;
+    $configs{"HAVE_MMX_INLINE"} = 1;
+    $configs{"HAVE_MMXEXT_INLINE"} = 1;
+    $configs{"HAVE_THREADS"} = 1;
+
+    open OUT, ">$ffmpeg/Makefile.in" or die "Can't create $ffmpeg/Makefile.in";
+
+    foreach (@makefiles)
+    {
+        my ($dir) = ($_ =~ /^(\w+)\//);
+        my $state = 0;
+        my $head = "";
+        my %vars = ();
+
+        foreach (keys %configs)
+        {
+            $vars{$_} = "yes" if $configs{$_};
+            $vars{"!" . $_} = "yes" if not $configs{$_};
+        }
+
+        open IN, "$ffmpeg/$_" or die "Can't open $ffmpeg/$_";
+
+        for my $line (<IN>)
+        {
+            while ($line =~ /\$\(/)
+            {
+                my ($var) = ($line =~ /\$\(([^()]+)\)/);
+                my $val = $vars{$var} || "";
+                $var =~ s/\+/\\+/g;
+                $line =~ s/\$\($var\)/$val/g;
+            }
+
+            $head = $line if $state == 0;
+            $state = $line =~ /\\\n$/ ? 1 : 0;
+
+            next if $head !~ /^\S+\s*\+?=/;
+            my ($var, $op) = ($head =~ /^(\S+)\s*(\+?=)/);
+
+            $line =~ s/\s*#.*$//g;
+            $line =~ s/\S+\s*\+?=// if $line =~ /^$var/;
+            $line =~ s/(^\s+|\s*\\?\n?$)//g;
+
+            $vars{$var} = ($vars{$var} || "") . " " . $line;
+        }
+
+        foreach (keys %vars)
+        {
+            next if $_ !~ /^[-A-Z0-9]*OBJS(-yes)?$/;
+            next if $_ =~ /^(SHLIBOBJS|TESTOBJS)$/;
+
+            for my $obj (parse_objects( $vars{$_} ))
+            {
+                my $file = "$dir/$obj";
+                $file =~ s/\.o$//;
+
+                $sources{"$file.c"} = 1    if -f "$ffmpeg/$file.c";
+                $sources{"$file.S"} = 1    if -f "$ffmpeg/$file.S";
+                $sources{"$file.asm"} = 1  if -f "$ffmpeg/$file.asm";
+
+                next if -f "$ffmpeg/$file.c";
+                next if -f "$ffmpeg/$file.S";
+                next if -f "$ffmpeg/$file.asm";
+                die "$ffmpeg/$file.* not found.";
+            }
+        }
+
+        close IN;
+    }
+
+    foreach my $line (@makefile)
+    {
+        print OUT $line;
+    }
+    print OUT "SOURCES =";
+    foreach my $file (sort keys %sources)
+    {
+        my $head = $file;
+        $head =~ s/\.c(pp)?$/.h/;
+        $files{$file} = 1 if -f "$ffmpeg/$file";
+        $files{$head} = 1 if -f "$ffmpeg/$head";
+        print OUT " \\\n\t$file";
+    }
+    print OUT "\n\n";
+
+    close OUT;
+
+    return keys %files;
+}
+
+if ($old ne $new)
+{
+    -f "$cache/ffmpeg-$old.tar.xz" || system "wget https://ffmpeg.org/releases/ffmpeg-$old.tar.xz -O $cache/ffmpeg-$old.tar.xz";
+    # system "rm -rf ffmpeg-$old";
+    system "tar xf $cache/ffmpeg-$old.tar.xz";
+
+    generate_makefile( "ffmpeg-$old" );
+    system "git reset --hard";
+}
+
+-f "$cache/ffmpeg-$new.tar.xz" || system "wget https://ffmpeg.org/releases/ffmpeg-$new.tar.xz -O $cache/ffmpeg-$new.tar.xz";
+# system "rm -rf ffmpeg-$new";
+system "tar xf $cache/ffmpeg-$new.tar.xz";
+
+my @sources = generate_makefile( "ffmpeg-$new" );
+
+if ($old ne $new)
+{
+    system "sed -i 's/old = \"$old\"/old = \"$new\"/' -i $self";
+    system "git ls-files . | xargs git diff -U2 --no-index --no-renames ffmpeg-$old ffmpeg-$new | sed -re 's:ffmpeg-($old|$new):libs/ffmpeg:g' | git apply --rej -";
+    system "git add -u";
+}
+else
+{
+    system "cp ffmpeg-$old/Makefile.in ffmpeg-$old/*config* .";
+}
+
+foreach (@sources)
+{
+    $new_files{$_} = 1;
+    make_path dirname($_);
+    next if -f "$_" || copy "ffmpeg-$new/$_", "$_";
+}
+
+system "git add " . join(" ", keys %new_files);
+system "git commit -m 'libs: Import FFmpeg $new.' ||:";

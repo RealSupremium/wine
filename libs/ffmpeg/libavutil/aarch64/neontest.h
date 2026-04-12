@@ -31,6 +31,8 @@
 
 #include "libavutil/bswap.h"
 
+#ifdef __aarch64__
+
 #define storeneonregs(mem)                \
     __asm__ volatile(                     \
         "stp d8,  d9,  [%0]\n\t"          \
@@ -61,6 +63,13 @@
         abort();                                                \
     }                                                           \
     return ret
+
+#else
+
+#define testneonclobbers(func, ctx, ...)                        \
+    return __real_ ## func(ctx, __VA_ARGS__);                   \
+
+#endif
 
 #define wrap(func)      \
 int __real_ ## func;    \

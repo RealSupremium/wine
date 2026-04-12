@@ -30,6 +30,8 @@
 
 #include "libavutil/bswap.h"
 
+#if defined(__x86_64__) && !defined(__arm64ec__)
+
 #define storexmmregs(mem)               \
     __asm__ volatile(                   \
         "movups %%xmm6 , 0x00(%0)\n\t"  \
@@ -69,6 +71,13 @@
         abort();                                                \
     }                                                           \
     return ret
+
+#else
+
+#define testxmmclobbers(func, ctx, ...)                         \
+    return __real_ ## func(ctx, __VA_ARGS__);                   \
+
+#endif
 
 #define wrap(func)      \
 int __real_ ## func;    \

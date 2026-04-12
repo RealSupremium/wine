@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#if !defined(__arm64ec__)
+
 #include "libavutil/aarch64/asm.S"
 
 /* Open `doc/transforms.md` to see the code upon which the transforms here were
@@ -1276,3 +1278,5 @@ endfunc
 
 FFT_SPLIT_RADIX_FN float, 0
 FFT_SPLIT_RADIX_FN ns_float, 1
+
+#endif

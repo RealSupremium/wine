@@ -20,6 +20,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#if defined(__i386__) || defined(__x86_64__)
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -285,3 +287,5 @@ size_t ff_get_cpu_max_align_x86(void)
 
     return 8;
 }
+
+#endif

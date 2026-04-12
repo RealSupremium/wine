@@ -29,14 +29,23 @@
 #include "rpcproxy.h"
 #include "wmcodecdsp.h"
 
+#include <libavutil/avutil.h>
+
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dmo);
+
+static const char *debugstr_version(UINT version)
+{
+    return wine_dbg_sprintf("%u.%u.%u", AV_VERSION_MAJOR(version), AV_VERSION_MINOR(version),
+            AV_VERSION_MICRO(version));
+}
 
 static HRESULT WINAPI resampler_factory_CreateInstance(IClassFactory *iface, IUnknown *outer,
         REFIID riid, void **out)
 {
     static const GUID CLSID_wg_resampler = {0x92f35e78,0x15a5,0x486b,{0x88,0x8e,0x57,0x5f,0x99,0x65,0x1c,0xe2}};
+    TRACE("avutil version %s\n", debugstr_version(avutil_version()));
     return CoCreateInstance(&CLSID_wg_resampler, outer, CLSCTX_INPROC_SERVER, riid, out);
 }
 

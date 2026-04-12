@@ -22,6 +22,8 @@
 #ifndef AVCODEC_X86_MATHOPS_H
 #define AVCODEC_X86_MATHOPS_H
 
+#if defined(__i386__) || defined(__x86_64__)
+
 #include "config.h"
 
 #include "libavutil/common.h"
@@ -151,3 +153,5 @@ static inline uint32_t NEG_USR32(uint32_t a, int8_t s){
 
 #endif /* HAVE_INLINE_ASM */
 #endif /* AVCODEC_X86_MATHOPS_H */
+
+#endif

@@ -20,6 +20,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#if !defined(__arm64ec__)
+
 #include "config.h"
 #include "asm.S"
 
@@ -200,3 +202,5 @@ function ff_scalarproduct_float_neon, export=1
         faddp           s0,      v0.2s
         ret
 endfunc
+
+#endif

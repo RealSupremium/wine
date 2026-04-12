@@ -1276,6 +1276,25 @@ then
         WINE_NOTICE([FAudio ${notice_platform}MinGW development files not found (or too old); using bundled version.])
     fi
 
+    WINE_MINGW_PACKAGE_FLAGS(FFMPEG,[avutil],[-lavutil],
+        [WINE_CHECK_MINGW_HEADER([libavutil/avutil.h])
+        if test "$ac_cv_mingw_header_libavutil_avutil_h" = "yes"
+        then
+            WINE_CHECK_MINGW_LIB(avutil,avutil_version,[:],[:],[$FFMPEG_PE_LIBS])
+            if test "$ac_cv_mingw_lib_avutil" = "no"
+            then
+                FFMPEG_PE_CFLAGS=""
+                FFMPEG_PE_LIBS=""
+            fi
+        else
+            FFMPEG_PE_CFLAGS=""
+            FFMPEG_PE_LIBS=""
+        fi])
+    if test "x$FFMPEG_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([FFmpeg ${notice_platform}MinGW development files not found (or too old); using bundled version.])
+    fi
+
     WINE_MINGW_PACKAGE_FLAGS(FLUIDSYNTH,[fluidsynth],[-lfluidsynth],
         [WINE_CHECK_MINGW_HEADER(fluidsynth.h,
             [WINE_CHECK_MINGW_LIB(fluidsynth,new_fluid_synth,[:],[FLUIDSYNTH_PE_CFLAGS=""; FLUIDSYNTH_PE_LIBS=""],[$FLUIDSYNTH_PE_LIBS])],
@@ -1367,6 +1386,7 @@ WINE_EXTLIB_FLAGS(CAPSTONE, capstone, capstone, "-I\$(top_srcdir)/libs/capstone/
 WINE_EXTLIB_FLAGS(CXX, c++, "c++ \$(CXXABI_PE_LIBS) msvcp140 vcruntime140")
 WINE_EXTLIB_FLAGS(CXXABI, c++abi, "c++abi \$(UNWIND_PE_LIBS) c++", "-I\$(top_srcdir)/libs/c++abi/include")
 WINE_EXTLIB_FLAGS(FAUDIO, faudio, "faudio mfplat mfreadwrite mfuuid propsys", "-I\$(top_srcdir)/libs/faudio/include")
+WINE_EXTLIB_FLAGS(FFMPEG, ffmpeg, "ffmpeg", "-I\$(top_srcdir)/libs/ffmpeg")
 WINE_EXTLIB_FLAGS(FLUIDSYNTH, fluidsynth, "fluidsynth", "-I\$(top_srcdir)/libs/fluidsynth/include")
 WINE_EXTLIB_FLAGS(GSM, gsm, gsm, "-I\$(top_srcdir)/libs/gsm/inc")
 WINE_EXTLIB_FLAGS(ICUCOMMON, icucommon, icucommon, "-I\$(top_srcdir)/libs/icucommon")
@@ -3646,6 +3666,7 @@ WINE_CONFIG_MAKEFILE(libs/dxerr8)
 WINE_CONFIG_MAKEFILE(libs/dxerr9)
 WINE_CONFIG_MAKEFILE(libs/dxguid)
 WINE_CONFIG_MAKEFILE(libs/faudio)
+WINE_CONFIG_MAKEFILE(libs/ffmpeg)
 WINE_CONFIG_MAKEFILE(libs/fluidsynth)
 WINE_CONFIG_MAKEFILE(libs/gsm)
 WINE_CONFIG_MAKEFILE(libs/icucommon)
