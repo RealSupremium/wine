@@ -92,7 +92,6 @@ struct listbox_stat {
 struct listbox_test {
   struct listbox_stat  init;
   struct listbox_stat click;
-  struct listbox_stat  step;
 };
 
 static void
@@ -115,15 +114,17 @@ buttonpress (HWND handle, WORD x, WORD y)
   REDRAW;
 }
 
-static void
-keypress (HWND handle, WPARAM keycode, BYTE scancode, BOOL extended)
+static void keypress(HWND handle, WPARAM keycode, BOOL extended)
 {
-  LPARAM lp=1+(scancode<<16)+(extended?KEYEVENTF_EXTENDEDKEY:0);
+  /* Shift the key flags into the high word of the lParam. */
+  static const LPARAM KEYUP_FLAGS = ((DWORD)(KF_UP | KF_REPEAT)) << 16;
 
-  WAIT;
+  /* Get the hardware scan code for the given keycode. */
+  BYTE scancode = MapVirtualKeyA(keycode, MAPVK_VK_TO_VSC);
+  LPARAM lp = 1 + (scancode << 16) + (extended ? KEYEVENTF_EXTENDEDKEY : 0);
+
   SendMessageA(handle, WM_KEYDOWN, keycode, lp);
-  SendMessageA(handle, WM_KEYUP  , keycode, lp | 0xc000000);
-  REDRAW;
+  SendMessageA(handle, WM_KEYUP, keycode, lp | KEYUP_FLAGS);
 }
 
 #define listbox_field_ok(t, s, f, got) \
@@ -153,11 +154,6 @@ check (DWORD style, const struct listbox_test test)
 
   listbox_query (hLB, &answer);
   listbox_ok (test, click, answer);
-
-  keypress (hLB, VK_DOWN, 0x50, TRUE);
-
-  listbox_query (hLB, &answer);
-  listbox_ok (test, step, answer);
 
   WAIT;
   DestroyWindow (hLB);
@@ -2816,42 +2812,121 @@ static void test_LB_GETCOUNT(void)
     DestroyWindow(listbox);
 }
 
+/* Tests how the listbox responds to keyboard navigation and affects the
+ * selection state.
+ */
+static void test_keyboard_navigation(void)
+{
+    static const DWORD base_styles[] = {
+        0,
+        LBS_NOSEL,
+        LBS_NODATA | LBS_OWNERDRAWFIXED,
+        LBS_NODATA | LBS_OWNERDRAWFIXED | LBS_NOSEL
+    };
+    static const DWORD selection_styles[] = {
+        0,
+        LBS_MULTIPLESEL,
+        LBS_EXTENDEDSEL,
+        LBS_MULTIPLESEL | LBS_EXTENDEDSEL
+    };
+
+    HWND listbox;
+    RECT rect;
+    LRESULT ret;
+    DWORD style;
+    int i, j;
+
+    for (i = 0; i < ARRAY_SIZE(base_styles); i++)
+    {
+        for (j = 0; j < ARRAY_SIZE(selection_styles); j++)
+        {
+            style = base_styles[i] | selection_styles[j];
+            winetest_push_context("listbox style %#lx", style);
+
+            listbox = create_listbox(style, 0);
+
+            /* Click the second item (index 1) to set initial focus/selection. */
+            SendMessageA(listbox, LB_GETITEMRECT, 1, (LPARAM)&rect);
+            buttonpress(listbox, (WORD)rect.left, (WORD)rect.top);
+
+            ret = SendMessageA(listbox, LB_GETCARETINDEX, 0, 0);
+            ok(ret == 1, "Expected 1, got %Id\n", ret);
+
+            /* Navigate to the third item with the keyboard. */
+            keypress(listbox, VK_DOWN, TRUE);
+
+            ret = SendMessageA(listbox, LB_GETCARETINDEX, 0, 0);
+            ok(ret == 2, "Expected 2, got %Id\n", ret);
+
+            if (!(style & LBS_NOSEL))
+            {
+                if (selection_styles[j] == LBS_MULTIPLESEL)
+                {
+                    /* Selection stays anchored behind at index 1. */
+                    ret = SendMessageA(listbox, LB_GETSEL, 1, 0);
+                    ok(ret == TRUE, "Expected TRUE, got %Id\n", ret);
+
+                    ret = SendMessageA(listbox, LB_GETSEL, 2, 0);
+                    ok(ret == FALSE, "Expected FALSE, got %Id\n", ret);
+
+                    /* Press Space to explicitly toggle the item under the caret. */
+                    keypress(listbox, VK_SPACE, FALSE);
+
+                    ret = SendMessageA(listbox, LB_GETSEL, 2, 0);
+                    ok(ret == TRUE, "Expected TRUE, got %Id\n", ret);
+                }
+                else
+                {
+                    /* Standard or Extended: selection follows the caret immediately. */
+                    if (selection_styles[j] == 0)
+                    {
+                        ret = SendMessageA(listbox, LB_GETCURSEL, 0, 0);
+                        ok(ret == 2, "Expected 2, got %Id\n", ret);
+                    }
+                    else
+                    {
+                        ret = SendMessageA(listbox, LB_GETSEL, 1, 0);
+                        ok(ret == FALSE, "Expected FALSE, got %Id\n", ret);
+                        ret = SendMessageA(listbox, LB_GETSEL, 2, 0);
+                        ok(ret == TRUE, "Expected TRUE, got %Id\n", ret);
+                    }
+                }
+            }
+
+            DestroyWindow(listbox);
+            winetest_pop_context();
+        }
+    }
+}
+
 START_TEST(listbox)
 {
   const struct listbox_test SS =
 /*   {add_style} */
     {{LB_ERR, LB_ERR,      0, LB_ERR},
-     {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR}};
+     {     1,      1,      1, LB_ERR}};
 /* {selected, anchor,  caret, selcount} */
   const struct listbox_test SS_NS =
     {{LB_ERR, LB_ERR,      0, LB_ERR},
-     {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR}};
+     {     1,      1,      1, LB_ERR}};
   const struct listbox_test MS =
     {{     0, LB_ERR,      0,      0},
-     {     1,      1,      1,      1},
-     {     2,      1,      2,      1}};
+     {     1,      1,      1,      1}};
   const struct listbox_test MS_NS =
     {{LB_ERR, LB_ERR,      0, LB_ERR},
-     {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR}};
+     {     1,      1,      1, LB_ERR}};
   const struct listbox_test ES =
     {{     0, LB_ERR,      0,      0},
-     {     1,      1,      1,      1},
-     {     2,      2,      2,      1}};
+     {     1,      1,      1,      1}};
   const struct listbox_test ES_NS =
     {{LB_ERR, LB_ERR,      0, LB_ERR},
-     {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR}};
+     {     1,      1,      1, LB_ERR}};
   const struct listbox_test EMS =
     {{     0, LB_ERR,      0,      0},
-     {     1,      1,      1,      1},
-     {     2,      2,      2,      1}};
+     {     1,      1,      1,      1}};
   const struct listbox_test EMS_NS =
     {{LB_ERR, LB_ERR,      0, LB_ERR},
-     {     1,      1,      1, LB_ERR},
-     {     2,      2,      2, LB_ERR}};
+     {     1,      1,      1, LB_ERR}};
 
   trace (" Testing single selection...\n");
   check (0, SS);
@@ -2912,4 +2987,5 @@ START_TEST(listbox)
   test_integral_resize();
   test_LB_GETTEXT();
   test_LB_GETCOUNT();
+  test_keyboard_navigation();
 }
