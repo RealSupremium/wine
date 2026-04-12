@@ -30,6 +30,9 @@
 #include "rpcproxy.h"
 #include "wmcodecdsp.h"
 
+#include <libavutil/avutil.h>
+#include <libswscale/swscale.h>
+
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dmo);
@@ -43,10 +46,20 @@ DEFINE_GUID(DMOVideoFormat_RGB565,D3DFMT_R5G6B5,0x524f,0x11ce,0x9f,0x53,0x00,0x2
 DEFINE_GUID(DMOVideoFormat_RGB555,D3DFMT_X1R5G5B5,0x524f,0x11ce,0x9f,0x53,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 DEFINE_GUID(DMOVideoFormat_RGB8,D3DFMT_P8,0x524f,0x11ce,0x9f,0x53,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 
+static const char *debugstr_version(UINT version)
+{
+    return wine_dbg_sprintf("%u.%u.%u", AV_VERSION_MAJOR(version), AV_VERSION_MINOR(version),
+            AV_VERSION_MICRO(version));
+}
+
 static HRESULT WINAPI color_converter_factory_CreateInstance(IClassFactory *iface, IUnknown *outer,
         REFIID riid, void **out)
 {
     static const GUID CLSID_wg_color_converter = {0xf47e2da5,0xe370,0x47b7,{0x90,0x3a,0x07,0x8d,0xdd,0x45,0xa5,0xcc}};
+
+    TRACE("avutil version %s\n", debugstr_version(avutil_version()));
+    TRACE("swscale version %s\n", debugstr_version(swscale_version()));
+
     return CoCreateInstance(&CLSID_wg_color_converter, outer, CLSCTX_INPROC_SERVER, riid, out);
 }
 

@@ -71,7 +71,7 @@
 #define EXTERN_PREFIX ""
 #endif
 #ifndef FFMPEG_CONFIGURATION
-#define FFMPEG_CONFIGURATION "--disable-autodetect --disable-iconv --disable-all --enable-pic --enable-avutil --enable-swresample"
+#define FFMPEG_CONFIGURATION "--disable-autodetect --disable-iconv --disable-all --enable-pic --enable-avutil --enable-swresample --enable-swscale"
 #endif
 #ifndef FFMPEG_LICENSE
 #define FFMPEG_LICENSE "LGPL version 2.1 or later"
@@ -1556,7 +1556,7 @@
 #define CONFIG_RUNTIME_CPUDETECT 1
 #define CONFIG_RV34DSP 0
 #define CONFIG_SAFE_BITSTREAM_READER 1
-#define CONFIG_SCALE_VIDEO_EXAMPLE 0
+#define CONFIG_SCALE_VIDEO_EXAMPLE 1
 #define CONFIG_SCENE_SAD 0
 #define CONFIG_SCHANNEL 0
 #define CONFIG_SDL2 0
@@ -1573,7 +1573,7 @@
 #define CONFIG_STARTCODE 0
 #define CONFIG_STATIC 1
 #define CONFIG_SWRESAMPLE 1
-#define CONFIG_SWSCALE 0
+#define CONFIG_SWSCALE 1
 #define CONFIG_SWSCALE_ALPHA 1
 #define CONFIG_TEXTUREDSP 0
 #define CONFIG_TEXTUREDSPENC 0

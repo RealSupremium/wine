@@ -1,5 +1,6 @@
 MODULE    = colorcnv.dll
-IMPORTS   = combase mfplat msdmo mfuuid dmoguids strmiids wmcodecdspuuid uuid
+IMPORTS   = $(FFMPEG_PE_LIBS) bcrypt combase mfplat msdmo mfuuid dmoguids strmiids wmcodecdspuuid uuid
+EXTRAINCL = $(FFMPEG_PE_CFLAGS)
 
 SOURCES = \
 	colorcnv.c \

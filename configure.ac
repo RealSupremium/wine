@@ -1276,16 +1276,20 @@ then
         WINE_NOTICE([FAudio ${notice_platform}MinGW development files not found (or too old); using bundled version.])
     fi
 
-    WINE_MINGW_PACKAGE_FLAGS(FFMPEG,[avutil swresample],[-lavutil -lswresample],
+    WINE_MINGW_PACKAGE_FLAGS(FFMPEG,[avutil swresample swscale],[-lavutil -lswresample -lswscale],
         [WINE_CHECK_MINGW_HEADER([libavutil/avutil.h])
         WINE_CHECK_MINGW_HEADER([libswresample/swresample.h])
+        WINE_CHECK_MINGW_HEADER([libswscale/swscale.h])
         if test "$ac_cv_mingw_header_libavutil_avutil_h" = "yes"
              -a "$ac_cv_mingw_header_libswresample_swresample_h" = "yes"
+             -a "$ac_cv_mingw_header_libswscale_swscale_h" = "yes"
         then
             WINE_CHECK_MINGW_LIB(avutil,avutil_version,[:],[:],[$FFMPEG_PE_LIBS])
             WINE_CHECK_MINGW_LIB(swresample,swresample_version,[:],[:],[$FFMPEG_PE_LIBS])
+            WINE_CHECK_MINGW_LIB(swscale,swscale_version,[:],[:],[$FFMPEG_PE_LIBS])
             if test "$ac_cv_mingw_lib_avutil" = "no"
                  -o "$ac_cv_mingw_lib_swresample" = "no"
+                 -o "$ac_cv_mingw_lib_swscale" = "no"
             then
                 FFMPEG_PE_CFLAGS=""
                 FFMPEG_PE_LIBS=""

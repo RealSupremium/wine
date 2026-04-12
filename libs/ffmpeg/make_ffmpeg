@@ -20,6 +20,7 @@ my @configure_args =
     "--enable-pic",
     "--enable-avutil",
     "--enable-swresample",
+    "--enable-swscale",
 );
 my %new_files;
 
@@ -41,6 +42,10 @@ my @makefiles = (
     "libswresample/arm/Makefile",
     "libswresample/Makefile",
     "libswresample/x86/Makefile",
+    "libswscale/aarch64/Makefile",
+    "libswscale/arm/Makefile",
+    "libswscale/Makefile",
+    "libswscale/x86/Makefile",
 );
 
 sub parse_objects($)
