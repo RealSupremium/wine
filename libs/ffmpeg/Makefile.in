@@ -24,7 +24,16 @@ INCLUDES = \
 	libswresample/log2_tab.c \
 	libswresample/noise_shaping_data.c \
 	libswresample/rematrix_template.c \
-	libswresample/resample_template.c
+	libswresample/resample_template.c \
+	libswscale/arm/rgb2yuv_neon_common.S \
+	libswscale/bayer_template.c \
+	libswscale/log2_tab.c \
+	libswscale/ops_tmpl_common.c \
+	libswscale/ops_tmpl_float.c \
+	libswscale/ops_tmpl_int.c \
+	libswscale/rgb2rgb_template.c \
+	libswscale/x86/ops_common.asm \
+	libswscale/x86/swscale_template.c
 
 SOURCES = \
 	libavutil/aarch64/cpu.c \
@@ -77,6 +86,7 @@ SOURCES = \
 	libavutil/float_dsp.c \
 	libavutil/float_scalarproduct.c \
 	libavutil/frame.c \
+	libavutil/half2float.c \
 	libavutil/hash.c \
 	libavutil/hdr_dynamic_metadata.c \
 	libavutil/hdr_dynamic_vivid_metadata.c \
@@ -174,5 +184,65 @@ SOURCES = \
 	libswresample/x86/rematrix_init.c \
 	libswresample/x86/resample.asm \
 	libswresample/x86/resample_init.c \
-	libswresample/x86/w64xmmtest.c
+	libswresample/x86/w64xmmtest.c \
+	libswscale/aarch64/hscale.S \
+	libswscale/aarch64/input.S \
+	libswscale/aarch64/output.S \
+	libswscale/aarch64/range_convert_neon.S \
+	libswscale/aarch64/rgb2rgb.c \
+	libswscale/aarch64/rgb2rgb_neon.S \
+	libswscale/aarch64/swscale.c \
+	libswscale/aarch64/swscale_unscaled.c \
+	libswscale/aarch64/swscale_unscaled_neon.S \
+	libswscale/aarch64/xyz2rgb_neon.S \
+	libswscale/aarch64/yuv2rgb_neon.S \
+	libswscale/alphablend.c \
+	libswscale/arm/hscale.S \
+	libswscale/arm/output.S \
+	libswscale/arm/rgb2yuv_neon_16.S \
+	libswscale/arm/rgb2yuv_neon_32.S \
+	libswscale/arm/swscale.c \
+	libswscale/arm/swscale_unscaled.c \
+	libswscale/arm/yuv2rgb_neon.S \
+	libswscale/cms.c \
+	libswscale/csputils.c \
+	libswscale/format.c \
+	libswscale/gamma.c \
+	libswscale/graph.c \
+	libswscale/hscale.c \
+	libswscale/hscale_fast_bilinear.c \
+	libswscale/input.c \
+	libswscale/lut3d.c \
+	libswscale/ops.c \
+	libswscale/ops_backend.c \
+	libswscale/ops_chain.c \
+	libswscale/ops_dispatch.c \
+	libswscale/ops_memcpy.c \
+	libswscale/ops_optimizer.c \
+	libswscale/options.c \
+	libswscale/output.c \
+	libswscale/rgb2rgb.c \
+	libswscale/slice.c \
+	libswscale/swscale.c \
+	libswscale/swscale_unscaled.c \
+	libswscale/utils.c \
+	libswscale/version.c \
+	libswscale/vscale.c \
+	libswscale/x86/hscale_fast_bilinear_simd.c \
+	libswscale/x86/input.asm \
+	libswscale/x86/ops.c \
+	libswscale/x86/ops_float.asm \
+	libswscale/x86/ops_int.asm \
+	libswscale/x86/output.asm \
+	libswscale/x86/range_convert.asm \
+	libswscale/x86/rgb2rgb.c \
+	libswscale/x86/rgb_2_rgb.asm \
+	libswscale/x86/scale.asm \
+	libswscale/x86/scale_avx2.asm \
+	libswscale/x86/swscale.c \
+	libswscale/x86/w64xmmtest.c \
+	libswscale/x86/yuv2rgb.c \
+	libswscale/x86/yuv2yuvX.asm \
+	libswscale/x86/yuv_2_rgb.asm \
+	libswscale/yuv2rgb.c
 
