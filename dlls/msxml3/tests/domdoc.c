@@ -16778,6 +16778,88 @@ static void test_createElement(void)
     free_bstrs();
 }
 
+static void test_cjk_codepages(void)
+{
+    IXMLDOMNodeList *node_list;
+    CHAR *content, *buffer;
+    IXMLDOMDocument *doc;
+    IXMLDOMNode *node;
+    WCHAR locale[8];
+    HANDLE file;
+    int i, size;
+    DWORD read;
+    HRESULT hr;
+    BSTR str;
+    const struct codepage_test {
+        const CHAR *cp;
+        BOOL supported;
+    } zhcn_tests[] = {
+        {"GB2312",      TRUE},
+        {"GBK",         TRUE},
+        {"Windows-936", FALSE},
+    };
+
+    GetSystemDefaultLocaleName(locale, sizeof(locale));
+    if (!wcscmp(locale, L"ja-JP") || !wcscmp(locale, L"en-AE"))
+    {
+        win_skip("Skipping tests on Japanese and English (AE) Windows.\n" );
+        return;
+    }
+
+    for (i = 0; i < ARRAYSIZE(zhcn_tests); i++)
+    {
+        static const CHAR xml_zhcn[] = "<?xml version=\"1.0\" encoding=\"%s\"?>\r\n<euro>\x80</euro>\r\n";
+        doc = create_document(&IID_IXMLDOMDocument);
+
+        size = strlen(xml_zhcn) + strlen(zhcn_tests[i].cp) - 1;
+        content = malloc(size);
+
+        wsprintfA(content, xml_zhcn, zhcn_tests[i].cp);
+
+        hr = IXMLDOMDocument_loadXML(doc, _bstr_(content), NULL);
+        ok(hr == S_OK, "tests[%d]: Got hr %#lx.\n", i, hr);
+
+        hr = IXMLDOMDocument_save(doc, _variantbstr_("test.xml"));
+        if (zhcn_tests[i].supported)
+            ok(hr == S_OK, "tests[%d]: Got hr %#lx.\n", i, hr);
+        else
+        {
+            ok(hr == E_FAIL, "tests[%d]: Got hr %#lx.\n", i, hr);
+            free(content);
+            IXMLDOMDocument_Release(doc);
+            continue;
+        }
+
+        file = CreateFileA("test.xml", GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        ok(file != INVALID_HANDLE_VALUE, "tests[%d]: Could not open file: %#lx.\n", i, GetLastError());
+        read = 0;
+        buffer = malloc(size);
+        memset(buffer, 0, size);
+        ReadFile(file, buffer, size, &read, NULL);
+        ok(!!read, "tests[%d]: Could not read file.\n", i);
+        ok(!memcmp(buffer, content, size), "tests[%d]: Got wrong content.\n", i);
+        free(buffer);
+        CloseHandle(file);
+        DeleteFileA("test.xml");
+
+        hr = IXMLDOMDocument_getElementsByTagName(doc, _bstr_("euro"), &node_list);
+        ok(hr == S_OK, "tests[%d]: Got hr %#lx.\n", i, hr);
+        hr = IXMLDOMNodeList_get_item(node_list, 0, &node);
+        ok(hr == S_OK, "tests[%d]: Got hr %#lx.\n", i, hr);
+        hr = IXMLDOMNode_get_text(node, &str);
+        ok(hr == S_OK, "tests[%d]: Got hr %#lx.\n", i, hr);
+        ok(!wcscmp(str, L"\x20ac"), "tests[%d]: Got unexpected text %s.\n", i, debugstr_w(str));
+        SysFreeString(str);
+        IXMLDOMNode_Release(node);
+        IXMLDOMNodeList_Release(node_list);
+
+        free(content);
+        IXMLDOMDocument_Release(doc);
+    }
+
+    free_bstrs();
+}
+
 START_TEST(domdoc)
 {
     HRESULT hr;
@@ -16882,6 +16964,7 @@ START_TEST(domdoc)
     test_document_reload();
     test_setAttribute();
     test_createElement();
+    test_cjk_codepages();
 
     if (is_clsid_supported(&CLSID_MXNamespaceManager40, &IID_IMXNamespaceManager))
     {
