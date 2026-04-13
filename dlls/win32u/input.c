@@ -2915,21 +2915,21 @@ static struct pointer *find_pointerid( UINT32 id )
     return NULL;
 }
 
-static POINTER_INFO pointer_info_from_msg( const MSG *msg )
+POINTER_INFO pointer_info_from_msg( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, DWORD time )
 {
-    POINT location = { LOWORD( msg->lParam ), HIWORD( msg->lParam ) };
+    POINT location = { LOWORD( lParam ), HIWORD( lParam ) };
     LARGE_INTEGER counter;
     POINTER_INFO info = {
-        .pointerId = GET_POINTERID_WPARAM( msg->wParam ),
+        .pointerId = GET_POINTERID_WPARAM( wParam ),
         .sourceDevice = INVALID_HANDLE_VALUE,
         .frameId = InterlockedIncrement( &last_frame ),
-        .hwndTarget = msg->hwnd,
+        .hwndTarget = hwnd,
         .historyCount = 1,
-        .dwTime = msg->time,
+        .dwTime = time,
     };
 
-    info.pointerFlags = HIWORD( msg->wParam );
-    switch (msg->message)
+    info.pointerFlags = HIWORD( wParam );
+    switch (msg)
     {
     case WM_POINTERUPDATE: info.pointerFlags |= POINTER_FLAG_UPDATE; break;
     case WM_POINTERDOWN: info.pointerFlags |= POINTER_FLAG_DOWN; break;
@@ -2967,6 +2967,23 @@ static POINTER_BUTTON_CHANGE_TYPE compare_button( const POINTER_INFO *old, const
     return change;
 }
 
+void pointer_update( UINT32 id, POINTER_INPUT_TYPE type, POINTER_INFO *info )
+{
+    POINTER_BUTTON_CHANGE_TYPE buttons;
+    struct pointer *pointer;
+
+    TRACE( "updating pointer id %d.\n", id );
+
+    if (!(pointer = find_pointerid( id )) && !(pointer = allocate_pointerid( id, type )))
+        return;
+
+    buttons = compare_button(&pointer->info, info);
+
+    pointer->info = *info;
+    pointer->info.pointerType = pointer->type;
+    pointer->info.ButtonChangeType = buttons;
+}
+
 static POINTER_INPUT_TYPE pointer_type_from_hw( const struct hw_msg_source *source )
 {
     switch (source->origin)
@@ -2986,18 +3003,8 @@ static POINTER_INPUT_TYPE pointer_type_from_hw( const struct hw_msg_source *sour
  */
 BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_data *msg_data )
 {
-    UINT32 pointer_id = GET_POINTERID_WPARAM( msg->wParam );
-    struct pointer *pointer;
-    POINTER_INFO info;
-
-    msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
-    if (!(pointer = find_pointerid( pointer_id )) &&
-        !(pointer = allocate_pointerid( pointer_id, pointer_type_from_hw( &msg_data->source ) )))
-        return TRUE;
-    info = pointer_info_from_msg( msg );
-    info.ButtonChangeType = compare_button( &pointer->info, &info );
-    pointer->info = info;
-    pointer->info.pointerType = pointer->type;
+    POINTER_INFO info = pointer_info_from_msg( msg->hwnd, msg->message, msg->wParam, msg->lParam, msg->time );
+    pointer_update( GET_POINTERID_WPARAM( msg->wParam ), pointer_type_from_hw( &msg_data->source ), &info );
     return TRUE;
 }
 
