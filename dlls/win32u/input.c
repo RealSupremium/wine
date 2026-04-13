@@ -413,6 +413,7 @@ struct pointer
 {
     UINT32 id;
     struct list entry;
+    POINTER_INPUT_TYPE type;
     POINTER_INFO info;
 };
 
@@ -2868,7 +2869,7 @@ INT WINAPI NtUserScheduleDispatchNotification( HWND hwnd )
     return 0;
 }
 
-static struct pointer *allocate_pointerid( UINT32 id );
+static struct pointer *allocate_pointerid( UINT32 id, POINTER_INPUT_TYPE type );
 
 static struct pointer_thread_data *get_pointer_thread_data(void)
 {
@@ -2876,27 +2877,29 @@ static struct pointer_thread_data *get_pointer_thread_data(void)
     if (!thread_info->pointer_data && (thread_info->pointer_data = calloc( 1, sizeof(*thread_info->pointer_data) )))
     {
         list_init( &thread_info->pointer_data->known_pointers );
-        allocate_pointerid( 1 );
+        allocate_pointerid( 1, PT_MOUSE );
     }
     return thread_info->pointer_data;
 };
 
-static struct pointer *allocate_pointerid( UINT32 id )
+static struct pointer *allocate_pointerid( UINT32 id, POINTER_INPUT_TYPE type )
 {
     struct pointer_thread_data *thread_data = get_pointer_thread_data();
     struct pointer *pointer;
 
-    TRACE( "allocating pointer id %d\n", id );
+    TRACE( "allocating pointer id %d, type %#x\n", id, type );
 
     if (!thread_data || !(pointer = calloc( 1, sizeof(*pointer) )))
         return NULL;
     pointer->id = id;
+    pointer->type = type;
     list_add_tail( &thread_data->known_pointers, &pointer->entry );
 
     return pointer;
 }
 
-static struct pointer *find_pointerid( UINT32 id ) {
+static struct pointer *find_pointerid( UINT32 id, POINTER_INPUT_TYPE type )
+{
     struct pointer_thread_data *thread_data = get_pointer_thread_data();
     struct pointer *pointer;
 
@@ -2909,7 +2912,7 @@ static struct pointer *find_pointerid( UINT32 id ) {
         if (pointer->id == id)
             return pointer;
 
-    return allocate_pointerid( id );
+    return allocate_pointerid( id, type );
 }
 
 static POINTER_INFO pointer_info_from_msg( const MSG *msg )
@@ -2964,6 +2967,18 @@ static POINTER_BUTTON_CHANGE_TYPE compare_button( const POINTER_INFO *old, const
     return change;
 }
 
+static POINTER_INPUT_TYPE pointer_type_from_hw( const struct hw_msg_source *source )
+{
+    switch (source->origin)
+    {
+    case IMDT_PEN: return PT_PEN;
+    case IMDT_MOUSE: return PT_MOUSE;
+    case IMDT_TOUCH:
+    case IMDT_TOUCHPAD: return PT_TOUCH;
+    default: return PT_POINTER;
+    }
+}
+
 /***********************************************************************
  *          process_pointer_message
  g*
@@ -2975,11 +2990,12 @@ BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_da
     POINTER_INFO info;
 
     msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
-    if (!(pointer = find_pointerid( GET_POINTERID_WPARAM( msg->wParam ) )))
+    if (!(pointer = find_pointerid( GET_POINTERID_WPARAM( msg->wParam ), pointer_type_from_hw( &msg_data->source ) )))
         return TRUE;
     info = pointer_info_from_msg( msg );
     info.ButtonChangeType = compare_button( &pointer->info, &info );
     pointer->info = info;
+    pointer->info.pointerType = pointer->type;
     return TRUE;
 }
 
