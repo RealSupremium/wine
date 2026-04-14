@@ -440,6 +440,7 @@ end:
 
 static atomic_uintptr_t av_log_callback = (uintptr_t)av_log_default_callback;
 
+#undef av_log
 void av_log(void* avcl, int level, const char *fmt, ...)
 {
     va_list vl;
@@ -448,6 +449,7 @@ void av_log(void* avcl, int level, const char *fmt, ...)
     va_end(vl);
 }
 
+#undef av_log_once
 void av_log_once(void* avcl, int initial_level, int subsequent_level, int *state, const char *fmt, ...)
 {
     va_list vl;
@@ -457,6 +459,7 @@ void av_log_once(void* avcl, int initial_level, int subsequent_level, int *state
     *state = 1;
 }
 
+#undef av_vlog
 void av_vlog(void* avcl, int level, const char *fmt, va_list vl)
 {
     AVClass* avc = avcl ? *(AVClass **) avcl : NULL;
