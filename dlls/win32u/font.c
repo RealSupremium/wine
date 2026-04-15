@@ -6700,6 +6700,83 @@ static void load_registry_fonts(void)
     NtClose( hkey );
 }
 
+static void init_uniscribe_fallbacks(void)
+{
+    HKEY hkey;
+    DWORD disp;
+    WCHAR font_name[LF_FACESIZE];
+    int i;
+
+    /* Table kept in sync with scriptInformation[] in dlls/gdi32/uniscribe/usp10.c */
+    static const struct
+    {
+        DWORD ch;
+        DWORD tag;
+    }
+    fallbacks[] =
+    {
+        {0x0531, MS_MAKE_TAG('a', 'r', 'm', 'n')},
+        {0x05d0, MS_MAKE_TAG('h', 'e', 'b', 'r')},
+        {0x0627, MS_MAKE_TAG('a', 'r', 'a', 'b')},
+        {0x0710, MS_MAKE_TAG('s', 'y', 'r', 'c')},
+        {0x0780, MS_MAKE_TAG('t', 'h', 'a', 'a')},
+        {0x07c0, MS_MAKE_TAG('n', 'k', 'o', ' ')},
+        {0x0905, MS_MAKE_TAG('d', 'e', 'v', 'a')},
+        {0x0985, MS_MAKE_TAG('b', 'e', 'n', 'g')},
+        {0x0a05, MS_MAKE_TAG('g', 'u', 'r', 'u')},
+        {0x0a85, MS_MAKE_TAG('g', 'u', 'j', 'r')},
+        {0x0b05, MS_MAKE_TAG('o', 'r', 'y', 'a')},
+        {0x0b85, MS_MAKE_TAG('t', 'a', 'm', 'l')},
+        {0x0c05, MS_MAKE_TAG('t', 'e', 'l', 'u')},
+        {0x0c85, MS_MAKE_TAG('k', 'n', 'd', 'a')},
+        {0x0d05, MS_MAKE_TAG('m', 'l', 'y', 'm')},
+        {0x0d85, MS_MAKE_TAG('s', 'i', 'n', 'h')},
+        {0x0e01, MS_MAKE_TAG('t', 'h', 'a', 'i')},
+        {0x0e81, MS_MAKE_TAG('l', 'a', 'o', ' ')},
+        {0x0f40, MS_MAKE_TAG('t', 'i', 'b', 't')},
+        {0x10a0, MS_MAKE_TAG('g', 'e', 'o', 'r')},
+        {0x1000, MS_MAKE_TAG('m', 'y', 'm', 'r')},
+        {0x1200, MS_MAKE_TAG('e', 't', 'h', 'i')},
+        {0x13a0, MS_MAKE_TAG('c', 'h', 'e', 'r')},
+        {0x1401, MS_MAKE_TAG('c', 'a', 'n', 's')},
+        {0x1681, MS_MAKE_TAG('o', 'g', 'a', 'm')},
+        {0x16a0, MS_MAKE_TAG('r', 'u', 'n', 'r')},
+        {0x1780, MS_MAKE_TAG('k', 'h', 'm', 'r')},
+        {0x1820, MS_MAKE_TAG('m', 'o', 'n', 'g')},
+        {0x1950, MS_MAKE_TAG('t', 'a', 'l', 'o')},
+        {0x1980, MS_MAKE_TAG('t', 'a', 'l', 'u')},
+        {0x2801, MS_MAKE_TAG('b', 'r', 'a', 'i')},
+        {0x2d30, MS_MAKE_TAG('t', 'f', 'n', 'g')},
+        {0x3041, MS_MAKE_TAG('k', 'a', 'n', 'a')},
+        {0x3105, MS_MAKE_TAG('b', 'o', 'p', 'o')},
+        {0x4e00, MS_MAKE_TAG('h', 'a', 'n', 'i')},
+        {0xa840, MS_MAKE_TAG('p', 'h', 'a', 'g')},
+        {0xac00, MS_MAKE_TAG('h', 'a', 'n', 'g')},
+        {0xa000, MS_MAKE_TAG('y', 'i', ' ', ' ')},
+        {0xa500, MS_MAKE_TAG('v', 'a', 'i', ' ')},
+        {0x10400, MS_MAKE_TAG('d', 's', 'r', 't')},
+        {0x10480, MS_MAKE_TAG('o', 's', 'm', 'a')},
+        {0x1d400, MS_MAKE_TAG('m', 'a', 't', 'h')},
+    };
+
+    hkey = reg_create_ascii_key(hkcu_key, "Software\\Wine\\Uniscribe\\SystemFallback", 0, &disp);
+    if (!hkey) return;
+
+    for (i = 0; i < ARRAY_SIZE(fallbacks); i++)
+    {
+        font_funcs->get_default_font_for_char(fallbacks[i].ch, font_name);
+        if (font_name[0])
+        {
+            WCHAR nameW[9];
+            char tag_str[9];
+            sprintf(tag_str, "%x", fallbacks[i].tag);
+            ascii_to_unicode(nameW, tag_str, strlen(tag_str) + 1);
+            set_reg_value(hkey, nameW, REG_SZ, font_name, (lstrlenW(font_name) + 1) * sizeof(WCHAR));
+        }
+    }
+    NtClose(hkey);
+}
+
 static HKEY open_hkcu(void)
 {
     char buffer[256];
@@ -6781,6 +6858,7 @@ UINT font_init(void)
     reorder_font_list();
     load_gdi_font_subst();
     load_gdi_font_replacements();
+    init_uniscribe_fallbacks();
     load_system_links();
     dump_gdi_font_list();
     dump_gdi_font_subst();
