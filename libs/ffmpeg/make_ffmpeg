@@ -19,6 +19,7 @@ my @configure_args =
     "--disable-all",
     "--enable-pic",
     "--enable-avutil",
+    "--enable-swresample",
 );
 my %new_files;
 
@@ -36,6 +37,10 @@ my @makefiles = (
     "libavutil/arm/Makefile",
     "libavutil/Makefile",
     "libavutil/x86/Makefile",
+    "libswresample/aarch64/Makefile",
+    "libswresample/arm/Makefile",
+    "libswresample/Makefile",
+    "libswresample/x86/Makefile",
 );
 
 sub parse_objects($)

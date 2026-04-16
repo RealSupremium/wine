@@ -71,7 +71,7 @@
 #define EXTERN_PREFIX ""
 #endif
 #ifndef FFMPEG_CONFIGURATION
-#define FFMPEG_CONFIGURATION "--disable-autodetect --disable-iconv --disable-all --enable-pic --enable-avutil"
+#define FFMPEG_CONFIGURATION "--disable-autodetect --disable-iconv --disable-all --enable-pic --enable-avutil --enable-swresample"
 #endif
 #ifndef FFMPEG_LICENSE
 #define FFMPEG_LICENSE "LGPL version 2.1 or later"
@@ -1546,7 +1546,7 @@
 #define CONFIG_QSV_TRANSCODE_EXAMPLE 0
 #define CONFIG_RANGECODER 0
 #define CONFIG_REMUX_EXAMPLE 0
-#define CONFIG_RESAMPLE_AUDIO_EXAMPLE 0
+#define CONFIG_RESAMPLE_AUDIO_EXAMPLE 1
 #define CONFIG_RESOURCE_COMPRESSION 0
 #define CONFIG_RIFFDEC 0
 #define CONFIG_RIFFENC 0
@@ -1572,7 +1572,7 @@
 #define CONFIG_SRTP 0
 #define CONFIG_STARTCODE 0
 #define CONFIG_STATIC 1
-#define CONFIG_SWRESAMPLE 0
+#define CONFIG_SWRESAMPLE 1
 #define CONFIG_SWSCALE 0
 #define CONFIG_SWSCALE_ALPHA 1
 #define CONFIG_TEXTUREDSP 0
