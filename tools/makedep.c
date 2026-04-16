@@ -3658,6 +3658,7 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         var_cflags = "$(x86_64_CFLAGS)";
         strarray_add( &cflags, "-D__arm64ec_x64__" );
         strarray_addall( &cflags, get_expanded_make_var_array( top_makefile, "x86_64_EXTRACFLAGS" ));
+        strarray_addall( &cflags, get_expanded_make_var_array( make, "x86_64_EXTRADEFS" ) );
     }
     else if (source->file->flags & FLAG_C_CXX)
     {
@@ -3672,6 +3673,7 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         }
         else
             strarray_addall( &cflags, extra_cxxflags[arch] );
+        strarray_addall( &cflags, get_expanded_arch_var_array( make, "EXTRADEFS", arch ) );
     }
     else
     {
@@ -3684,6 +3686,7 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         }
         else
             strarray_addall( &cflags, extra_cflags[arch] );
+        strarray_addall( &cflags, get_expanded_arch_var_array( make, "EXTRADEFS", arch ) );
     }
 
     if (!arch)
