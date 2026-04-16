@@ -1153,6 +1153,35 @@ static void parse_cxx_file( struct file *source, FILE *file )
 
 
 /*******************************************************************
+ *         parse_nasm_directive
+ */
+static void parse_nasm_directive( struct file *source, char *str )
+{
+    str = skip_spaces( str );
+    if (*str++ != '%') return;
+    str = skip_spaces( str );
+
+    if (!strncmp( str, "include", 7 ))
+        parse_include_directive( source, str + 7 );
+}
+
+
+/*******************************************************************
+ *         parse_nasm_file
+ */
+static void parse_nasm_file( struct file *source, FILE *file )
+{
+    char *buffer;
+
+    input_line = 0;
+    while ((buffer = get_line( file )))
+    {
+        parse_nasm_directive( source, buffer );
+    }
+}
+
+
+/*******************************************************************
  *         parse_rc_file
  */
 static void parse_rc_file( struct file *source, FILE *file )
@@ -1274,7 +1303,8 @@ static const struct
     { ".rc",  parse_rc_file },
     { ".ver", parse_rc_file },
     { ".in",  parse_in_file },
-    { ".sfd", parse_sfd_file }
+    { ".sfd", parse_sfd_file },
+    { ".asm", parse_nasm_file },
 };
 
 /*******************************************************************
@@ -3533,6 +3563,47 @@ static void output_source_winmd( struct makefile *make, struct incl_file *source
 
 
 /*******************************************************************
+ *         output_source_nasm
+ */
+static void output_source_nasm( struct makefile *make, struct incl_file *source, const char *obj )
+{
+    struct strarray defines = get_source_defines( make, source, obj );
+    struct strarray targets = empty_strarray;
+    unsigned int arch;
+
+    for (arch = 1; arch < archs.count; arch++)
+    {
+        int cpu = get_cpu_from_name( archs.str[arch] );
+        const char *obj_name;
+
+        if (cpu != CPU_i386 && cpu != CPU_x86_64) continue;
+        if (!get_expanded_arch_var( make, "AS", arch )) continue;
+
+        obj_name = strmake( "%s%s.o", source->arch ? "" : arch_dirs[arch], obj );
+        strarray_add( &targets, obj_name );
+        strarray_add( &make->object_files[arch], obj_name );
+
+        output( "%s: %s\n", obj_dir_path( make, obj_name ), source->filename );
+        output( "\t%s%s -o $@ %s -I%s %s", cmd_prefix( "AS" ), arch_make_variable( "AS", arch ),
+                source->filename, src_dir_path( make, get_dirname( source->name ) ),
+                arch_make_variable( "ASMFLAGS", arch ) );
+        output_filenames( get_expanded_make_var_array( make, "ASMFLAGS" ) );
+        output_filenames( get_expanded_arch_var_array( make, "ASMDEFS", arch ) );
+        output_filenames( defines );
+        output( "\n" );
+    }
+
+    if (targets.count && source->dependencies.count)
+    {
+        output_filenames_obj_dir( make, targets );
+        output( ":" );
+        output_filenames( source->dependencies );
+        output( "\n" );
+    }
+}
+
+
+/*******************************************************************
  *         output_source_one_arch
  */
 static void output_source_one_arch( struct makefile *make, struct incl_file *source, const char *obj,
@@ -3777,6 +3848,7 @@ static const struct
     { "spec", output_source_spec },
     { "xml", output_source_xml },
     { "winmd", output_source_winmd },
+    { "asm", output_source_nasm },
     { NULL, output_source_default }
 };
 
