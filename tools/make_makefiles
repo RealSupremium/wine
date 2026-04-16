@@ -146,7 +146,7 @@ sub parse_makefile($)
             $make{$var} = $2;
             next;
         }
-        if (/^\s*(SOURCES|INSTALL_LIB)\s*=\s*(.*)/)
+        if (/^\s*(SOURCES|INSTALL_LIB|INCLUDES)\s*=\s*(.*)/)
         {
             my $var = $1;
             my @list = split(/\s+/, $2);
@@ -250,6 +250,7 @@ sub assign_sources_to_makefiles(@)
         next if $file =~ /Makefile\.in$/;
         my $dir = dirname( $file );
         my $subdir = $dir;
+        my %local_includes;
 
         while ($dir && !defined $makefiles{"$dir/Makefile.in"}) { $dir = dirname( $dir ); }
         $subdir =~ s/^\Q$dir\E\/?//;
@@ -260,7 +261,18 @@ sub assign_sources_to_makefiles(@)
         my $make = $makefiles{"$dir/Makefile.in"};
         my $name = substr( $file, length($dir) + 1 );
 
-        if ($name =~ /(.*\/)?(.*\.h)$/)
+        foreach (@{${$make}{"INCLUDES"}})
+        {
+            $local_includes{$_} = 1;
+        }
+
+        if (defined $local_includes{$name})
+        {
+            next if defined $global_includes{$name} and $name ne "config.h";
+            push @{${$make}{"=INCLUDES"}}, "$name";
+            next;
+        }
+        elsif ($name =~ /(.*\/)?(.*\.h)$/)
         {
             my $basename = $2;
             next unless defined $global_includes{$name} || defined $global_includes{$basename};
@@ -299,7 +311,7 @@ sub assign_sources_to_makefiles(@)
         {
             next unless $dir eq "include";
         }
-        elsif ($name !~ /\.(S|c|cpp|desktop|in|inl|l|m|mc|po|rc|rh|sfd|svg|ver|x|y)$/)
+        elsif ($name !~ /\.(S|asm|c|cpp|desktop|in|inl|l|m|mc|po|rc|rh|sfd|svg|ver|x|y)$/)
         {
             next;
         }
@@ -378,6 +390,7 @@ sub update_makefiles(@)
     # update the source variables in all the makefiles
 
     foreach my $file (sort @_) { replace_makefile_variables( $file, "SOURCES" ); }
+    foreach my $file (sort @_) { replace_makefile_variables( $file, "INCLUDES" ); }
     replace_makefile_variables( "include/Makefile.in", "INSTALL_LIB" );
 
     push @lines, "dnl End of auto-generated output commands\n";
