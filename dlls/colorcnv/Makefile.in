@@ -3,5 +3,6 @@ IMPORTS   = $(FFMPEG_PE_LIBS) bcrypt combase mfplat msdmo mfuuid dmoguids strmii
 EXTRAINCL = $(FFMPEG_PE_CFLAGS)
 
 SOURCES = \
+	color_converter.c \
 	colorcnv.c \
 	colorcnv.idl
