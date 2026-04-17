@@ -4286,3 +4286,29 @@ enum inproc_sync_type
 @REPLY
     obj_handle_t   handle;            /* port handle */
 @END
+
+
+/* Connect to an LPC port */
+@REQ(connect_lpc_port)
+    unsigned int   access;            /* desired access rights */
+    data_size_t    info_size;         /* size of connection info */
+    VARARG(objattr,object_attributes);/* object attributes */
+    VARARG(info,bytes);               /* connection info data */
+@REPLY
+    obj_handle_t   handle;            /* handle to client port */
+    data_size_t    info_size;         /* size of returned info */
+    VARARG(info,bytes);               /* returned connection info */
+@END
+
+
+/* Listen for connection requests */
+@REQ(listen_lpc_port)
+    obj_handle_t   handle;            /* handle to server port */
+@REPLY
+    client_ptr_t   message;           /* message pointer (unused) */
+    data_size_t    msg_size;          /* size of connection info */
+    process_id_t   client_pid;        /* client process ID */
+    thread_id_t    client_tid;        /* client thread ID */
+    unsigned int   msg_id;            /* message ID for accept */
+    VARARG(info,bytes);               /* connection info data */
+@END
