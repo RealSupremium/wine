@@ -4312,3 +4312,29 @@ enum inproc_sync_type
     unsigned int   msg_id;            /* message ID for accept */
     VARARG(info,bytes);               /* connection info data */
 @END
+
+
+/* Accept or reject an LPC connection */
+@REQ(accept_lpc_connect)
+    obj_handle_t   handle;            /* handle (unused, connection found by msg_id) */
+    int            accept;            /* accept or reject */
+    unsigned int   msg_id;            /* message ID from listen */
+    client_ptr_t   context;           /* port context */
+    VARARG(info,bytes);               /* connection info to return */
+@REPLY
+    obj_handle_t   handle;            /* handle to communication port */
+@END
+
+
+/* Complete the connection */
+@REQ(complete_lpc_connect)
+    obj_handle_t   handle;            /* handle to communication port */
+@END
+
+
+/* Get connection status for client port */
+@REQ(get_lpc_connect_status)
+    obj_handle_t   handle;            /* handle to client port */
+@REPLY
+    unsigned int   status;            /* connection status */
+@END

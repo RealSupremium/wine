@@ -45,6 +45,7 @@
 /* Port types */
 #define PORT_TYPE_SERVER      0x01  /* Named port that server listens on */
 #define PORT_TYPE_CLIENT      0x02  /* Client's end of connection */
+#define PORT_TYPE_CHANNEL     0x03  /* Server's per-client communication channel */
 
 /* Port flags */
 #define PORT_FLAG_WAITABLE    0x0001
@@ -107,6 +108,7 @@ struct lpc_port
     unsigned int        max_connect_info;/* maximum connection info length */
     struct object      *wait_event;      /* event for WaitForSingleObject (waitable ports) */
     struct process     *server_process;  /* server process (for named ports) */
+    client_ptr_t        port_context;    /* user-defined port context */
     struct thread      *client_thread;   /* client thread (for NtCompleteConnectPort) */
     struct object      *connect_event;   /* event signaled when connection completes */
     unsigned int        connect_status;  /* STATUS_SUCCESS or error code from accept */
@@ -220,6 +222,7 @@ static struct lpc_port *create_lpc_port( struct object *root, const struct unico
             port->max_connect_info = max_connect_info ? max_connect_info : 256;
             port->wait_event = NULL;
             port->server_process = (struct process *)grab_object( current->process );
+            port->port_context = 0;
             port->client_thread = NULL;
             port->connect_event = NULL;
             port->connect_status = STATUS_PENDING;
@@ -263,6 +266,7 @@ static struct lpc_port *create_port_internal( unsigned int port_type, struct lpc
     port->max_connect_info = connection_port->max_connect_info;
     port->wait_event = NULL;
     port->server_process = NULL;
+    port->port_context = 0;
     port->client_thread = NULL;
     port->connect_event = NULL;
     port->connect_status = STATUS_PENDING;
@@ -476,5 +480,133 @@ DECL_HANDLER(listen_lpc_port)
     if (msg->data_size)
         set_reply_data( msg->data, min( msg->data_size, get_reply_max_size() ) );
 
+    release_object( port );
+}
+
+/* Find a pending connection message by message ID */
+static struct lpc_message *find_pending_connect_global( unsigned int msg_id )
+{
+    struct lpc_message *msg;
+
+    LIST_FOR_EACH_ENTRY( msg, &global_pending_connects, struct lpc_message, global_entry )
+    {
+        if (msg->msg_id == msg_id)
+            return msg;
+    }
+    return NULL;
+}
+
+/* Accept or reject a connection */
+DECL_HANDLER(accept_lpc_connect)
+{
+    struct lpc_port *connection_port;
+    struct lpc_port *comm_port = NULL;
+    struct lpc_port *client_port;
+    struct lpc_message *msg;
+
+    msg = find_pending_connect_global( req->msg_id );
+    if (!msg)
+    {
+        set_error( STATUS_INVALID_CID );
+        return;
+    }
+
+    connection_port = msg->server_port;
+    if (!connection_port || connection_port->port_type != PORT_TYPE_SERVER)
+    {
+        set_error( STATUS_INVALID_PORT_HANDLE );
+        return;
+    }
+
+    client_port = msg->sender_port;
+
+    /* Remove from port's pending list */
+    list_remove( &msg->entry );
+
+    if (req->accept)
+    {
+        comm_port = create_port_internal( PORT_TYPE_CHANNEL, connection_port );
+        if (!comm_port)
+        {
+            free_lpc_message( msg );
+            return;
+        }
+
+        comm_port->connected_port = (struct lpc_port *)grab_object( client_port );
+        client_port->connected_port = (struct lpc_port *)grab_object( comm_port );
+        client_port->connect_status = STATUS_SUCCESS;
+        comm_port->port_context = req->context;
+
+        if (msg->sender_thread)
+            comm_port->client_thread = (struct thread *)grab_object( msg->sender_thread );
+
+        reply->handle = alloc_handle_no_access_check( current->process, comm_port,
+                                                       PORT_ALL_ACCESS, 0 );
+        release_object( comm_port );
+    }
+    else
+    {
+        client_port->connect_status = STATUS_PORT_CONNECTION_REFUSED;
+        if (client_port->connect_event)
+            signal_sync( client_port->connect_event );
+        reply->handle = 0;
+    }
+
+    free_lpc_message( msg );
+}
+
+/* Complete the connection (wake the client) */
+DECL_HANDLER(complete_lpc_connect)
+{
+    struct lpc_port *port;
+    struct lpc_port *client_port;
+
+    port = (struct lpc_port *)get_handle_obj( current->process, req->handle,
+                                               PORT_CONNECT, &lpc_port_ops );
+    if (!port) return;
+
+    if (port->port_type != PORT_TYPE_CHANNEL)
+    {
+        set_error( STATUS_INVALID_PORT_HANDLE );
+        release_object( port );
+        return;
+    }
+
+    client_port = port->connected_port;
+    if (client_port)
+    {
+        /* Signal the connect_event to wake the client. */
+        if (client_port->connect_event)
+        {
+            signal_sync( client_port->connect_event );
+        }
+    }
+
+    if (port->client_thread)
+    {
+        release_object( port->client_thread );
+        port->client_thread = NULL;
+    }
+
+    release_object( port );
+}
+
+/* Get connection status for client port */
+DECL_HANDLER(get_lpc_connect_status)
+{
+    struct lpc_port *port;
+
+    port = (struct lpc_port *)get_handle_obj( current->process, req->handle,
+                                               PORT_CONNECT, &lpc_port_ops );
+    if (!port) return;
+
+    if (port->port_type != PORT_TYPE_CLIENT)
+    {
+        set_error( STATUS_INVALID_PORT_HANDLE );
+        release_object( port );
+        return;
+    }
+
+    reply->status = port->connect_status;
     release_object( port );
 }
