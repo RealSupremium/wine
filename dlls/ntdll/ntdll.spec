@@ -370,7 +370,7 @@
 @ stdcall -syscall=0x000b NtReplyWaitReceivePort(ptr ptr ptr ptr)
 @ stdcall -syscall=0x002b NtReplyWaitReceivePortEx(long ptr ptr ptr ptr)
 # @ stub NtReplyWaitReplyPort
-# @ stub NtRequestPort
+@ stdcall -syscall NtRequestPort(ptr ptr)
 @ stdcall -syscall=0x0022 NtRequestWaitReplyPort(ptr ptr ptr)
 @ stdcall -syscall NtResetEvent(long ptr)
 @ stdcall -syscall NtResetWriteWatch(long ptr long)
@@ -1442,7 +1442,7 @@
 @ stdcall -private ZwReplyWaitReceivePort(ptr ptr ptr ptr) NtReplyWaitReceivePort
 @ stdcall -private ZwReplyWaitReceivePortEx(long ptr ptr ptr ptr) NtReplyWaitReceivePortEx
 # @ stub ZwReplyWaitReplyPort
-# @ stub ZwRequestPort
+@ stdcall -private ZwRequestPort(ptr ptr) NtRequestPort
 @ stdcall -private ZwRequestWaitReplyPort(ptr ptr ptr) NtRequestWaitReplyPort
 @ stdcall -private ZwResetEvent(long ptr) NtResetEvent
 @ stdcall -private ZwResetWriteWatch(long ptr long) NtResetWriteWatch

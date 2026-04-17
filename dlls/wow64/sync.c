@@ -1358,8 +1358,19 @@ NTSTATUS WINAPI wow64_NtReplyWaitReceivePortEx( UINT *args )
     LPC_MESSAGE *msg = get_ptr( &args );
     LARGE_INTEGER *timeout = get_ptr( &args );
 
-    FIXME( "%p %p %p %p %p: stub\n", handle, id, reply, msg, timeout );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtReplyWaitReceivePortEx( handle, id, reply, msg, timeout );
+}
+
+
+/**********************************************************************
+ *           wow64_NtRequestPort
+ */
+NTSTATUS WINAPI wow64_NtRequestPort( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    LPC_MESSAGE *msg = get_ptr( &args );
+
+    return NtRequestPort( handle, msg );
 }
 
 
@@ -1372,8 +1383,7 @@ NTSTATUS WINAPI wow64_NtRequestWaitReplyPort( UINT *args )
     LPC_MESSAGE *msg_in = get_ptr( &args );
     LPC_MESSAGE *msg_out = get_ptr( &args );
 
-    FIXME( "%p %p %p: stub\n", handle, msg_in, msg_out );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtRequestWaitReplyPort( handle, msg_in, msg_out );
 }
 
 
