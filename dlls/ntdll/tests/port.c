@@ -119,6 +119,9 @@ static NTSTATUS (WINAPI *pNtAcceptConnectPort)(PHANDLE,ULONG,PLPC_MESSAGE,ULONG,
 static NTSTATUS (WINAPI *pNtReplyPort)(HANDLE,PLPC_MESSAGE);
 static NTSTATUS (WINAPI *pNtReplyWaitReceivePort)(PHANDLE,PULONG,PLPC_MESSAGE,
                                                   PLPC_MESSAGE);
+static NTSTATUS (WINAPI *pNtReplyWaitReceivePortEx)(PHANDLE,PULONG,PLPC_MESSAGE,
+                                                    PLPC_MESSAGE,LARGE_INTEGER*);
+static NTSTATUS (WINAPI *pNtListenPort)(HANDLE,PLPC_MESSAGE);
 static NTSTATUS (WINAPI *pNtCreatePort)(PHANDLE,POBJECT_ATTRIBUTES,ULONG,ULONG,ULONG);
 static NTSTATUS (WINAPI *pNtRequestWaitReplyPort)(HANDLE,PLPC_MESSAGE,PLPC_MESSAGE);
 static NTSTATUS (WINAPI *pNtRequestPort)(HANDLE,PLPC_MESSAGE);
@@ -143,6 +146,8 @@ static BOOL init_function_ptrs(void)
     pNtAcceptConnectPort = (void *)GetProcAddress(hntdll, "NtAcceptConnectPort");
     pNtReplyPort = (void *)GetProcAddress(hntdll, "NtReplyPort");
     pNtReplyWaitReceivePort = (void *)GetProcAddress(hntdll, "NtReplyWaitReceivePort");
+    pNtReplyWaitReceivePortEx = (void *)GetProcAddress(hntdll, "NtReplyWaitReceivePortEx");
+    pNtListenPort = (void *)GetProcAddress(hntdll, "NtListenPort");
     pNtCreatePort = (void *)GetProcAddress(hntdll, "NtCreatePort");
     pNtRequestWaitReplyPort = (void *)GetProcAddress(hntdll, "NtRequestWaitReplyPort");
     pNtRequestPort = (void *)GetProcAddress(hntdll, "NtRequestPort");
@@ -364,6 +369,279 @@ static void test_ports_server( HANDLE PortHandle )
     HeapFree(GetProcessHeap(), 0, LpcMessage);
 }
 
+static void test_create_port_errors(void)
+{
+    OBJECT_ATTRIBUTES obj;
+    HANDLE port_handle;
+    NTSTATUS status;
+    UNICODE_STRING name;
+    static const WCHAR ERR_PORT1[] = {'\\','E','r','r','P','o','r','t','1',0};
+    static const WCHAR ERR_PORT2[] = {'\\','E','r','r','P','o','r','t','2',0};
+    static const WCHAR ERR_PORT3[] = {'\\','E','r','r','P','o','r','t','3',0};
+
+    /* Test NULL object attributes - Windows 64-bit returns SUCCESS, Wow64 returns ACCESS_VIOLATION */
+    status = pNtCreatePort(&port_handle, NULL, 0, 0, 0);
+    ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER || status == STATUS_ACCESS_VIOLATION,
+       "Expected STATUS_SUCCESS, STATUS_INVALID_PARAMETER or STATUS_ACCESS_VIOLATION, got %08lx\n", status);
+    if (status == STATUS_SUCCESS) NtClose(port_handle);
+
+    /* Test zero-length object attributes - Windows returns SUCCESS */
+    memset(&obj, 0, sizeof(OBJECT_ATTRIBUTES));
+    obj.Length = 0;
+    status = pNtCreatePort(&port_handle, &obj, 0, 0, 0);
+    ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER || status == STATUS_INVALID_HANDLE,
+       "Expected STATUS_SUCCESS, STATUS_INVALID_PARAMETER or STATUS_INVALID_HANDLE, got %08lx\n", status);
+    if (status == STATUS_SUCCESS) NtClose(port_handle);
+
+    /* Test with valid object attributes but NULL name - Windows returns SUCCESS */
+    memset(&obj, 0, sizeof(OBJECT_ATTRIBUTES));
+    obj.Length = sizeof(OBJECT_ATTRIBUTES);
+    obj.ObjectName = NULL;
+    status = pNtCreatePort(&port_handle, &obj, 0, 0, 0);
+    ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER || status == STATUS_OBJECT_NAME_INVALID,
+       "Expected STATUS_SUCCESS, STATUS_INVALID_PARAMETER or STATUS_OBJECT_NAME_INVALID, got %08lx\n", status);
+    if (status == STATUS_SUCCESS) NtClose(port_handle);
+
+    /* Test with empty name - Windows returns SUCCESS */
+    pRtlInitUnicodeString(&name, L"");
+    memset(&obj, 0, sizeof(OBJECT_ATTRIBUTES));
+    obj.Length = sizeof(OBJECT_ATTRIBUTES);
+    obj.ObjectName = &name;
+    status = pNtCreatePort(&port_handle, &obj, 0, 0, 0);
+    ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER || status == STATUS_OBJECT_NAME_INVALID,
+       "Expected STATUS_SUCCESS, STATUS_INVALID_PARAMETER or STATUS_OBJECT_NAME_INVALID, got %08lx\n", status);
+    if (status == STATUS_SUCCESS) NtClose(port_handle);
+
+    /* Test with max message size too large - use unique name to avoid collision */
+    pRtlInitUnicodeString(&name, ERR_PORT1);
+    memset(&obj, 0, sizeof(OBJECT_ATTRIBUTES));
+    obj.Length = sizeof(OBJECT_ATTRIBUTES);
+    obj.ObjectName = &name;
+    status = pNtCreatePort(&port_handle, &obj, 0x100001, 0, 0);
+    ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER || status == STATUS_SECTION_TOO_BIG || status == STATUS_OBJECT_NAME_COLLISION,
+       "Expected STATUS_SUCCESS, STATUS_INVALID_PARAMETER, STATUS_SECTION_TOO_BIG or STATUS_OBJECT_NAME_COLLISION, got %08lx\n", status);
+    if (status == STATUS_SUCCESS) NtClose(port_handle);
+
+    /* Test with max connect info too large - use unique name */
+    pRtlInitUnicodeString(&name, ERR_PORT2);
+    memset(&obj, 0, sizeof(OBJECT_ATTRIBUTES));
+    obj.Length = sizeof(OBJECT_ATTRIBUTES);
+    obj.ObjectName = &name;
+    status = pNtCreatePort(&port_handle, &obj, 0, 0x100001, 0);
+    ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER || status == STATUS_SECTION_TOO_BIG || status == STATUS_OBJECT_NAME_COLLISION,
+       "Expected STATUS_SUCCESS, STATUS_INVALID_PARAMETER, STATUS_SECTION_TOO_BIG or STATUS_OBJECT_NAME_COLLISION, got %08lx\n", status);
+    if (status == STATUS_SUCCESS) NtClose(port_handle);
+
+    /* Test creating port with name that already exists */
+    pRtlInitUnicodeString(&name, ERR_PORT3);
+    memset(&obj, 0, sizeof(OBJECT_ATTRIBUTES));
+    obj.Length = sizeof(OBJECT_ATTRIBUTES);
+    obj.ObjectName = &name;
+    status = pNtCreatePort(&port_handle, &obj, 100, 100, 0);
+    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+    if (status == STATUS_SUCCESS)
+    {
+        NTSTATUS status2;
+        HANDLE port_handle2;
+        status2 = pNtCreatePort(&port_handle2, &obj, 100, 100, 0);
+        ok(status2 == STATUS_OBJECT_NAME_COLLISION,
+           "Expected STATUS_OBJECT_NAME_COLLISION, got %08lx\n", status2);
+        NtClose(port_handle);
+    }
+}
+
+static void test_connect_port_errors(void)
+{
+    SECURITY_QUALITY_OF_SERVICE sqos;
+    HANDLE port_handle;
+    ULONG len;
+    NTSTATUS status;
+    UNICODE_STRING bad_name;
+    static const WCHAR BAD_NAME[] = {'\\','N','o','n','E','x','i','s','t','e','n','t','P','o','r','t',0};
+
+    sqos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+    sqos.ImpersonationLevel = SecurityImpersonation;
+    sqos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
+    sqos.EffectiveOnly = TRUE;
+
+    /* Test connecting to non-existent port */
+    pRtlInitUnicodeString(&bad_name, BAD_NAME);
+    status = pNtConnectPort(&port_handle, &bad_name, &sqos, 0, 0, &len, NULL, NULL);
+    ok(status == STATUS_OBJECT_NAME_NOT_FOUND || status == STATUS_INVALID_PARAMETER,
+       "Expected STATUS_OBJECT_NAME_NOT_FOUND or STATUS_INVALID_PARAMETER, got %08lx\n", status);
+
+    /* NULL parameter tests crash on Wow64 due to thunking, skip them */
+    if (!is_wow64)
+    {
+        /* Test with NULL port name - Windows returns STATUS_OBJECT_NAME_INVALID */
+        status = pNtConnectPort(&port_handle, NULL, &sqos, 0, 0, &len, NULL, NULL);
+        ok(status == STATUS_INVALID_PARAMETER || status == STATUS_ACCESS_VIOLATION || status == STATUS_OBJECT_NAME_INVALID,
+           "Expected STATUS_INVALID_PARAMETER, STATUS_ACCESS_VIOLATION or STATUS_OBJECT_NAME_INVALID, got %08lx\n", status);
+
+        /* Test with NULL handle pointer - Windows returns STATUS_OBJECT_NAME_INVALID */
+        status = pNtConnectPort(NULL, &port, &sqos, 0, 0, &len, NULL, NULL);
+        ok(status == STATUS_ACCESS_VIOLATION || status == STATUS_INVALID_PARAMETER || status == STATUS_OBJECT_NAME_INVALID,
+           "Expected STATUS_ACCESS_VIOLATION, STATUS_INVALID_PARAMETER or STATUS_OBJECT_NAME_INVALID, got %08lx\n", status);
+    }
+}
+
+static void test_zero_length_server(HANDLE PortHandle)
+{
+    HANDLE AcceptPortHandle;
+    union lpc_message *LpcMessage;
+    ULONG size;
+    NTSTATUS status;
+    BOOL done = FALSE;
+
+    size = FIELD_OFFSET(LPC_MESSAGE, Data) + MAX_MESSAGE_LEN;
+    LpcMessage = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
+
+    while (!done)
+    {
+        status = pNtReplyWaitReceivePort(PortHandle, NULL, NULL, &LpcMessage->msg);
+        ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+        if (status != STATUS_SUCCESS) break;
+
+        if (is_wow64)
+        {
+            switch (LpcMessage->msg64.MessageType)
+            {
+                case LPC_CONNECTION_REQUEST:
+                    status = pNtAcceptConnectPort(&AcceptPortHandle, 0, &LpcMessage->msg, 1, NULL, NULL);
+                    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+                    if (status == STATUS_SUCCESS)
+                    {
+                        status = pNtCompleteConnectPort(AcceptPortHandle);
+                        ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+                    }
+                    break;
+
+                case LPC_REQUEST:
+                    /* Reply to zero-length request with zero-length reply */
+                    LpcMessage->msg64.DataSize = 0;
+                    LpcMessage->msg64.MessageSize = FIELD_OFFSET(LPC_MESSAGE64, Data[0]);
+                    status = pNtReplyPort(PortHandle, &LpcMessage->msg);
+                    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+                    done = TRUE;
+                    break;
+
+                case LPC_DATAGRAM:
+                    /* Zero-length datagram received */
+                    ok(LpcMessage->msg64.DataSize == 0, "Expected DataSize 0, got %u\n", LpcMessage->msg64.DataSize);
+                    break;
+
+                case LPC_CLIENT_DIED:
+                    done = TRUE;
+                    break;
+            }
+        }
+        else
+        {
+            switch (LpcMessage->msg.MessageType)
+            {
+                case LPC_CONNECTION_REQUEST:
+                    status = pNtAcceptConnectPort(&AcceptPortHandle, 0, &LpcMessage->msg, 1, NULL, NULL);
+                    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+                    if (status == STATUS_SUCCESS)
+                    {
+                        status = pNtCompleteConnectPort(AcceptPortHandle);
+                        ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+                    }
+                    break;
+
+                case LPC_REQUEST:
+                    /* Reply to zero-length request with zero-length reply */
+                    LpcMessage->msg.DataSize = 0;
+                    LpcMessage->msg.MessageSize = FIELD_OFFSET(LPC_MESSAGE, Data[0]);
+                    status = pNtReplyPort(PortHandle, &LpcMessage->msg);
+                    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+                    done = TRUE;
+                    break;
+
+                case LPC_DATAGRAM:
+                    /* Zero-length datagram received */
+                    ok(LpcMessage->msg.DataSize == 0, "Expected DataSize 0, got %u\n", LpcMessage->msg.DataSize);
+                    break;
+
+                case LPC_CLIENT_DIED:
+                    done = TRUE;
+                    break;
+            }
+        }
+    }
+
+    HeapFree(GetProcessHeap(), 0, LpcMessage);
+}
+
+static DWORD WINAPI zero_length_client(LPVOID arg)
+{
+    SECURITY_QUALITY_OF_SERVICE sqos;
+    HANDLE PortHandle;
+    ULONG len;
+    NTSTATUS status;
+    union lpc_message *LpcMessage, *out;
+    ULONG size;
+
+    sqos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+    sqos.ImpersonationLevel = SecurityImpersonation;
+    sqos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
+    sqos.EffectiveOnly = TRUE;
+
+    status = pNtConnectPort(&PortHandle, &port, &sqos, 0, 0, &len, NULL, NULL);
+    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+    if (status != STATUS_SUCCESS) return 1;
+
+    if (is_wow64)
+    {
+        size = FIELD_OFFSET(LPC_MESSAGE64, Data[MAX_MESSAGE_LEN]);
+        LpcMessage = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
+        out = HeapAlloc(GetProcessHeap(), 0, size);
+
+        /* Send zero-length datagram */
+        LpcMessage->msg64.DataSize = 0;
+        LpcMessage->msg64.MessageSize = FIELD_OFFSET(LPC_MESSAGE64, Data[0]);
+        status = pNtRequestPort(PortHandle, &LpcMessage->msg);
+        ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER,
+           "Expected STATUS_SUCCESS or STATUS_INVALID_PARAMETER, got %08lx\n", status);
+
+        /* Send zero-length request and wait for reply */
+        LpcMessage->msg64.DataSize = 0;
+        LpcMessage->msg64.MessageSize = FIELD_OFFSET(LPC_MESSAGE64, Data[0]);
+        status = pNtRequestWaitReplyPort(PortHandle, &LpcMessage->msg, &out->msg);
+        ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER,
+           "Expected STATUS_SUCCESS or STATUS_INVALID_PARAMETER, got %08lx\n", status);
+
+        HeapFree(GetProcessHeap(), 0, out);
+        HeapFree(GetProcessHeap(), 0, LpcMessage);
+    }
+    else
+    {
+        size = FIELD_OFFSET(LPC_MESSAGE, Data[MAX_MESSAGE_LEN]);
+        LpcMessage = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
+        out = HeapAlloc(GetProcessHeap(), 0, size);
+
+        /* Send zero-length datagram */
+        LpcMessage->msg.DataSize = 0;
+        LpcMessage->msg.MessageSize = FIELD_OFFSET(LPC_MESSAGE, Data[0]);
+        status = pNtRequestPort(PortHandle, &LpcMessage->msg);
+        ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER,
+           "Expected STATUS_SUCCESS or STATUS_INVALID_PARAMETER, got %08lx\n", status);
+
+        /* Send zero-length request and wait for reply */
+        LpcMessage->msg.DataSize = 0;
+        LpcMessage->msg.MessageSize = FIELD_OFFSET(LPC_MESSAGE, Data[0]);
+        status = pNtRequestWaitReplyPort(PortHandle, &LpcMessage->msg, &out->msg);
+        ok(status == STATUS_SUCCESS || status == STATUS_INVALID_PARAMETER,
+           "Expected STATUS_SUCCESS or STATUS_INVALID_PARAMETER, got %08lx\n", status);
+
+        HeapFree(GetProcessHeap(), 0, out);
+        HeapFree(GetProcessHeap(), 0, LpcMessage);
+    }
+
+    NtClose(PortHandle);
+    return 0;
+}
+
 START_TEST(port)
 {
     OBJECT_ATTRIBUTES obj;
@@ -393,5 +671,43 @@ START_TEST(port)
         ok( WaitForSingleObject( thread, 10000 ) == 0, "thread didn't exit\n" );
         CloseHandle(thread);
     }
+
+    test_create_port_errors();
+    test_connect_port_errors();
+
+    if (status == STATUS_SUCCESS)
+    {
+        static const WCHAR ZERO_PORT[] = {'\\','Z','e','r','o','P','o','r','t',0};
+        UNICODE_STRING zero_name;
+        HANDLE zero_port;
+        DWORD id;
+        HANDLE thread;
+
+        pRtlInitUnicodeString(&zero_name, ZERO_PORT);
+        memset(&obj, 0, sizeof(OBJECT_ATTRIBUTES));
+        obj.Length = sizeof(OBJECT_ATTRIBUTES);
+        obj.ObjectName = &zero_name;
+
+        status = pNtCreatePort(&zero_port, &obj, 100, 100, 0);
+        ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %08lx\n", status);
+        if (status == STATUS_SUCCESS)
+        {
+            /* Update global port name so client connects to the right port */
+            port = zero_name;
+            thread = CreateThread(NULL, 0, zero_length_client, NULL, 0, &id);
+            ok(thread != NULL, "Expected non-NULL thread handle!\n");
+
+            test_zero_length_server(zero_port);
+            ok(WaitForSingleObject(thread, 10000) == 0, "zero-length thread didn't exit\n");
+            CloseHandle(thread);
+            NtClose(zero_port);
+        }
+    }
+
+
+
+    if (status == STATUS_SUCCESS)
+        NtClose(port_handle);
+
     FreeLibrary(hntdll);
 }

@@ -3146,6 +3146,11 @@ NTSTATUS WINAPI NtConnectPort( HANDLE *handle, UNICODE_STRING *name, SECURITY_QU
 
     TRACE( "(%p,%s,%p,%p,%p,%p,%p,%p)\n", handle, debugstr_us(name), qos, write, read, max_len, info, info_len );
 
+    if (!handle)
+        return STATUS_ACCESS_VIOLATION;
+    if (!name)
+        return STATUS_OBJECT_NAME_INVALID;
+
     if (write)
         FIXME( "LPC_SECTION_WRITE not supported\n" );
     if (read)
