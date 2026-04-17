@@ -99,6 +99,7 @@ struct thread
     data_size_t            desc_len;      /* thread description length in bytes */
     WCHAR                 *desc;          /* thread description string */
     struct completion_wait *completion_wait; /* completion port wait object the thread is associated with */
+    struct list            lpc_terminate_ports; /* list of ports to notify on thread termination */
 };
 
 extern struct thread *current;
@@ -143,6 +144,10 @@ extern void init_thread_context( struct thread *thread );
 extern void get_thread_context( struct thread *thread, struct context_data *context, unsigned int flags );
 extern void set_thread_context( struct thread *thread, const struct context_data *context, unsigned int flags );
 extern int send_thread_signal( struct thread *thread, int sig );
+
+/* LPC functions */
+
+extern void lpc_send_client_died( struct thread *thread );
 
 extern unsigned int global_error;  /* global error code for when no thread is current */
 

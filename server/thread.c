@@ -437,6 +437,7 @@ static inline void init_thread_structure( struct thread *thread )
     list_init( &thread->system_apc );
     list_init( &thread->user_apc );
     list_init( &thread->kernel_object );
+    list_init( &thread->lpc_terminate_ports );
 
     for (i = 0; i < MAX_INFLIGHT_FDS; i++)
         thread->inflight[i].server = thread->inflight[i].client = -1;
@@ -609,6 +610,7 @@ static void cleanup_thread( struct thread *thread )
 {
     int i;
 
+    lpc_send_client_died( thread );
     cleanup_thread_completion( thread );
     if (thread->context)
     {

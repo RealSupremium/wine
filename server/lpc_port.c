@@ -54,6 +54,12 @@
 #define LPC_REQUEST            1
 #define LPC_REPLY              2
 #define LPC_DATAGRAM           3
+#define LPC_LOST_REPLY         4
+#define LPC_PORT_CLOSED        5
+#define LPC_CLIENT_DIED        6
+#define LPC_EXCEPTION          7
+#define LPC_DEBUG_EVENT        8
+#define LPC_ERROR_EVENT        9
 #define LPC_CONNECTION_REQUEST 10
 
 /* Maximum message size */
@@ -75,6 +81,13 @@ struct pending_request
     struct list         entry;           /* entry in global_pending_requests */
     unsigned int        msg_id;          /* message ID waiting for reply */
     struct lpc_port    *client_port;     /* client port to deliver reply to */
+};
+
+/* Entry in thread's list of ports to notify on termination */
+struct lpc_terminate_port_entry
+{
+    struct list         entry;           /* entry in thread's lpc_terminate_ports list */
+    struct lpc_port    *port;            /* the LPC port (client port) */
 };
 
 static const WCHAR lpc_port_name[] = {'L','P','C',' ','P','o','r','t'};
@@ -832,4 +845,87 @@ DECL_HANDLER(reply_wait_receive_lpc)
     free_lpc_message( msg );
     reset_port_queue( receive_port );
     release_object( port );
+}
+
+/* Register a port for thread termination notification */
+DECL_HANDLER(register_lpc_terminate_port)
+{
+    struct lpc_port *port;
+    struct lpc_terminate_port_entry *entry;
+
+    port = (struct lpc_port *)get_handle_obj( current->process, req->handle,
+                                               0, &lpc_port_ops );
+    if (!port) return;
+
+    /* Only client ports should be registered for termination */
+    if (port->port_type != PORT_TYPE_CLIENT)
+    {
+        set_error( STATUS_INVALID_PORT_HANDLE );
+        release_object( port );
+        return;
+    }
+
+    /* Check if already registered */
+    LIST_FOR_EACH_ENTRY( entry, &current->lpc_terminate_ports, struct lpc_terminate_port_entry, entry )
+    {
+        if (entry->port == port)
+        {
+            release_object( port );
+            return;
+        }
+    }
+
+    /* Add to thread's terminate port list */
+    entry = mem_alloc( sizeof(*entry) );
+    if (entry)
+    {
+        entry->port = port;  /* transfer the reference */
+        list_add_tail( &current->lpc_terminate_ports, &entry->entry );
+    }
+    else
+    {
+        release_object( port );
+    }
+}
+
+/* Send LPC_CLIENT_DIED messages to all registered ports for a thread.
+ * Called from cleanup_thread in thread.c */
+void lpc_send_client_died( struct thread *thread )
+{
+    struct lpc_terminate_port_entry *entry, *next;
+
+    LIST_FOR_EACH_ENTRY_SAFE( entry, next, &thread->lpc_terminate_ports,
+                              struct lpc_terminate_port_entry, entry )
+    {
+        struct lpc_port *client_port = entry->port;
+
+        /* Send LPC_CLIENT_DIED to the server port via the communication channel */
+        if (client_port && client_port->connected_port)
+        {
+            struct lpc_port *comm_port = client_port->connected_port;
+            struct lpc_port *server_port = comm_port->connection_port;
+
+            if (server_port && server_port->port_type == PORT_TYPE_SERVER)
+            {
+                struct lpc_message *died_msg = alloc_lpc_message( 0 );
+                if (died_msg)
+                {
+                    died_msg->msg_id = get_next_msg_id();
+                    died_msg->msg_type = LPC_CLIENT_DIED;
+                    died_msg->client_pid = thread->process->id;
+                    died_msg->client_tid = thread->id;
+                    died_msg->port_context = comm_port->port_context;
+
+                    /* Queue on server port */
+                    list_add_tail( &server_port->msg_queue, &died_msg->entry );
+                    signal_port_queue( server_port );
+                }
+            }
+        }
+
+        /* Clean up the entry */
+        list_remove( &entry->entry );
+        release_object( client_port );
+        free( entry );
+    }
 }

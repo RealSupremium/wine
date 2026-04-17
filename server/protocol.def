@@ -4367,3 +4367,9 @@ enum inproc_sync_type
     data_size_t    data_size;         /* size of message data */
     VARARG(data,bytes);               /* message data */
 @END
+
+
+/* Register port for thread termination notification */
+@REQ(register_lpc_terminate_port)
+    obj_handle_t   handle;            /* handle to client port */
+@END
