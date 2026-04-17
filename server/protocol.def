@@ -4274,3 +4274,15 @@ enum inproc_sync_type
     data_size_t         runtime_size;   /* size of client runtime data */
     VARARG(runtime,bytes);              /* client runtime data */
 @END
+
+
+/* Create an LPC port */
+@REQ(create_lpc_port)
+    unsigned int   access;            /* desired access */
+    unsigned int   flags;             /* port flags (waitable) */
+    unsigned int   max_msg_len;       /* maximum message length */
+    unsigned int   max_connect_info;  /* maximum connection info length */
+    VARARG(objattr,object_attributes);/* object attributes */
+@REPLY
+    obj_handle_t   handle;            /* port handle */
+@END
