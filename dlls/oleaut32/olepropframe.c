@@ -65,6 +65,16 @@ static INT_PTR CALLBACK property_sheet_proc(HWND hwnd, UINT msg, WPARAM wparam, 
         SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)property_page);
         return FALSE;
     }
+    case WM_NOTIFY:
+        switch(((LPNMHDR)lparam)->code) {
+        case PSN_APPLY:
+            if (SUCCEEDED(IPropertyPage_Apply(property_page)))
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+            else
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID);
+            return TRUE;
+        }
+        return FALSE;
     case WM_DESTROY:
         IPropertyPage_Show(property_page, SW_HIDE);
         IPropertyPage_Deactivate(property_page);
