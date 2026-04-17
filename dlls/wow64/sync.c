@@ -140,8 +140,12 @@ NTSTATUS WINAPI wow64_NtAcceptConnectPort( UINT *args )
     LPC_SECTION_WRITE *write = get_ptr( &args );
     LPC_SECTION_READ *read = get_ptr( &args );
 
-    FIXME( "%p %lu %p %u %p %p: stub\n", handle_ptr, id, msg, accept, write, read );
-    return STATUS_NOT_IMPLEMENTED;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    status = NtAcceptConnectPort( &handle, id, msg, accept, write, read );
+    put_handle( handle_ptr, handle );
+    return status;
 }
 
 
@@ -569,8 +573,7 @@ NTSTATUS WINAPI wow64_NtListenPort( UINT *args )
     HANDLE handle = get_handle( &args );
     LPC_MESSAGE *msg = get_ptr( &args );
 
-    FIXME( "%p %p: stub\n", handle, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtListenPort( handle, msg );
 }
 
 

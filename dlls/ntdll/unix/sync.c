@@ -3244,8 +3244,37 @@ NTSTATUS WINAPI NtSecureConnectPort( HANDLE *handle, UNICODE_STRING *name, SECUR
  */
 NTSTATUS WINAPI NtListenPort( HANDLE handle, LPC_MESSAGE *msg )
 {
-    FIXME("(%p,%p),stub!\n", handle, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p,%p)\n", handle, msg );
+
+    for (;;)
+    {
+        SERVER_START_REQ( listen_lpc_port )
+        {
+            req->handle = wine_server_obj_handle( handle );
+            wine_server_set_reply( req, msg ? msg->Data : NULL, msg ? 0x1000 : 0 );
+            ret = wine_server_call( req );
+            if (!ret && msg)
+            {
+                msg->DataSize = reply->msg_size;
+                msg->MessageSize = sizeof(*msg) + reply->msg_size;
+                msg->MessageType = 10;  /* LPC_CONNECTION_REQUEST */
+                msg->VirtualRangesOffset = 0;
+                msg->ClientId.UniqueProcess = ULongToHandle( reply->client_pid );
+                msg->ClientId.UniqueThread = ULongToHandle( reply->client_tid );
+                msg->MessageId = reply->msg_id;
+                msg->SectionSize = 0;
+            }
+        }
+        SERVER_END_REQ;
+
+        if (ret != STATUS_PENDING) break;
+
+        ret = NtWaitForSingleObject( handle, FALSE, NULL );
+        if (ret) break;
+    }
+    return ret;
 }
 
 
@@ -3255,8 +3284,28 @@ NTSTATUS WINAPI NtListenPort( HANDLE handle, LPC_MESSAGE *msg )
 NTSTATUS WINAPI NtAcceptConnectPort( HANDLE *handle, ULONG id, LPC_MESSAGE *msg, BOOLEAN accept,
                                      LPC_SECTION_WRITE *write, LPC_SECTION_READ *read )
 {
-    FIXME("(%p,%u,%p,%d,%p,%p),stub!\n", handle, id, msg, accept, write, read );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p,%u,%p,%d,%p,%p)\n", handle, id, msg, accept, write, read );
+
+    if (write)
+        FIXME( "LPC_SECTION_WRITE not supported\n" );
+    if (read)
+        FIXME( "LPC_SECTION_READ not supported\n" );
+
+    *handle = 0;
+
+    SERVER_START_REQ( accept_lpc_connect )
+    {
+        req->handle = 0;
+        req->accept = accept;
+        req->msg_id = msg ? msg->MessageId : 0;
+        req->context = id;
+        if (!(ret = wine_server_call( req )) && accept)
+            *handle = wine_server_ptr_handle( reply->handle );
+    }
+    SERVER_END_REQ;
+    return ret;
 }
 
 
@@ -3265,8 +3314,17 @@ NTSTATUS WINAPI NtAcceptConnectPort( HANDLE *handle, ULONG id, LPC_MESSAGE *msg,
  */
 NTSTATUS WINAPI NtCompleteConnectPort( HANDLE handle )
 {
-    FIXME( "(%p),stub!\n", handle );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p)\n", handle );
+
+    SERVER_START_REQ( complete_lpc_connect )
+    {
+        req->handle = wine_server_obj_handle( handle );
+        ret = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+    return ret;
 }
 
 
