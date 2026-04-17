@@ -205,9 +205,15 @@ NTSTATUS WINAPI wow64_NtConnectPort( UINT *args )
     void *info = get_ptr( &args );
     ULONG *info_len = get_ptr( &args );
 
-    FIXME( "%p %p %p %p %p %p %p %p: stub\n",
-           handle_ptr, name32, qos, write, read, max_len, info, info_len );
-    return STATUS_NOT_IMPLEMENTED;
+    UNICODE_STRING name;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    unicode_str_32to64( &name, name32 );
+
+    status = NtConnectPort( &handle, &name, qos, write, read, max_len, info, info_len );
+    put_handle( handle_ptr, handle );
+    return status;
 }
 
 
@@ -1395,9 +1401,14 @@ NTSTATUS WINAPI wow64_NtSecureConnectPort( UINT *args )
     void *info = get_ptr( &args );
     ULONG *info_len = get_ptr( &args );
 
-    FIXME( "%p %p %p %p %p %p %p %p %p: stub\n",
-           handle_ptr, name32, qos, write, sid, read, max_len, info, info_len );
-    return STATUS_NOT_IMPLEMENTED;
+    UNICODE_STRING name;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    status = NtSecureConnectPort( &handle, unicode_str_32to64( &name, name32 ),
+                                  qos, write, sid, read, max_len, info, info_len );
+    put_handle( handle_ptr, handle );
+    return status;
 }
 
 

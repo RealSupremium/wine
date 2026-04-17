@@ -3137,23 +3137,105 @@ NTSTATUS WINAPI NtConnectPort( HANDLE *handle, UNICODE_STRING *name, SECURITY_QU
                                LPC_SECTION_WRITE *write, LPC_SECTION_READ *read, ULONG *max_len,
                                void *info, ULONG *info_len )
 {
-    FIXME( "(%p,%s,%p,%p,%p,%p,%p,%p),stub!\n", handle, debugstr_us(name), qos,
-           write, read, max_len, info, info_len );
-    if (info && info_len) TRACE("msg = %s\n", debugstr_an( info, *info_len ));
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+    data_size_t len;
+    struct object_attributes *objattr;
+    OBJECT_ATTRIBUTES attr;
+    ULONG in_len = (info && info_len) ? *info_len : 0;
+    HANDLE port_handle;
+
+    TRACE( "(%p,%s,%p,%p,%p,%p,%p,%p)\n", handle, debugstr_us(name), qos, write, read, max_len, info, info_len );
+
+    if (write)
+        FIXME( "LPC_SECTION_WRITE not supported\n" );
+    if (read)
+        FIXME( "LPC_SECTION_READ not supported\n" );
+
+    *handle = 0;
+    attr.Length = sizeof(attr);
+    attr.RootDirectory = 0;
+    attr.ObjectName = name;
+    attr.Attributes = 0;
+    attr.SecurityDescriptor = NULL;
+    attr.SecurityQualityOfService = qos;
+
+    if ((ret = alloc_object_attributes( &attr, &objattr, &len )))
+        return ret;
+
+    SERVER_START_REQ( connect_lpc_port )
+    {
+        req->access = PORT_ALL_ACCESS;
+        req->info_size = in_len;
+        wine_server_add_data( req, objattr, len );
+        if (in_len) wine_server_add_data( req, info, in_len );
+        if (!(ret = wine_server_call( req )))
+        {
+            port_handle = wine_server_ptr_handle( reply->handle );
+            if (info_len)
+                *info_len = reply->info_size;
+        }
+    }
+    SERVER_END_REQ;
+
+    free( objattr );
+
+    if (ret) return ret;
+
+    /* Wait for the connection to be accepted/rejected by the server */
+    for (;;)
+    {
+        unsigned int connect_status;
+
+        SERVER_START_REQ( get_lpc_connect_status )
+        {
+            req->handle = wine_server_obj_handle( port_handle );
+            ret = wine_server_call( req );
+            connect_status = reply->status;
+        }
+        SERVER_END_REQ;
+
+        if (ret)
+        {
+            NtClose( port_handle );
+            return ret;
+        }
+
+        if (connect_status != STATUS_PENDING)
+        {
+            if (connect_status == STATUS_SUCCESS)
+            {
+                *handle = port_handle;
+                return STATUS_SUCCESS;
+            }
+            else
+            {
+                NtClose( port_handle );
+                return connect_status;
+            }
+        }
+
+        ret = NtWaitForSingleObject( port_handle, FALSE, NULL );
+        if (ret)
+        {
+            NtClose( port_handle );
+            return ret;
+        }
+    }
 }
 
-
 /***********************************************************************
- *             NtSecureConnectPort (NTDLL.@)
+ *             NtReplyWaitReceivePort (NTDLL.@)
  */
 NTSTATUS WINAPI NtSecureConnectPort( HANDLE *handle, UNICODE_STRING *name, SECURITY_QUALITY_OF_SERVICE *qos,
                                      LPC_SECTION_WRITE *write, PSID sid, LPC_SECTION_READ *read,
                                      ULONG *max_len, void *info, ULONG *info_len )
 {
-    FIXME( "(%p,%s,%p,%p,%p,%p,%p,%p,%p),stub!\n", handle, debugstr_us(name), qos,
-           write, sid, read, max_len, info, info_len );
-    return STATUS_NOT_IMPLEMENTED;
+    TRACE( "(%p,%s,%p,%p,%p,%p,%p,%p,%p)\n", handle, debugstr_us(name), qos, write, sid, read, max_len, info, info_len );
+
+    if (sid)
+        FIXME( "SID verification not implemented\n" );
+
+    return NtConnectPort( handle, name, qos, write, read, max_len, info, info_len );
 }
 
 

@@ -239,7 +239,7 @@ static DWORD WINAPI test_ports_client(LPVOID arg)
     sqos.EffectiveOnly = TRUE;
 
     status = pNtConnectPort(&PortHandle, &port, &sqos, 0, 0, &len, NULL, NULL);
-    todo_wine ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %lx\n", status);
+    ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %lx\n", status);
     if (status != STATUS_SUCCESS) return 1;
 
     status = pNtRegisterThreadTerminatePort(PortHandle);
