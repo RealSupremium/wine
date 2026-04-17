@@ -1748,6 +1748,11 @@ BOOL SYSCALL_API NtUserGetPointerType( UINT32 id, POINTER_INPUT_TYPE *type )
     SYSCALL_FUNC( NtUserGetPointerType );
 }
 
+BOOL SYSCALL_API NtUserGetPointerDeviceRects( HANDLE handle, RECT *pointerDeviceRect, RECT *displayRect )
+{
+    SYSCALL_FUNC( NtUserGetPointerDeviceRects );
+}
+
 INT SYSCALL_API NtUserGetPriorityClipboardFormat( UINT *list, INT count )
 {
     SYSCALL_FUNC( NtUserGetPriorityClipboardFormat );

@@ -2862,3 +2862,13 @@ BOOL WINAPI NtUserGetPointerType(UINT32 id, POINTER_INPUT_TYPE *type)
     RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
     return FALSE;
 }
+
+/**********************************************************************
+ *       NtUserGetPointerDeviceRects    (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerDeviceRects( HANDLE handle, RECT *pointerDeviceRect, RECT *displayRect )
+{
+    FIXME( "(%p, %p, %p) stub!\n", handle, pointerDeviceRect, displayRect );
+    RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
+    return FALSE;
+}
