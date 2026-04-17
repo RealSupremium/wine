@@ -144,6 +144,7 @@ struct lpc_port
 
 static void lpc_port_dump( struct object *obj, int verbose );
 static struct object *lpc_port_get_sync( struct object *obj );
+static int lpc_port_close_handle( struct object *obj, struct process *process, obj_handle_t handle );
 static void lpc_port_destroy( struct object *obj );
 
 static const struct object_ops lpc_port_ops =
@@ -167,7 +168,7 @@ static const struct object_ops lpc_port_ops =
     default_unlink_name,           /* unlink_name */
     no_open_file,                  /* open_file */
     no_kernel_obj_list,            /* get_kernel_obj_list */
-    no_close_handle,               /* close_handle */
+    lpc_port_close_handle,         /* close_handle */
     lpc_port_destroy               /* destroy */
 };
 
@@ -387,6 +388,60 @@ static struct object *lpc_port_get_sync( struct object *obj )
         return grab_object( port->queue_event );
 
     return NULL;
+}
+
+/* Break circular references when the last handle to a port is closed */
+static int lpc_port_close_handle( struct object *obj, struct process *process, obj_handle_t handle )
+{
+    struct lpc_port *port = (struct lpc_port *)obj;
+    struct pending_request *pr, *next_pr;
+
+    if (obj->handle_count == 1)
+    {
+        /* Clean up any pending requests that reference this port */
+        LIST_FOR_EACH_ENTRY_SAFE( pr, next_pr, &global_pending_requests, struct pending_request, entry )
+        {
+            if (pr->client_port == port)
+            {
+                list_remove( &pr->entry );
+                release_object( pr->client_port );
+                free( pr );
+            }
+        }
+
+        /* Break the bidirectional connected_port reference */
+        if (port->connected_port)
+        {
+            struct lpc_port *peer = port->connected_port;
+
+            /* Clear peer's reference to us first */
+            if (peer->connected_port == port)
+            {
+                peer->connected_port = NULL;
+                release_object( port );
+            }
+
+            /* Clear our reference to peer */
+            port->connected_port = NULL;
+            release_object( peer );
+        }
+
+        /* For SERVER ports, release the self-reference from connection_port */
+        if (port->port_type == PORT_TYPE_SERVER && port->connection_port == port)
+        {
+            port->connection_port = NULL;
+            release_object( port );
+        }
+        /* For client/channel ports, release the connection_port reference
+         * to allow the named server port to be destroyed */
+        else if (port->port_type != PORT_TYPE_SERVER && port->connection_port)
+        {
+            release_object( port->connection_port );
+            port->connection_port = NULL;
+        }
+    }
+
+    return 1;
 }
 
 static void lpc_port_destroy( struct object *obj )
