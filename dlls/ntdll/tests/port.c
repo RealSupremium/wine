@@ -322,10 +322,7 @@ static void test_ports_server( HANDLE PortHandle )
     while (TRUE)
     {
         status = pNtReplyWaitReceivePort(PortHandle, NULL, NULL, &LpcMessage->msg);
-        todo_wine
-        {
-            ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %ld(%lx)\n", status, status);
-        }
+        ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS, got %ld(%lx)\n", status, status);
         /* STATUS_INVALID_HANDLE: win2k without admin rights will perform an
          *                        endless loop here
          */

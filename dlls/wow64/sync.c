@@ -1327,8 +1327,7 @@ NTSTATUS WINAPI wow64_NtReplyPort( UINT *args )
     HANDLE handle = get_handle( &args );
     LPC_MESSAGE *reply = get_ptr( &args );
 
-    FIXME( "%p %p: stub\n", handle, reply );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtReplyPort( handle, reply );
 }
 
 
@@ -1342,8 +1341,7 @@ NTSTATUS WINAPI wow64_NtReplyWaitReceivePort( UINT *args )
     LPC_MESSAGE *reply = get_ptr( &args );
     LPC_MESSAGE *msg = get_ptr( &args );
 
-    FIXME( "%p %p %p %p: stub\n", handle, id, reply, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtReplyWaitReceivePort( handle, id, reply, msg );
 }
 
 
