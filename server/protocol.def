@@ -4338,3 +4338,32 @@ enum inproc_sync_type
 @REPLY
     unsigned int   status;            /* connection status */
 @END
+
+
+/* Send request and wait for reply */
+@REQ(request_lpc_reply)
+    obj_handle_t   handle;            /* port handle */
+    data_size_t    data_size;         /* size of message data */
+    unsigned int   msg_type;          /* message type */
+    VARARG(data,bytes);               /* message data */
+@REPLY
+    unsigned int   msg_id;            /* assigned message ID */
+@END
+
+
+/* Wait for message and reply to previous */
+@REQ(reply_wait_receive_lpc)
+    obj_handle_t   handle;            /* port handle */
+    unsigned int   reply_msg_id;      /* message ID to reply to (0 for no reply) */
+    data_size_t    reply_size;        /* size of reply data */
+    timeout_t      timeout;           /* timeout (unused currently) */
+    VARARG(reply,bytes);              /* reply data */
+@REPLY
+    unsigned int   msg_id;            /* received message ID */
+    unsigned int   msg_type;          /* message type */
+    process_id_t   client_pid;        /* sender's process ID */
+    thread_id_t    client_tid;        /* sender's thread ID */
+    client_ptr_t   context;           /* port context */
+    data_size_t    data_size;         /* size of message data */
+    VARARG(data,bytes);               /* message data */
+@END
