@@ -3354,8 +3354,17 @@ NTSTATUS WINAPI NtReadRequestData( HANDLE handle, LPC_MESSAGE *request, ULONG id
  */
 NTSTATUS WINAPI NtRegisterThreadTerminatePort( HANDLE handle )
 {
-    FIXME( "(%p),stub!\n", handle );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p)\n", handle );
+
+    SERVER_START_REQ( register_lpc_terminate_port )
+    {
+        req->handle = wine_server_obj_handle( handle );
+        ret = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+    return ret;
 }
 
 
