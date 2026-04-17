@@ -404,6 +404,28 @@ NTSTATUS WINAPI wow64_NtCreateSection( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtCreateWaitablePort
+ */
+NTSTATUS WINAPI wow64_NtCreateWaitablePort( UINT *args )
+{
+    ULONG *handle_ptr = get_ptr( &args );
+    OBJECT_ATTRIBUTES32 *attr32 = get_ptr( &args );
+    ULONG info_len = get_ulong( &args );
+    ULONG data_len = get_ulong( &args );
+    ULONG reserved = get_ulong( &args );
+
+    struct object_attr64 attr;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    *handle_ptr = 0;
+    status = NtCreateWaitablePort( &handle, objattr_32to64( &attr, attr32 ), info_len, data_len, reserved );
+    put_handle( handle_ptr, handle );
+    return status;
+}
+
+
+/**********************************************************************
  *           wow64_NtCreateSemaphore
  */
 NTSTATUS WINAPI wow64_NtCreateSemaphore( UINT *args )

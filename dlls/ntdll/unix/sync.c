@@ -3062,14 +3062,71 @@ NTSTATUS WINAPI NtOpenSection( HANDLE *handle, ACCESS_MASK access, const OBJECT_
 }
 
 
+/* LPC port access rights */
+#define PORT_CONNECT      0x0001
+#define PORT_ALL_ACCESS   (STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | PORT_CONNECT)
+
 /***********************************************************************
  *             NtCreatePort (NTDLL.@)
  */
 NTSTATUS WINAPI NtCreatePort( HANDLE *handle, OBJECT_ATTRIBUTES *attr, ULONG info_len,
                               ULONG data_len, ULONG *reserved )
 {
-    FIXME( "(%p,%p,%u,%u,%p),stub!\n", handle, attr, info_len, data_len, reserved );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+    data_size_t len;
+    struct object_attributes *objattr;
+
+    TRACE( "(%p,%p,%u,%u,%p)\n", handle, attr, info_len, data_len, reserved );
+
+    *handle = 0;
+    if ((ret = alloc_object_attributes( attr, &objattr, &len )))
+        return ret;
+
+    SERVER_START_REQ( create_lpc_port )
+    {
+        req->access = PORT_ALL_ACCESS;
+        req->flags = 0;
+        req->max_msg_len = data_len;
+        req->max_connect_info = info_len;
+        wine_server_add_data( req, objattr, len );
+        if (!(ret = wine_server_call( req )))
+            *handle = wine_server_ptr_handle( reply->handle );
+    }
+    SERVER_END_REQ;
+    free( objattr );
+    return ret;
+}
+
+
+/***********************************************************************
+ *             NtCreateWaitablePort (NTDLL.@)
+ */
+NTSTATUS WINAPI NtCreateWaitablePort( HANDLE *handle, OBJECT_ATTRIBUTES *attr, ULONG info_len,
+                                      ULONG data_len, ULONG reserved )
+{
+    unsigned int ret;
+    data_size_t len;
+    struct object_attributes *objattr;
+
+    TRACE( "(%p,%p,%u,%u,%u)\n", handle, attr, info_len, data_len, reserved );
+
+    *handle = 0;
+    if ((ret = alloc_object_attributes( attr, &objattr, &len )))
+        return ret;
+
+    SERVER_START_REQ( create_lpc_port )
+    {
+        req->access = PORT_ALL_ACCESS;
+        req->flags = 0x0001;  /* PORT_FLAG_WAITABLE */
+        req->max_msg_len = data_len;
+        req->max_connect_info = info_len;
+        wine_server_add_data( req, objattr, len );
+        if (!(ret = wine_server_call( req )))
+            *handle = wine_server_ptr_handle( reply->handle );
+    }
+    SERVER_END_REQ;
+    free( objattr );
+    return ret;
 }
 
 
