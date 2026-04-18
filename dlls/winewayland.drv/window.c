@@ -172,6 +172,7 @@ static void wayland_win_data_get_config(struct wayland_win_data *data,
         window_state |= WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED;
     }
 
+    conf->resizeable = !!(style & WS_THICKFRAME);
     conf->state = window_state;
     conf->scale = NtUserGetSystemDpiForProcess(0) / 96.0;
     conf->visible = (style & WS_VISIBLE) == WS_VISIBLE;
@@ -254,6 +255,7 @@ static void wayland_surface_update_state_toplevel(struct wayland_surface *surfac
 {
     BOOL processing_config = surface->processing.serial &&
                              !surface->processing.processed;
+    const RECT *rect = &surface->window.rect;
 
     TRACE("hwnd=%p window_state=%#x %s->state=%#x\n",
           surface->hwnd, surface->window.state,
@@ -286,6 +288,17 @@ static void wayland_surface_update_state_toplevel(struct wayland_surface *surfac
            !(surface->current.state & WAYLAND_SURFACE_CONFIG_STATE_FULLSCREEN))
         {
             xdg_toplevel_set_fullscreen(surface->xdg_toplevel, NULL);
+        }
+        if (surface->window.resizeable)
+        {
+            xdg_toplevel_set_min_size(surface->xdg_toplevel, 0, 0);
+            xdg_toplevel_set_max_size(surface->xdg_toplevel, 0, 0);
+        }
+        else
+        {
+            int width = rect->right - rect->left, height = rect->bottom - rect->top;
+            xdg_toplevel_set_min_size(surface->xdg_toplevel, width, height);
+            xdg_toplevel_set_max_size(surface->xdg_toplevel, width, height);
         }
     }
     else
