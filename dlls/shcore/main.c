@@ -296,7 +296,7 @@ HRESULT WINAPI GetCurrentProcessExplicitAppUserModelID(WCHAR **appid)
         *appid = CoTaskMemAlloc( params->WindowTitle.MaximumLength + sizeof(WCHAR));
         if (*appid) {
 		memcpy( *appid, params->WindowTitle.Buffer, params->WindowTitle.MaximumLength );
-		*appid[params->WindowTitle.MaximumLength/sizeof(WHCAR)] = 0;
+		*appid[params->WindowTitle.MaximumLength/sizeof(WCHAR)] = 0;
 	}
         else ret = E_OUTOFMEMORY;
     }
