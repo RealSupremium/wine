@@ -154,7 +154,7 @@ static BOOL write_tmp_file( const void *data, DWORD *size, char *tmp_name )
     return ret;
 }
 
-static BOOL write_ttf_file(const char *fontname, char *tmp_name)
+static BOOL write_font_file(const char *fontname, char *tmp_name)
 {
     void *rsrc_data;
     DWORD rsrc_size;
@@ -1671,7 +1671,7 @@ static void test_GetGlyphIndices(void)
     ok(glyphs[4] == 0, "GetGlyphIndicesW should have returned 0 not %04x\n", glyphs[4]);
     DeleteObject(SelectObject(hdc, hOldFont));
 
-    ret = write_ttf_file("wine_nul.ttf", ttf_name);
+    ret = write_font_file("wine_nul.ttf", ttf_name);
     ok(ret, "Failed to create test font file.\n");
     font = load_font(ttf_name, &font_size);
     ok(font != NULL, "Failed to map font file.\n");
@@ -4132,6 +4132,49 @@ static void test_GetTextMetrics(void)
     ReleaseDC(0, hdc);
 }
 
+static void test_CFF_external_leading(void)
+{
+    char font_file[MAX_PATH];
+    DWORD num, ret;
+    HDC hdc;
+    LOGFONTW lf;
+    HFONT hfont, hfont_prev;
+    TEXTMETRICW tm;
+
+    if (!write_font_file("cff.otf", font_file))
+    {
+        skip("Failed to create otf file for testing\n");
+        return;
+    }
+
+    num = AddFontResourceExA(font_file, FR_PRIVATE, 0);
+    ok(num == 1, "AddFontResourceExA should add 1 font from cff.otf, got %ld\n", num);
+    if (num == 0) goto cleanup;
+
+    memset(&lf, 0, sizeof(lf));
+    lf.lfHeight = -18;
+    wcscpy(lf.lfFaceName, L"WineTestCFF");
+    hfont = CreateFontIndirectW(&lf);
+    ok(hfont != NULL, "CreateFontIndirectW failed\n");
+
+    hdc = GetDC(NULL);
+    hfont_prev = SelectObject(hdc, hfont);
+    ret = GetFontData(hdc, MS_MAKE_TAG('C','F','F',' '), 0, NULL, 0);
+    ok(ret != GDI_ERROR, "Expected CFF table, got GDI_ERROR\n");
+    ok(GetTextMetricsW(hdc, &tm), "GetTextMetricsW failed\n");
+    ok(tm.tmExternalLeading == 0, "Expected tmExternalLeading 0, got %ld\n", tm.tmExternalLeading);
+
+    SelectObject(hdc, hfont_prev);
+    DeleteObject(hfont);
+    ReleaseDC(NULL, hdc);
+    ret = RemoveFontResourceExA(font_file, FR_PRIVATE, 0);
+    ok(ret, "RemoveFontResourceExA error %ld\n", GetLastError());
+
+    cleanup:
+        ret = DeleteFileA(font_file);
+    ok(ret, "Failed to delete font file, %ld.\n", GetLastError());
+}
+
 static void test_nonexistent_font(void)
 {
     static const struct
@@ -5239,7 +5282,7 @@ static void test_AddFontMemResource(void)
        GetLastError());
 
     /* Now with scalable font */
-    bRet = write_ttf_file("wine_test.ttf", ttf_name);
+    bRet = write_font_file("wine_test.ttf", ttf_name);
     ok(bRet, "Failed to create test font file.\n");
 
     font = load_font(ttf_name, &font_size);
@@ -5967,7 +6010,7 @@ static void test_CreateScalableFontResource(void)
     ULONG (WINAPI *pNtGdiMakeFontDir)( DWORD embed, BYTE *buffer, UINT size, const WCHAR *path, UINT len );
     int i;
 
-    if (!write_ttf_file("wine_test.ttf", ttf_name))
+    if (!write_font_file("wine_test.ttf", ttf_name))
     {
         skip("Failed to create ttf file for testing\n");
         return;
@@ -6290,7 +6333,7 @@ static void test_vertical_font(void)
         "@MS UI Gothic",     /* has vmtx table, available on native */
     };
 
-    if (!write_ttf_file("vertical.ttf", ttf_name))
+    if (!write_font_file("vertical.ttf", ttf_name))
     {
         skip("Failed to create ttf file for testing\n");
         return;
@@ -6329,7 +6372,7 @@ static void test_vertical_font(void)
 
     DeleteFileA(ttf_name);
 
-    if (!write_ttf_file("vertical2.ttf", ttf_name))
+    if (!write_font_file("vertical2.ttf", ttf_name))
     {
         skip("Failed to create ttf file for testing\n");
         return;
@@ -7068,7 +7111,7 @@ static void test_long_names(void)
     int ret;
     HDC dc;
 
-    if (!write_ttf_file("wine_longname.ttf", ttf_name))
+    if (!write_font_file("wine_longname.ttf", ttf_name))
     {
         skip("Failed to create ttf file for testing\n");
         return;
@@ -7114,13 +7157,13 @@ static void test_ttf_names(void)
     int ret;
     HDC dc;
 
-    if (!write_ttf_file("wine_ttfnames.ttf", ttf_name))
+    if (!write_font_file("wine_ttfnames.ttf", ttf_name))
     {
         skip("Failed to create ttf file for testing\n");
         return;
     }
 
-    if (!write_ttf_file("wine_ttfnames_bold.ttf", ttf_name_bold))
+    if (!write_font_file("wine_ttfnames_bold.ttf", ttf_name_bold))
     {
         skip("Failed to create ttf file for testing\n");
         DeleteFileA(ttf_name);
@@ -7194,20 +7237,20 @@ static void test_lang_names(void)
         return;
     }
 
-    if (!write_ttf_file( "wine_langnames.ttf", ttf_name ))
+    if (!write_font_file( "wine_langnames.ttf", ttf_name ))
     {
         skip( "Failed to create ttf file for testing\n" );
         return;
     }
 
-    if (!write_ttf_file( "wine_langnames2.ttf", ttf_name2 ))
+    if (!write_font_file( "wine_langnames2.ttf", ttf_name2 ))
     {
         skip( "Failed to create ttf file for testing\n" );
         DeleteFileA( ttf_name );
         return;
     }
 
-    if (!write_ttf_file( "wine_langnames3.ttf", ttf_name3 ))
+    if (!write_font_file( "wine_langnames3.ttf", ttf_name3 ))
     {
         skip( "Failed to create ttf file for testing\n" );
         DeleteFileA( ttf_name2 );
@@ -7848,7 +7891,7 @@ static void test_font_weight(void)
     BOOL bret;
     HDC hdc;
 
-    bret = write_ttf_file("wine_heavy.ttf", ttf_name);
+    bret = write_font_file("wine_heavy.ttf", ttf_name);
     ok(bret, "Failed to create test font file.\n");
 
     count = AddFontResourceExA(ttf_name, 0, NULL);
@@ -8067,6 +8110,7 @@ START_TEST(font)
         skip("Arial Black or Symbol/Wingdings is not installed\n");
     test_EnumFontFamiliesEx_default_charset();
     test_GetTextMetrics();
+    test_CFF_external_leading();
     test_RealizationInfo();
     test_GetTextFace();
     test_GetGlyphOutline();
