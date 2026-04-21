@@ -2840,7 +2840,8 @@ static void test_devnode(void)
 {
     HDEVINFO set;
     SP_DEVINFO_DATA device = { sizeof(SP_DEVINFO_DATA) };
-    char buffer[50];
+    char buffer[200];
+    DEVINST parent;
     DWORD ret;
 
     set = SetupDiGetClassDevsA(&guid, NULL, NULL, DIGCF_DEVICEINTERFACE);
@@ -2853,6 +2854,29 @@ static void test_devnode(void)
     ok(!ret, "got %#lx\n", ret);
     ok(!strcmp(buffer, "ROOT\\LEGACY_BOGUS\\0000"), "got %s\n", buffer);
 
+    /* CM_Get_Parent invalid parameters. */
+    ret = CM_Get_Parent(NULL, device.DevInst, 0);
+    ok(ret == CR_INVALID_POINTER, "got %#lx\n", ret);
+
+    /* CM_Get_Parent on a registered device. The parent property is set by
+     * the PnP manager during bus enumeration; manually created devices may
+     * not have it, so CR_NO_SUCH_DEVNODE is acceptable. */
+    ret = SetupDiRegisterDeviceInfo(set, &device, 0, NULL, NULL, NULL);
+    ok(ret, "SetupDiRegisterDeviceInfo failed: %#lx\n", GetLastError());
+
+    parent = 0;
+    ret = CM_Get_Parent(&parent, device.DevInst, 0);
+    ok(ret == CR_SUCCESS || ret == CR_NO_SUCH_DEVNODE,
+       "CM_Get_Parent: got %#lx\n", ret);
+    if (ret == CR_SUCCESS)
+    {
+        ok(parent != 0, "Expected valid parent devnode.\n");
+        ret = CM_Get_Device_IDA(parent, buffer, sizeof(buffer), 0);
+        ok(ret == CR_SUCCESS, "CM_Get_Device_IDA on parent: got %#lx\n", ret);
+    }
+
+    ret = SetupDiRemoveDevice(set, &device);
+    ok(ret, "SetupDiRemoveDevice failed: %#lx\n", GetLastError());
     SetupDiDestroyDeviceInfoList(set);
 }
 
