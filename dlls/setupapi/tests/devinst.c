@@ -2856,6 +2856,75 @@ static void test_devnode(void)
     SetupDiDestroyDeviceInfoList(set);
 }
 
+/* Regression test for the DIGCF_DEVICEINTERFACE filter introduced in
+ * "setupapi: Remove devices without interfaces from DIGCF_DEVICEINTERFACE
+ * enumeration": a registered device without any interface must not be
+ * returned, but the same device must reappear after an interface is
+ * registered. Uses instance ID 0005 to stay clear of device IDs exercised
+ * by the neighbouring test_devnode / test_register_device_iface tests. */
+static void test_devnode_interface_filter(void)
+{
+    static const char device_id[] = "Root\\LEGACY_BOGUS\\0005";
+    static const char device_id_upper[] = "ROOT\\LEGACY_BOGUS\\0005";
+    SP_DEVICE_INTERFACE_DATA iface = { sizeof(iface) };
+    SP_DEVINFO_DATA device = { sizeof(device) };
+    SP_DEVINFO_DATA found = { sizeof(found) };
+    char buffer[200];
+    HDEVINFO set, enum_set;
+    BOOL ret, is_present;
+    DWORD i;
+
+    set = SetupDiGetClassDevsA(&guid, NULL, NULL, DIGCF_DEVICEINTERFACE);
+    ok(set != INVALID_HANDLE_VALUE, "SetupDiGetClassDevs failed: %#lx\n", GetLastError());
+
+    ret = SetupDiCreateDeviceInfoA(set, device_id, &guid, NULL, NULL, 0, &device);
+    ok(ret, "SetupDiCreateDeviceInfo failed: %#lx\n", GetLastError());
+    ret = SetupDiRegisterDeviceInfo(set, &device, 0, NULL, NULL, NULL);
+    ok(ret, "SetupDiRegisterDeviceInfo failed: %#lx\n", GetLastError());
+
+    /* No interface registered — a fresh DIGCF_DEVICEINTERFACE enumeration
+     * must not return the device. */
+    enum_set = SetupDiGetClassDevsA(&guid, NULL, NULL, DIGCF_DEVICEINTERFACE);
+    ok(enum_set != INVALID_HANDLE_VALUE, "got %#lx\n", GetLastError());
+    is_present = FALSE;
+    for (i = 0; SetupDiEnumDeviceInfo(enum_set, i, &found); i++)
+    {
+        if (SetupDiGetDeviceInstanceIdA(enum_set, &found, buffer, sizeof(buffer), NULL)
+            && !strcmp(buffer, device_id_upper))
+        {
+            is_present = TRUE;
+            break;
+        }
+    }
+    ok(!is_present, "device without interface should not appear in DIGCF_DEVICEINTERFACE enumeration\n");
+    SetupDiDestroyDeviceInfoList(enum_set);
+
+    /* After registering an interface, the same enumeration must include it. */
+    ret = SetupDiCreateDeviceInterfaceA(set, &device, &guid, NULL, 0, &iface);
+    ok(ret, "SetupDiCreateDeviceInterface failed: %#lx\n", GetLastError());
+
+    enum_set = SetupDiGetClassDevsA(&guid, NULL, NULL, DIGCF_DEVICEINTERFACE);
+    ok(enum_set != INVALID_HANDLE_VALUE, "got %#lx\n", GetLastError());
+    is_present = FALSE;
+    for (i = 0; SetupDiEnumDeviceInfo(enum_set, i, &found); i++)
+    {
+        if (SetupDiGetDeviceInstanceIdA(enum_set, &found, buffer, sizeof(buffer), NULL)
+            && !strcmp(buffer, device_id_upper))
+        {
+            is_present = TRUE;
+            break;
+        }
+    }
+    ok(is_present, "device with interface should appear in DIGCF_DEVICEINTERFACE enumeration\n");
+    SetupDiDestroyDeviceInfoList(enum_set);
+
+    ret = SetupDiRemoveDeviceInterface(set, &iface);
+    ok(ret, "SetupDiRemoveDeviceInterface failed: %#lx\n", GetLastError());
+    ret = SetupDiRemoveDevice(set, &device);
+    ok(ret, "SetupDiRemoveDevice failed: %#lx\n", GetLastError());
+    SetupDiDestroyDeviceInfoList(set);
+}
+
 static void test_device_interface_key(void)
 {
     const char keypath[] = "System\\CurrentControlSet\\Control\\DeviceClasses\\"
@@ -5354,6 +5423,7 @@ START_TEST(devinst)
     test_registry_property_w();
     test_get_inf_class();
     test_devnode();
+    test_devnode_interface_filter();
     test_device_interface_key();
     test_open_device_interface_key();
     test_device_interface_properties();
