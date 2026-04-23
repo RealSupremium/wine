@@ -17497,9 +17497,9 @@ static void check_surface_clipper(IDirectDrawSurface *surface, IDirectDrawClippe
     ok(hr == DD_OK, "got %#lx.\n", hr);
 
     c = get_surface_color(surface, window_rect->left + 1, window_rect->top + 1);
-    todo_wine_if(!(style & WS_VISIBLE)) ok(c == 0x0000ff00, "got %#x.\n", c);
+    ok(c == 0x0000ff00, "got %#x.\n", c);
     c = get_surface_color(surface, 0, 0);
-    todo_wine_if((style & (WS_CHILD | WS_VISIBLE)) != (WS_CHILD | WS_VISIBLE)) ok(c == 0x0000ff00, "got %#x.\n", c);
+    ok(c == 0x0000ff00, "got %#x.\n", c);
 
     hr = IDirectDrawSurface_SetClipper(surface, NULL);
     ok(hr == DD_OK, "got %#lx.\n", hr);
@@ -17548,6 +17548,8 @@ static void test_clipper_in_exclusive_fullscreen(void)
 
     window = CreateWindowA("static", "ddraw_fullscreen", WS_POPUP | WS_VISIBLE, 0, 0, 640, 480, NULL, NULL, NULL, NULL);
     pump_messages();
+    hr = IDirectDraw2_SetCooperativeLevel(ddraw, NULL, DDSCL_NORMAL);
+    ok(hr == DD_OK, "got %#lx.\n", hr);
     hr = IDirectDraw2_SetCooperativeLevel(ddraw, window, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN);
     ok(hr == DD_OK, "got %#lx.\n", hr);
     pump_messages();
@@ -17625,7 +17627,10 @@ static void test_clipper_in_exclusive_fullscreen(void)
         winetest_pop_context();
     }
 
+    hr = IDirectDraw2_SetCooperativeLevel(ddraw, NULL, DDSCL_NORMAL);
+    ok(hr == DD_OK, "got %#lx.\n", hr);
     IDirectDrawClipper_Release(clipper);
+    IDirectDrawClipper_Release(clipper2);
     refcount = IDirectDrawSurface_Release(offscreen);
     ok(!refcount, "Got unexpected refcount %lu.\n", refcount);
     refcount = IDirectDrawSurface_Release(primary);
