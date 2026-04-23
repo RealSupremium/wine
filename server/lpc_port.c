@@ -395,6 +395,7 @@ static int lpc_port_close_handle( struct object *obj, struct process *process, o
 {
     struct lpc_port *port = (struct lpc_port *)obj;
     struct pending_request *pr, *next_pr;
+    struct lpc_message *msg, *next_msg;
 
     if (obj->handle_count == 1)
     {
@@ -406,6 +407,23 @@ static int lpc_port_close_handle( struct object *obj, struct process *process, o
                 list_remove( &pr->entry );
                 release_object( pr->client_port );
                 free( pr );
+            }
+        }
+
+        /* For SERVER ports, reject all pending connection requests so clients don't hang */
+        if (port->port_type == PORT_TYPE_SERVER)
+        {
+            LIST_FOR_EACH_ENTRY_SAFE( msg, next_msg, &port->pending_connects, struct lpc_message, entry )
+            {
+                struct lpc_port *client_port = msg->sender_port;
+                if (client_port)
+                {
+                    client_port->connect_status = STATUS_PORT_CONNECTION_REFUSED;
+                    if (client_port->connect_event)
+                        signal_sync( client_port->connect_event );
+                }
+                list_remove( &msg->entry );
+                free_lpc_message( msg );
             }
         }
 
@@ -857,8 +875,10 @@ DECL_HANDLER(reply_wait_receive_lpc)
     {
         if (port->port_type == PORT_TYPE_SERVER && !list_empty( &port->pending_connects ))
         {
+            /* Peek at pending connection request without removing it.
+             * The message stays in pending_connects until accept_lpc_connect
+             * is called, which will remove and free it properly. */
             msg = LIST_ENTRY( list_head( &port->pending_connects ), struct lpc_message, entry );
-            list_remove( &msg->entry );
 
             reply->msg_id = msg->msg_id;
             reply->msg_type = msg->msg_type;
