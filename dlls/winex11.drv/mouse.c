@@ -605,7 +605,7 @@ static XcursorImage *create_xcursor_frame( HDC hdc, const ICONINFOEXW *iinfo, HA
     {
         if (!x_width) return NULL;
         /* pin to edge*/
-        image->xhot = (XcursorDim)x_width - 1;
+        image->xhot = (XcursorDim)x_width;
     }
     else
     {
@@ -621,7 +621,7 @@ static XcursorImage *create_xcursor_frame( HDC hdc, const ICONINFOEXW *iinfo, HA
     else if (iinfo->yHotspot > x_height)
     {
         if (!x_height) return NULL;
-        image->yhot = (XcursorDim)x_height - 1;
+        image->yhot = (XcursorDim)x_height;
     }
     else
     {
