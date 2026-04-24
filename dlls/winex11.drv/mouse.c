@@ -580,7 +580,8 @@ static void send_mouse_input( HWND hwnd, Window window, unsigned int state, INPU
 static XcursorImage *create_xcursor_frame( HDC hdc, const ICONINFOEXW *iinfo, HANDLE icon,
                                            HBITMAP hbmColor, unsigned char *color_bits, int color_size,
                                            HBITMAP hbmMask, unsigned char *mask_bits, int mask_size,
-                                           int width, int height, int istep )
+                                           int width, int height, int istep,
+                                           int x_width, int x_height)
 {
     XcursorImage *image, *ret = NULL;
     DWORD delay_jiffies, num_steps;
@@ -588,15 +589,45 @@ static XcursorImage *create_xcursor_frame( HDC hdc, const ICONINFOEXW *iinfo, HA
     BOOL has_alpha = FALSE;
     XcursorPixel *ptr;
 
-    image = pXcursorImageCreate( width, height );
+    image = pXcursorImageCreate( x_width, x_height );
     if (!image)
     {
         ERR("X11 failed to produce a cursor frame!\n");
         return NULL;
     }
 
-    image->xhot = iinfo->xHotspot;
-    image->yhot = iinfo->yHotspot;
+    if (x_width == width)
+    {
+        image->xhot = iinfo->xHotspot;
+    }
+    /* hotspot is larger than xcursor frame */
+    else if (iinfo->xHotspot > x_width)
+    {
+        if (!x_width) return NULL;
+        /* pin to edge*/
+        image->xhot = (XcursorDim)x_width - 1;
+    }
+    else
+    {
+        if (!width) return NULL;
+        /* scale hotspot linearly */
+        image->xhot = iinfo->xHotspot * x_width / width;
+    }
+
+    if (x_height == height)
+    {
+        image->yhot = iinfo->yHotspot;
+    }
+    else if (iinfo->yHotspot > x_height)
+    {
+        if (!x_height) return NULL;
+        image->yhot = (XcursorDim)x_height - 1;
+    }
+    else
+    {
+        if (!height) return NULL;
+        image->yhot = iinfo->yHotspot * x_height / height;
+    }
 
     image->delay = 100; /* fallback delay, 100 ms */
     if (NtUserGetCursorFrameInfo(icon, istep, &delay_jiffies, &num_steps) != 0)
@@ -612,10 +643,21 @@ static XcursorImage *create_xcursor_frame( HDC hdc, const ICONINFOEXW *iinfo, HA
         TRACE("Could not draw frame %d (walk past end of frames).\n", istep);
         goto cleanup;
     }
-    memcpy( image->pixels, color_bits, color_size );
+
+    if (x_width >= width && x_height >= height)
+    {
+        memcpy( image->pixels, color_bits, color_size );
+    }
+    else
+    {
+        for (y = 0; y < x_height; y++)
+            memcpy( image->pixels + y * x_width,
+                    (XcursorPixel *)color_bits + y * width,
+                    x_width * sizeof(XcursorPixel) );
+    }
 
     /* check if the cursor frame was drawn with an alpha channel */
-    for (i = 0, ptr = image->pixels; i < width * height; i++, ptr++)
+    for (i = 0, ptr = image->pixels; i < x_width * x_height; i++, ptr++)
         if ((has_alpha = (*ptr & 0xff000000) != 0)) break;
 
     /* if no alpha channel was drawn then generate it from the mask */
@@ -632,8 +674,8 @@ static XcursorImage *create_xcursor_frame( HDC hdc, const ICONINFOEXW *iinfo, HA
             goto cleanup;
         }
         /* use the buffer to directly modify the XcursorImage alpha channel */
-        for (y = 0, ptr = image->pixels; y < height; y++)
-            for (x = 0; x < width; x++, ptr++)
+        for (y = 0, ptr = image->pixels; y < x_height; y++)
+            for (x = 0; x < x_width; x++, ptr++)
                 if (!((mask_bits[y * width_bytes + x / 8] << (x % 8)) & 0x80))
                     *ptr |= 0xff000000;
     }
@@ -659,6 +701,32 @@ static Cursor create_xcursor_cursor( HDC hdc, const ICONINFOEXW *iinfo, HANDLE i
     XcursorImages *images;
     XcursorImage **imgs;
     Cursor cursor = 0;
+    unsigned int x_width = 0;
+    unsigned int x_height = 0;
+    int w_width = width;
+    int w_height = height;
+
+    /* Shape requested cursor frame dimensions to max best dimensions
+     * available by x to avoid forced software cursor switching
+     * with oversized cursors on draw */
+    if (fit_w_cursor_to_best_size ^ clamp_x_cursor_to_best_size)
+    {
+        XQueryBestCursor( gdi_display, DefaultRootWindow( gdi_display ),
+                          w_width, w_height, &x_width, &x_height );
+
+        /* Aggressively reassign cursor dimensions
+         * to max available achieving a scale-down effect */
+        if (fit_w_cursor_to_best_size)
+        {
+            if (w_width  > (int)x_width) w_width = (int)x_width;
+            if (w_height > (int)x_height) w_height = (int)x_height;
+        }
+    }
+    else
+    {
+        x_width = w_width;
+        x_height = w_height;
+    }
 
     /* Retrieve the number of frames to render */
     if (!NtUserGetCursorFrameInfo(icon, 0, &delay_jiffies, &nFrames)) return 0;
@@ -667,8 +735,8 @@ static Cursor create_xcursor_cursor( HDC hdc, const ICONINFOEXW *iinfo, HANDLE i
     /* Allocate all of the resources necessary to obtain a cursor frame */
     if (!(info = malloc( FIELD_OFFSET( BITMAPINFO, bmiColors[256] )))) goto cleanup;
     info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info->bmiHeader.biWidth = width;
-    info->bmiHeader.biHeight = -height;
+    info->bmiHeader.biWidth = w_width;
+    info->bmiHeader.biHeight = -w_height;
     info->bmiHeader.biPlanes = 1;
     info->bmiHeader.biCompression = BI_RGB;
     info->bmiHeader.biXPelsPerMeter = 0;
@@ -676,7 +744,7 @@ static Cursor create_xcursor_cursor( HDC hdc, const ICONINFOEXW *iinfo, HANDLE i
     info->bmiHeader.biClrUsed = 0;
     info->bmiHeader.biClrImportant = 0;
     info->bmiHeader.biBitCount = 32;
-    color_size = width * height * 4;
+    color_size = w_width * w_height * 4;
     info->bmiHeader.biSizeImage = color_size;
     hbmColor = NtGdiCreateDIBSection( hdc, NULL, 0, info, DIB_RGB_COLORS, 0, 0, 0, (void **)&color_bits );
     if (!hbmColor)
@@ -694,7 +762,7 @@ static Cursor create_xcursor_cursor( HDC hdc, const ICONINFOEXW *iinfo, HANDLE i
     info->bmiColors[1].rgbBlue     = 0xff;
     info->bmiColors[1].rgbReserved = 0;
 
-    mask_size = ((width + 31) / 32 * 4) * height; /* width_bytes * height */
+    mask_size = ((w_width + 31) / 32 * 4) * w_height; /* width_bytes * height */
     info->bmiHeader.biSizeImage = mask_size;
     hbmMask = NtGdiCreateDIBSection( hdc, NULL, 0, info, DIB_RGB_COLORS, 0, 0, 0, (void **)&mask_bits );
     if (!hbmMask)
@@ -709,7 +777,7 @@ static Cursor create_xcursor_cursor( HDC hdc, const ICONINFOEXW *iinfo, HANDLE i
         imgs[i] = create_xcursor_frame( hdc, iinfo, icon,
                                         hbmColor, color_bits, color_size,
                                         hbmMask, mask_bits, mask_size,
-                                        width, height, i );
+                                        w_width, w_height, i, (int)x_width, (int)x_height );
         if (!imgs[i]) goto cleanup;
     }
 
