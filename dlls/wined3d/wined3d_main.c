@@ -129,7 +129,6 @@ struct wined3d_settings wined3d_settings =
     .max_sm_cs = UINT_MAX,
     .renderer = WINED3D_RENDERER_AUTO,
     .shader_backend = WINED3D_SHADER_BACKEND_AUTO,
-    .vk_swap_srgb = FALSE,
 };
 
 enum wined3d_renderer CDECL wined3d_get_renderer(void)
@@ -468,11 +467,6 @@ static BOOL wined3d_dll_init(HINSTANCE hInstDLL)
         {
             ERR_(winediag)("Using the HLSL-based FFP backend.\n");
             wined3d_settings.ffp_hlsl = tmpvalue;
-        }
-        if (!get_config_key_dword(hkey, appkey, env, "vk_swap_srgb", &tmpvalue) && tmpvalue)
-        {
-            TRACE("Forcing Vulkan Swapchain SRGB conversions.\n");
-            wined3d_settings.vk_swap_srgb = TRUE;
         }
     }
 

@@ -755,7 +755,6 @@ static VkFormat wined3d_swapchain_vk_select_vk_format(struct wined3d_swapchain_v
 {
     struct wined3d_device_vk *device_vk = wined3d_device_vk(swapchain_vk->s.device);
     const struct wined3d_swapchain_desc *desc = &swapchain_vk->s.state.desc;
-    enum wined3d_format_id backbuffer_format;
     const struct wined3d_vk_info *vk_info;
     struct wined3d_adapter_vk *adapter_vk;
     const struct wined3d_format *format;
@@ -769,11 +768,7 @@ static VkFormat wined3d_swapchain_vk_select_vk_format(struct wined3d_swapchain_v
     vk_physical_device = adapter_vk->physical_device;
     vk_info = &adapter_vk->vk_info;
 
-    backbuffer_format = desc->backbuffer_format;
-    if (wined3d_settings.vk_swap_srgb)
-        backbuffer_format = wined3d_get_format_srgb(desc->backbuffer_format);
-
-    if ((format = wined3d_get_format(&adapter_vk->a, backbuffer_format, WINED3D_BIND_RENDER_TARGET)))
+    if ((format = wined3d_get_format(&adapter_vk->a, desc->backbuffer_format, WINED3D_BIND_RENDER_TARGET)))
         vk_format = wined3d_format_vk(format)->vk_format;
     else
         vk_format = VK_FORMAT_B8G8R8A8_UNORM;
@@ -805,7 +800,7 @@ static VkFormat wined3d_swapchain_vk_select_vk_format(struct wined3d_swapchain_v
     {
         /* Try to create a swapchain with format conversion. */
         vk_format = get_swapchain_fallback_format(vk_format);
-        WARN("Failed to find Vulkan swapchain format for %s.\n", debug_d3dformat(backbuffer_format));
+        WARN("Failed to find Vulkan swapchain format for %s.\n", debug_d3dformat(desc->backbuffer_format));
         for (i = 0; i < format_count; ++i)
         {
             if (vk_formats[i].format == vk_format && vk_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
@@ -815,7 +810,7 @@ static VkFormat wined3d_swapchain_vk_select_vk_format(struct wined3d_swapchain_v
     free(vk_formats);
     if (i == format_count)
     {
-        FIXME("Failed to find Vulkan swapchain format for %s.\n", debug_d3dformat(backbuffer_format));
+        FIXME("Failed to find Vulkan swapchain format for %s.\n", debug_d3dformat(desc->backbuffer_format));
         return VK_FORMAT_UNDEFINED;
     }
 

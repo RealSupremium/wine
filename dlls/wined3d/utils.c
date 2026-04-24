@@ -1803,19 +1803,6 @@ static const struct wined3d_format_srgb_info format_srgb_info[] =
     {WINED3DFMT_BC7_UNORM_SRGB,      WINED3DFMT_BC7_UNORM},
 };
 
-enum wined3d_format_id wined3d_get_format_srgb(enum wined3d_format_id format_id)
-{
-    unsigned int i;
-    for (i = 0; i < ARRAY_SIZE(format_srgb_info); ++i)
-    {
-        if (format_srgb_info[i].base_format_id == format_id)
-        {
-            return format_srgb_info[i].srgb_format_id;
-        }
-    }
-    return format_id;
-}
-
 static inline int get_format_idx(enum wined3d_format_id format_id)
 {
     unsigned int i;
