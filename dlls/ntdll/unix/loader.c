@@ -107,6 +107,7 @@ void *pKiUserEmulationDispatcher = NULL;
 void *pLdrInitializeThunk = NULL;
 void *pRtlUserThreadStart = NULL;
 void *p__wine_ctrl_routine = NULL;
+void *p__wine_mac_run_cfrunloop = NULL;
 SYSTEM_DLL_INIT_BLOCK *pLdrSystemDllInitBlock = NULL;
 
 #ifdef __GNUC__
@@ -1008,6 +1009,20 @@ static NTSTATUS unwind_builtin_dll( void *args )
 #endif /* SO_DLLS_SUPPORTED */
 
 
+/***********************************************************************
+ *           run_mac_cfrunloop
+ */
+static NTSTATUS run_mac_cfrunloop( void *args )
+{
+#ifdef __APPLE__
+    CFRunLoopRun(); /* Should never return, except on error. */
+    return STATUS_SUCCESS;
+#else
+    return STATUS_NOT_IMPLEMENTED;
+#endif
+}
+
+
 static const unixlib_entry_t unix_call_funcs[] =
 {
     load_so_dll,
@@ -1018,6 +1033,7 @@ static const unixlib_entry_t unix_call_funcs[] =
     unixcall_wine_server_handle_to_fd,
     unixcall_wine_spawnvp,
     system_time_precise,
+    run_mac_cfrunloop,
 };
 
 
@@ -1036,6 +1052,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
     wow64_wine_server_handle_to_fd,
     wow64_wine_spawnvp,
     system_time_precise,
+    run_mac_cfrunloop,
 };
 
 #endif  /* _WIN64 */
@@ -1577,6 +1594,7 @@ static void load_ntdll_functions( HMODULE module )
     GET_FUNC( LdrSystemDllInitBlock );
     GET_FUNC( RtlUserThreadStart );
     GET_FUNC( __wine_ctrl_routine );
+    GET_FUNC( __wine_mac_run_cfrunloop );
     GET_FUNC( __wine_syscall_dispatcher );
     GET_FUNC( __wine_unix_call_dispatcher );
     GET_FUNC( __wine_unixlib_handle );
