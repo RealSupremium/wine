@@ -1870,7 +1870,24 @@ static BOOL requires_fallback(HDC hdc, SCRIPT_CACHE *psc, SCRIPT_ANALYSIS *psa,
     return FALSE;
 }
 
-static void find_fallback_font(enum usp10_script scriptid, WCHAR *FaceName)
+static INT CALLBACK is_font_installed_proc(const LOGFONTW *elf, const TEXTMETRICW *ntm, DWORD type, LPARAM lParam)
+{
+    *(BOOL *)lParam = TRUE;
+    return 0;
+}
+
+static BOOL is_font_installed(HDC hdc, const WCHAR *name)
+{
+    BOOL ret = FALSE;
+    LOGFONTW lf;
+    lstrcpynW(lf.lfFaceName, name, LF_FACESIZE);
+    lf.lfCharSet = DEFAULT_CHARSET;
+
+    EnumFontFamiliesExW(hdc, &lf, is_font_installed_proc, (LPARAM)&ret, 0);
+    return ret;
+}
+
+static void find_fallback_font(HDC hdc, enum usp10_script scriptid, WCHAR *FaceName)
 {
     HKEY hkey;
 
@@ -1881,12 +1898,31 @@ static void find_fallback_font(enum usp10_script scriptid, WCHAR *FaceName)
         DWORD type;
 
         swprintf(value, ARRAY_SIZE(value), L"%x", scriptInformation[scriptid].scriptTag);
-        if (RegQueryValueExW(hkey, value, 0, &type, (BYTE *)FaceName, &count))
-            lstrcpyW(FaceName,scriptInformation[scriptid].fallbackFont);
+        if (!RegQueryValueExW(hkey, value, 0, &type, (BYTE *)FaceName, &count))
+        {
+            RegCloseKey(hkey);
+            return;
+        }
         RegCloseKey(hkey);
     }
-    else
+
+    if (scriptInformation[scriptid].fallbackFont[0] &&
+        is_font_installed(hdc, scriptInformation[scriptid].fallbackFont))
+    {
         lstrcpyW(FaceName,scriptInformation[scriptid].fallbackFont);
+        return;
+    }
+
+    if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Uniscribe\\SystemFallback", &hkey))
+    {
+        WCHAR value[10];
+        DWORD count = LF_FACESIZE * sizeof(WCHAR);
+        DWORD type;
+
+        swprintf(value, ARRAY_SIZE(value), L"%x", scriptInformation[scriptid].scriptTag);
+        RegQueryValueExW(hkey, value, 0, &type, (BYTE *)FaceName, &count);
+        RegCloseKey(hkey);
+    }
 }
 
 /***********************************************************************
@@ -2018,7 +2054,7 @@ HRESULT WINAPI ScriptStringAnalyse(HDC hdc, const void *pString, int cString,
                 GetObjectW(GetCurrentObject(hdc, OBJ_FONT), sizeof(lf), & lf);
                 lf.lfCharSet = scriptInformation[analysis->pItem[i].a.eScript].props.bCharSet;
                 lf.lfFaceName[0] = 0;
-                find_fallback_font(analysis->pItem[i].a.eScript, lf.lfFaceName);
+                find_fallback_font(hdc, analysis->pItem[i].a.eScript, lf.lfFaceName);
                 if (lf.lfFaceName[0])
                 {
                     analysis->glyphs[i].fallbackFont = CreateFontIndirectW(&lf);
