@@ -1068,13 +1068,13 @@
     SYSCALL_ENTRY( 0x1428, NtUserGetPointerDeviceInputSpace, 0 ) \
     SYSCALL_ENTRY( 0x1429, NtUserGetPointerDeviceOrientation, 0 ) \
     SYSCALL_ENTRY( 0x142a, NtUserGetPointerDeviceProperties, 0 ) \
-    SYSCALL_ENTRY( 0x142b, NtUserGetPointerDeviceRects, 0 ) \
+    SYSCALL_ENTRY( 0x142b, NtUserGetPointerDeviceRects, 12 ) \
     SYSCALL_ENTRY( 0x142c, NtUserGetPointerDevices, 0 ) \
     SYSCALL_ENTRY( 0x142d, NtUserGetPointerFrameTimes, 0 ) \
     SYSCALL_ENTRY( 0x142e, NtUserGetPointerInfoList, 32 ) \
     SYSCALL_ENTRY( 0x142f, NtUserGetPointerInputTransform, 0 ) \
     SYSCALL_ENTRY( 0x1430, NtUserGetPointerProprietaryId, 0 ) \
-    SYSCALL_ENTRY( 0x1431, NtUserGetPointerType, 0 ) \
+    SYSCALL_ENTRY( 0x1431, NtUserGetPointerType, 8 ) \
     SYSCALL_ENTRY( 0x1432, NtUserGetPrecisionTouchPadConfiguration, 0 ) \
     SYSCALL_ENTRY( 0x1433, NtUserGetPriorityClipboardFormat, 8 ) \
     SYSCALL_ENTRY( 0x1434, NtUserGetProcessDefaultLayout, 4 ) \
@@ -2610,13 +2610,13 @@
     SYSCALL_ENTRY( 0x1428, NtUserGetPointerDeviceInputSpace, 0 ) \
     SYSCALL_ENTRY( 0x1429, NtUserGetPointerDeviceOrientation, 0 ) \
     SYSCALL_ENTRY( 0x142a, NtUserGetPointerDeviceProperties, 0 ) \
-    SYSCALL_ENTRY( 0x142b, NtUserGetPointerDeviceRects, 0 ) \
+    SYSCALL_ENTRY( 0x142b, NtUserGetPointerDeviceRects, 24 ) \
     SYSCALL_ENTRY( 0x142c, NtUserGetPointerDevices, 0 ) \
     SYSCALL_ENTRY( 0x142d, NtUserGetPointerFrameTimes, 0 ) \
     SYSCALL_ENTRY( 0x142e, NtUserGetPointerInfoList, 64 ) \
     SYSCALL_ENTRY( 0x142f, NtUserGetPointerInputTransform, 0 ) \
     SYSCALL_ENTRY( 0x1430, NtUserGetPointerProprietaryId, 0 ) \
-    SYSCALL_ENTRY( 0x1431, NtUserGetPointerType, 0 ) \
+    SYSCALL_ENTRY( 0x1431, NtUserGetPointerType, 16 ) \
     SYSCALL_ENTRY( 0x1432, NtUserGetPrecisionTouchPadConfiguration, 0 ) \
     SYSCALL_ENTRY( 0x1433, NtUserGetPriorityClipboardFormat, 16 ) \
     SYSCALL_ENTRY( 0x1434, NtUserGetProcessDefaultLayout, 8 ) \
@@ -3832,12 +3832,10 @@
     SYSCALL_STUB( NtUserGetPointerDeviceInputSpace ) \
     SYSCALL_STUB( NtUserGetPointerDeviceOrientation ) \
     SYSCALL_STUB( NtUserGetPointerDeviceProperties ) \
-    SYSCALL_STUB( NtUserGetPointerDeviceRects ) \
     SYSCALL_STUB( NtUserGetPointerDevices ) \
     SYSCALL_STUB( NtUserGetPointerFrameTimes ) \
     SYSCALL_STUB( NtUserGetPointerInputTransform ) \
     SYSCALL_STUB( NtUserGetPointerProprietaryId ) \
-    SYSCALL_STUB( NtUserGetPointerType ) \
     SYSCALL_STUB( NtUserGetPrecisionTouchPadConfiguration ) \
     SYSCALL_STUB( NtUserGetProcessUIContextInformation ) \
     SYSCALL_STUB( NtUserGetProp2 ) \

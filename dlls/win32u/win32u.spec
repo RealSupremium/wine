@@ -1066,13 +1066,13 @@
 @ stub -syscall NtUserGetPointerDeviceInputSpace
 @ stub -syscall NtUserGetPointerDeviceOrientation
 @ stub -syscall NtUserGetPointerDeviceProperties
-@ stub -syscall NtUserGetPointerDeviceRects
+@ stdcall -syscall NtUserGetPointerDeviceRects(long ptr ptr)
 @ stub -syscall NtUserGetPointerDevices
 @ stub -syscall NtUserGetPointerFrameTimes
 @ stdcall -syscall NtUserGetPointerInfoList(long long long long long ptr ptr ptr)
 @ stub -syscall NtUserGetPointerInputTransform
 @ stub -syscall NtUserGetPointerProprietaryId
-@ stub -syscall NtUserGetPointerType
+@ stdcall -syscall NtUserGetPointerType(long ptr)
 @ stub -syscall NtUserGetPrecisionTouchPadConfiguration
 @ stdcall -syscall NtUserGetPriorityClipboardFormat(ptr long)
 @ stdcall -syscall NtUserGetProcessDefaultLayout(ptr)

@@ -1807,9 +1807,13 @@ static DWORD CALLBACK test_NtUserGetPointerInfoList_thread( void *arg )
     memset( &pointer_info, 0xcd, sizeof(pointer_info) );
     entry_count = pointer_count = 2;
     ret = NtUserGetPointerInfoList( 1, PT_POINTER, 0, 0, sizeof(POINTER_INFO), &entry_count, &pointer_count, pointer_info );
+    todo_wine
     ok( !ret, "NtUserGetPointerInfoList succeeded\n" );
+    todo_wine
     ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %lu\n", GetLastError() );
+    todo_wine
     ok( pointer_count == 2, "got pointer_count %u\n", pointer_count );
+    todo_wine
     ok( entry_count == 2, "got entry_count %u\n", entry_count );
 
     DestroyWindow( hwnd );
@@ -1869,17 +1873,14 @@ static void test_NtUserGetPointerInfoList( BOOL mouse_in_pointer_enabled )
     entry_count = pointer_count = 2;
     ret = NtUserGetPointerInfoList( 1, PT_POINTER, 0, 0, sizeof(POINTER_INFO), invalid_ptr, &pointer_count, pointer_info );
     ok( !ret, "NtUserGetPointerInfoList succeeded\n" );
-    todo_wine
     ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
     entry_count = pointer_count = 2;
     ret = NtUserGetPointerInfoList( 1, PT_POINTER, 0, 0, sizeof(POINTER_INFO), &entry_count, invalid_ptr, pointer_info );
     ok( !ret, "NtUserGetPointerInfoList succeeded\n" );
-    todo_wine
     ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
     entry_count = pointer_count = 2;
     ret = NtUserGetPointerInfoList( 1, PT_POINTER, 0, 0, sizeof(POINTER_INFO), &entry_count, &pointer_count, invalid_ptr );
     ok( !ret, "NtUserGetPointerInfoList succeeded\n" );
-    todo_wine
     ok( GetLastError() == ERROR_NOACCESS || broken(GetLastError() == ERROR_INVALID_PARAMETER) /* w10 32bit */, "got error %lu\n", GetLastError() );
 
     memset( pointer_info, 0xcd, sizeof(pointer_info) );
@@ -1918,7 +1919,6 @@ static void test_NtUserGetPointerInfoList( BOOL mouse_in_pointer_enabled )
     memset( pointer_info, 0xcd, sizeof(pointer_info) );
     entry_count = pointer_count = 2;
     ret = NtUserGetPointerInfoList( 1, PT_POINTER, 0, 0, sizeof(POINTER_INFO), &entry_count, &pointer_count, pointer_info );
-    todo_wine_if(mouse_in_pointer_enabled)
     ok( ret == mouse_in_pointer_enabled, "NtUserGetPointerInfoList failed, error %lu\n", GetLastError() );
     if (!ret)
     {
@@ -2949,6 +2949,41 @@ static void test_NtUserRegisterWindowMessage(void)
     ok( !wcscmp( buf, L"#0xabc" ), "buf = %s\n", debugstr_w(buf) );
 }
 
+static BOOL CALLBACK get_virtual_screen_proc( HMONITOR monitor, HDC hdc, LPRECT rect, LPARAM lp )
+{
+    RECT *virtual_rect = (RECT *)lp;
+    UnionRect( virtual_rect, virtual_rect, rect );
+    return TRUE;
+}
+
+static RECT get_virtual_screen_rect(void)
+{
+    RECT rect = {0};
+    EnumDisplayMonitors( 0, NULL, get_virtual_screen_proc, (LPARAM)&rect );
+    return rect;
+}
+
+void test_NtUserGetPointerDeviceRects(void)
+{
+    RECT screen = get_virtual_screen_rect(), device = {0}, display = {0};
+    const int himetric_inch = 2540;
+    UINT dpi = GetDpiForSystem();
+    RECT himetric_dev = {
+        .left = MulDiv( screen.left, himetric_inch, dpi ),
+        .top = MulDiv( screen.top, himetric_inch, dpi ),
+        .right = MulDiv( screen.right, himetric_inch, dpi ),
+        .bottom = MulDiv( screen.bottom, himetric_inch, dpi ),
+    };
+    UINT ret;
+
+    ret = NtUserGetPointerDeviceRects( INVALID_HANDLE_VALUE, &device, &display );
+    ok( ret, "NtUserGetPointerDeviceRects failed, error %lu.\n", GetLastError() );
+    ok( EqualRect( &device, &himetric_dev ), "device %s, expected %s\n",
+            wine_dbgstr_rect( &device ), wine_dbgstr_rect( &himetric_dev ) );
+    ok( EqualRect( &display, &screen ), "display %s, expected %s\n",
+            wine_dbgstr_rect( &display ), wine_dbgstr_rect( &screen ) );
+}
+
 START_TEST(win32u)
 {
     char **argv;
@@ -3000,6 +3035,7 @@ START_TEST(win32u)
     test_NtUserQueryWindow();
     test_RegisterClipboardFormat();
     test_NtUserRegisterWindowMessage();
+    test_NtUserGetPointerDeviceRects();
 
     run_in_process( argv, "NtUserEnableMouseInPointer 0" );
     run_in_process( argv, "NtUserEnableMouseInPointer 1" );

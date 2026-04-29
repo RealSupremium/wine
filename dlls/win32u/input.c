@@ -40,6 +40,8 @@
 WINE_DEFAULT_DEBUG_CHANNEL(win);
 WINE_DECLARE_DEBUG_CHANNEL(keyboard);
 
+#define HIMETRIC 2540
+
 static const WCHAR keyboard_layouts_keyW[] =
 {
     '\\','R','e','g','i','s','t','r','y',
@@ -405,6 +407,20 @@ static const KBDTABLES kbdus_tables =
 
 static LONG clipping_cursor; /* clipping thread counter */
 static LONG enable_mouse_in_pointer = -1;
+static LONG last_frame = 0;
+
+struct pointer
+{
+    UINT32 id;
+    struct list entry;
+    POINTER_INPUT_TYPE type;
+    POINTER_INFO info;
+};
+
+struct pointer_thread_data
+{
+    struct list known_pointers;
+};
 
 BOOL grab_pointer = TRUE;
 BOOL grab_fullscreen = FALSE;
@@ -2719,18 +2735,6 @@ BOOL clip_fullscreen_window( HWND hwnd, BOOL reset )
     return ret;
 }
 
-/**********************************************************************
- *       NtUserGetPointerInfoList    (win32u.@)
- */
-BOOL WINAPI NtUserGetPointerInfoList( UINT32 id, POINTER_INPUT_TYPE type, UINT_PTR unk0, UINT_PTR unk1, SIZE_T size,
-                                      UINT32 *entry_count, UINT32 *pointer_count, void *pointer_info )
-{
-    FIXME( "id %#x, type %#x, unk0 %#lx, unk1 %#lx, size %#lx, entry_count %p, pointer_count %p, pointer_info %p stub!\n",
-           id, type, (long)unk0, (long)unk1, size, entry_count, pointer_count, pointer_info );
-    RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
-}
-
 static BOOL get_clip_cursor( RECT *rect, UINT dpi, MONITOR_DPI_TYPE type )
 {
     struct object_lock lock = OBJECT_LOCK_INIT;
@@ -2851,4 +2855,233 @@ INT WINAPI NtUserScheduleDispatchNotification( HWND hwnd )
         return 2;
 
     return 0;
+}
+
+static struct pointer *allocate_pointerid( UINT32 id, POINTER_INPUT_TYPE type );
+
+static struct pointer_thread_data *get_pointer_thread_data(void)
+{
+    struct user_thread_info *thread_info = get_user_thread_info();
+    if (!thread_info->pointer_data && (thread_info->pointer_data = calloc( 1, sizeof(*thread_info->pointer_data) )))
+    {
+        list_init( &thread_info->pointer_data->known_pointers );
+        allocate_pointerid( 1, PT_MOUSE );
+    }
+    return thread_info->pointer_data;
+};
+
+static struct pointer *allocate_pointerid( UINT32 id, POINTER_INPUT_TYPE type )
+{
+    struct pointer_thread_data *thread_data = get_pointer_thread_data();
+    struct pointer *pointer;
+
+    TRACE( "allocating pointer id %d, type %#x\n", id, type );
+
+    if (!thread_data || !(pointer = calloc( 1, sizeof(*pointer) )))
+        return NULL;
+    pointer->id = id;
+    pointer->type = type;
+    list_add_tail( &thread_data->known_pointers, &pointer->entry );
+
+    return pointer;
+}
+
+static struct pointer *find_pointerid( UINT32 id )
+{
+    struct pointer_thread_data *thread_data = get_pointer_thread_data();
+    struct pointer *pointer;
+
+    TRACE( "looking for pointer id %d\n", id );
+
+    if (!thread_data)
+        return NULL;
+
+    LIST_FOR_EACH_ENTRY(pointer, &thread_data->known_pointers, struct pointer, entry)
+        if (pointer->id == id)
+            return pointer;
+
+    return NULL;
+}
+
+POINTER_INFO pointer_info_from_msg( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, DWORD time )
+{
+    POINT location = { LOWORD( lParam ), HIWORD( lParam ) };
+    LARGE_INTEGER counter;
+    POINTER_INFO info = {
+        .pointerId = GET_POINTERID_WPARAM( wParam ),
+        .sourceDevice = INVALID_HANDLE_VALUE,
+        .frameId = InterlockedIncrement( &last_frame ),
+        .hwndTarget = hwnd,
+        .historyCount = 1,
+        .dwTime = time,
+    };
+
+    info.pointerFlags = HIWORD( wParam );
+    switch (msg)
+    {
+    case WM_POINTERUPDATE: info.pointerFlags |= POINTER_FLAG_UPDATE; break;
+    case WM_POINTERDOWN: info.pointerFlags |= POINTER_FLAG_DOWN; break;
+    case WM_POINTERUP: info.pointerFlags |= POINTER_FLAG_UP; break;
+    }
+    info.ptPixelLocation = info.ptPixelLocationRaw = location;
+    info.ptHimetricLocation = info.ptHimetricLocationRaw = map_dpi_point( location, HIMETRIC, get_system_dpi() );
+
+    NtQueryPerformanceCounter( &counter, NULL );
+    info.PerformanceCount = counter.QuadPart;
+
+    return info;
+}
+
+static POINTER_BUTTON_CHANGE_TYPE compare_button( const POINTER_INFO *old, const POINTER_INFO *new )
+{
+    POINTER_BUTTON_CHANGE_TYPE change = POINTER_CHANGE_NONE;
+    static const struct
+    {
+        POINTER_FLAGS flag;
+        POINTER_BUTTON_CHANGE_TYPE down, up;
+    } map[] = {
+        { POINTER_FLAG_FIRSTBUTTON,  POINTER_CHANGE_FIRSTBUTTON_DOWN,  POINTER_CHANGE_FIRSTBUTTON_UP  },
+        { POINTER_FLAG_SECONDBUTTON, POINTER_CHANGE_SECONDBUTTON_DOWN, POINTER_CHANGE_SECONDBUTTON_UP },
+        { POINTER_FLAG_THIRDBUTTON,  POINTER_CHANGE_THIRDBUTTON_DOWN,  POINTER_CHANGE_THIRDBUTTON_UP  },
+        { POINTER_FLAG_FOURTHBUTTON, POINTER_CHANGE_FOURTHBUTTON_DOWN, POINTER_CHANGE_FOURTHBUTTON_UP },
+        { POINTER_FLAG_FIFTHBUTTON,  POINTER_CHANGE_FIFTHBUTTON_DOWN,  POINTER_CHANGE_FIFTHBUTTON_UP  },
+    };
+
+    for (size_t i = 0; i < ARRAY_SIZE(map); i++)
+        if (!(old->pointerFlags & map[i].flag) && new->pointerFlags & map[i].flag)
+            change |= map[i].down;
+        else if (old->pointerFlags & map[i].flag && !(new->pointerFlags & map[i].flag))
+            change |= map[i].up;
+    return change;
+}
+
+void pointer_update( UINT32 id, POINTER_INPUT_TYPE type, POINTER_INFO *info )
+{
+    POINTER_BUTTON_CHANGE_TYPE buttons;
+    struct pointer *pointer;
+
+    TRACE( "updating pointer id %d.\n", id );
+
+    if (!(pointer = find_pointerid( id )) && !(pointer = allocate_pointerid( id, type )))
+        return;
+
+    buttons = compare_button(&pointer->info, info);
+
+    pointer->info = *info;
+    pointer->info.pointerType = pointer->type;
+    pointer->info.ButtonChangeType = buttons;
+}
+
+static POINTER_INPUT_TYPE pointer_type_from_hw( const struct hw_msg_source *source )
+{
+    switch (source->origin)
+    {
+    case IMDT_PEN: return PT_PEN;
+    case IMDT_MOUSE: return PT_MOUSE;
+    case IMDT_TOUCH:
+    case IMDT_TOUCHPAD: return PT_TOUCH;
+    default: return PT_POINTER;
+    }
+}
+
+/***********************************************************************
+ *          process_pointer_message
+ g*
+ * returns TRUE if the contents of 'msg' should be passed to the application
+ */
+BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_data *msg_data )
+{
+    POINTER_INFO info = pointer_info_from_msg( msg->hwnd, msg->message, msg->wParam, msg->lParam, msg->time );
+    pointer_update( GET_POINTERID_WPARAM( msg->wParam ), pointer_type_from_hw( &msg_data->source ), &info );
+    return TRUE;
+}
+
+/**********************************************************************
+ *       NtUserGetPointerType    (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerType(UINT32 id, POINTER_INPUT_TYPE *type)
+{
+    struct pointer *pointer;
+
+    TRACE( "%u, %p\n", id, type );
+
+    if (!id || !type || !(pointer = find_pointerid( id )) )
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+
+    *type = pointer->type;
+    return TRUE;
+}
+
+/**********************************************************************
+ *       NtUserGetPointerInfoList    (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerInfoList( UINT32 id, POINTER_INPUT_TYPE type, UINT_PTR unk0, UINT_PTR unk1, SIZE_T size,
+                                      UINT32 *entry_count, UINT32 *pointer_count, void *pointer_info )
+{
+    struct pointer *pointer;
+    size_t target_size = 0;
+
+    TRACE( "id %d, type %#x, unk0 %#lx, unk1 %#lx, size %#lx, entry_count %p, pointer_count %p, pointer_info %p\n",
+            id, type, (long)unk0, (long)unk1, size, entry_count, pointer_count, pointer_info );
+
+    switch (type)
+    {
+    case PT_MOUSE:
+    case PT_PEN: target_size = sizeof(POINTER_PEN_INFO); break;
+    case PT_POINTER: target_size = sizeof(POINTER_INFO); break;
+    case PT_TOUCHPAD:
+    case PT_TOUCH: target_size = sizeof(POINTER_TOUCH_INFO); break;
+    }
+
+    if (type == PT_MOUSE || size != target_size)
+    {
+        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+
+    if (!(pointer = find_pointerid( id )))
+    {
+        TRACE( "pointer id %d not found.\n", id );
+        RtlSetLastWin32Error( ERROR_NOACCESS );
+        return FALSE;
+    }
+
+    if (!pointer->info.pointerId)
+    {
+        TRACE( "no info on pointer id %d.\n", id );
+        RtlSetLastWin32Error( ERROR_NOACCESS );
+        return FALSE;
+    }
+
+    if (type != PT_POINTER && type != PT_MOUSE)
+        FIXME( "Pointer type %#x not implemented!", type );
+
+    *entry_count = 1;
+    *pointer_count = 1;
+    *(POINTER_INFO *)pointer_info = pointer->info;
+    return TRUE;
+}
+
+/**********************************************************************
+ *       NtUserGetPointerDeviceRects    (win32u.@)
+ */
+BOOL WINAPI NtUserGetPointerDeviceRects( HANDLE handle, RECT *pointerDeviceRect, RECT *displayRect )
+{
+    UINT dpi = get_system_dpi();
+
+    TRACE( "%p, %p, %p\n", handle, pointerDeviceRect, displayRect );
+
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+        FIXME( "Pointer devices are not implemented!\n" );
+        RtlSetLastWin32Error( ERROR_NO_DATA );
+        return FALSE;
+    }
+
+    *displayRect = get_virtual_screen_rect( dpi, MDT_DEFAULT );
+    *pointerDeviceRect = map_dpi_rect( *displayRect, dpi, HIMETRIC );
+    return TRUE;
 }

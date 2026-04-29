@@ -2461,17 +2461,6 @@ static void send_parent_notify( HWND hwnd, WORD event, WORD idChild, POINT pt )
 }
 
 /***********************************************************************
- *          process_pointer_message
- *
- * returns TRUE if the contents of 'msg' should be passed to the application
- */
-static BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_data *msg_data )
-{
-    msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
-    return TRUE;
-}
-
-/***********************************************************************
  *          process_keyboard_message
  *
  * returns TRUE if the contents of 'msg' should be passed to the application
@@ -2681,7 +2670,16 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
             break;
         }
 
-        if (message) send_message( msg->hwnd, message, MAKELONG( 1, flags ), MAKELONG( msg->pt.x, msg->pt.y ) );
+        if (message)
+        {
+            LPARAM lParam = MAKELONG( msg->pt.x, msg->pt.y );
+            WPARAM wParam = MAKELONG( 1, flags );
+            POINTER_INFO info;
+
+            info = pointer_info_from_msg( msg->hwnd, message, wParam, lParam, msg->time );
+            pointer_update( 1, PT_MOUSE, &info );
+            send_message( msg->hwnd, message, wParam, lParam );
+        }
     }
 
     /* FIXME: is this really the right place for this hook? */
