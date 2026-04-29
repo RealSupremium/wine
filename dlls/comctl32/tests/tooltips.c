@@ -1226,7 +1226,6 @@ static void test_TTM_SETTITLE(void)
     /* Icon requested with NULL title — must be suppressed */
     SendMessageW(tt, TTM_SETTITLEW, TTI_WARNING, (LPARAM)NULL);
     get_tracked_size(tt, &info, &sz_null_icon);
-    todo_wine
     ok(sz_null_icon.cx == sz_no_title.cx && sz_null_icon.cy == sz_no_title.cy,
        "NULL title + icon: size %ldx%ld, expected %ldx%ld\n",
        sz_null_icon.cx, sz_null_icon.cy, sz_no_title.cx, sz_no_title.cy);
@@ -1234,7 +1233,6 @@ static void test_TTM_SETTITLE(void)
     /* Icon requested with empty string title — must also be suppressed */
     SendMessageW(tt, TTM_SETTITLEW, TTI_WARNING, (LPARAM)L"");
     get_tracked_size(tt, &info, &sz_empty_icon);
-    todo_wine
     ok(sz_empty_icon.cx == sz_no_title.cx && sz_empty_icon.cy == sz_no_title.cy,
        "empty title + icon: size %ldx%ld, expected %ldx%ld\n",
        sz_empty_icon.cx, sz_empty_icon.cy, sz_no_title.cx, sz_no_title.cy);
