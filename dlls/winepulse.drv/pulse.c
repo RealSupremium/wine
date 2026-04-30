@@ -1565,6 +1565,7 @@ static NTSTATUS pulse_timer_loop(void *args)
     LARGE_INTEGER delay;
     pa_usec_t last_time;
     UINT32 adv_bytes;
+    SIZE_T safe_bytes;
     int success;
 
     pulse_lock();
@@ -1626,12 +1627,22 @@ static NTSTATUS pulse_timer_loop(void *args)
                 if (stream->dataflow == eRender)
                 {
                     pulse_write(stream);
+                    safe_bytes = stream->period_bytes;
 
-                    /* regardless of what PA does, advance one period */
-                    adv_bytes = min(stream->period_bytes, stream->held_bytes);
-                    stream->lcl_offs_bytes += adv_bytes;
-                    stream->lcl_offs_bytes %= stream->real_bufsize_bytes;
-                    stream->held_bytes -= adv_bytes;
+                    if ((stream->held_bytes > stream->pa_held_bytes))
+                     {
+                        SIZE_T limit = stream->held_bytes - stream->pa_held_bytes;
+                         if (safe_bytes > limit)
+                             safe_bytes = limit;
+                     }
+                     else {
+                         safe_bytes = 0;
+                     }
+                     
+                     adv_bytes = safe_bytes;
+                     stream->lcl_offs_bytes += adv_bytes;
+                     stream->lcl_offs_bytes %= stream->real_bufsize_bytes;
+                     stream->held_bytes -= adv_bytes;
                 }
                 else if(stream->dataflow == eCapture)
                 {
