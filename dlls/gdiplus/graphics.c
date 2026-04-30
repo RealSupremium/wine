@@ -5707,6 +5707,7 @@ GpStatus gdip_format_string(GpGraphics *graphics, HDC hdc,
     StringAlignment halign;
     GpStatus stat = Ok;
     SIZE size;
+    TEXTMETRICW tm;
     HotkeyPrefix hkprefix;
     INT *hotkeyprefix_offsets=NULL;
     INT hotkeyprefix_count=0;
@@ -5787,6 +5788,8 @@ GpStatus gdip_format_string(GpGraphics *graphics, HDC hdc,
 
     halign = format->align;
 
+    GetTextMetricsW(hdc, &tm);
+
     generate_font_link_info(&info, length, font);
 
     while(sum < length){
@@ -5841,6 +5844,9 @@ GpStatus gdip_format_string(GpGraphics *graphics, HDC hdc,
         font_link_get_text_extent_point(&info, sum, lineend, nwidth, &j, &size);
 
         bounds.Width = size.cx;
+
+        if (!format->generic_typographic)
+            size.cy = (size.cy - tm.tmInternalLeading) * 4.0 / 3.0;
 
         if(height + size.cy > nheight)
         {

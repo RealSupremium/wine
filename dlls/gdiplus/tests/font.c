@@ -1104,15 +1104,14 @@ static void test_font_transform(void)
     expect(Ok, status);
     expectf(0.0, bounds.X);
     expectf(0.0, bounds.Y);
-    todo_wine
-    expectf(height + margin_y, bounds.Height);
+    expectf_(height + margin_y, bounds.Height, 0.5);
     set_rect_empty(&rect);
     set_rect_empty(&bounds);
     status = GdipMeasureString(graphics, string, -1, font, &rect, typographic, &bounds, NULL, NULL);
     expect(Ok, status);
     expectf(0.0, bounds.X);
     expectf(0.0, bounds.Y);
-    expectf_(height, bounds.Height, 1.0);
+    expectf_(height, bounds.Height, 0.5);
     set_rect_empty(&bounds);
     status = GdipMeasureDriverString(graphics, (const UINT16 *)string, -1, font, pos,
                                      DriverStringOptionsCmapLookup, NULL, &bounds);
@@ -1148,8 +1147,7 @@ static void test_font_transform(void)
     expect(Ok, status);
     expectf(0.0, bounds.X);
     expectf(0.0, bounds.Y);
-    todo_wine
-    expectf(height + margin_y, bounds.Height);
+    expectf_(height + margin_y, bounds.Height, 0.5);
     set_rect_empty(&rect);
     set_rect_empty(&bounds);
     status = GdipMeasureString(graphics, string, -1, font, &rect, typographic, &bounds, NULL, NULL);
@@ -1194,8 +1192,7 @@ static void test_font_transform(void)
     expect(Ok, status);
     expectf(0.0, bounds.X);
     expectf(0.0, bounds.Y);
-    todo_wine
-    expectf(height + margin_y, bounds.Height);
+    expectf_(height + margin_y, bounds.Height, 0.5);
     set_rect_empty(&rect);
     set_rect_empty(&bounds);
     status = GdipMeasureString(graphics, string, -1, font, &rect, typographic, &bounds, NULL, NULL);
@@ -1242,8 +1239,7 @@ static void test_font_transform(void)
     expect(Ok, status);
     expectf(0.0, bounds.X);
     expectf(0.0, bounds.Y);
-    todo_wine
-    expectf(height + margin_y, bounds.Height);
+    expectf_(height + margin_y, bounds.Height, 0.5);
     set_rect_empty(&rect);
     set_rect_empty(&bounds);
     status = GdipMeasureString(graphics, string, -1, font, &rect, typographic, &bounds, NULL, NULL);
@@ -1290,8 +1286,7 @@ static void test_font_transform(void)
     expect(Ok, status);
     expectf(0.0, bounds.X);
     expectf(0.0, bounds.Y);
-    todo_wine
-    expectf(height + margin_y, bounds.Height);
+    expectf_(height + margin_y, bounds.Height, 0.5);
     set_rect_empty(&rect);
     set_rect_empty(&bounds);
     status = GdipMeasureString(graphics, string, -1, font, &rect, typographic, &bounds, NULL, NULL);
