@@ -31,6 +31,7 @@
 #include "shlobj.h"
 #include "propvarutil.h"
 #include "strsafe.h"
+#include "intsafe.h"
 
 #include "wine/debug.h"
 
@@ -1162,6 +1163,106 @@ INT WINAPI PropVariantCompareEx(REFPROPVARIANT propvar1, REFPROPVARIANT propvar2
         PropVariantClear(&propvar2_static);
 
     return res;
+}
+
+static inline BOOL is_variant_empty(REFVARIANT var)
+{
+    return var->vt == VT_EMPTY || var->vt == VT_NULL;
+}
+
+static BOOL convert_variant(REFVARIANT src, VARIANT *dest)
+{
+    switch (src->vt)
+    {
+    case VT_I1: dest->vt = VT_I8; V_I8(dest) = V_I1(src); break;
+    case VT_I2: dest->vt = VT_I8; V_I8(dest) = V_I2(src); break;
+    case VT_I4: dest->vt = VT_I8; V_I8(dest) = V_I4(src); break;
+    case VT_I8: dest->vt = VT_I8; V_I8(dest) = V_I8(src); break;
+
+    case VT_UI1: dest->vt = VT_UI8; V_UI8(dest) = V_UI1(src); break;
+    case VT_UI2: dest->vt = VT_UI8; V_UI8(dest) = V_UI2(src); break;
+    case VT_UI4: dest->vt = VT_UI8; V_UI8(dest) = V_UI4(src); break;
+    case VT_UI8: dest->vt = VT_UI8; V_UI8(dest) = V_UI8(src); break;
+
+    case VT_R4: dest->vt = VT_R8; V_R8(dest) = V_R4(src); break;
+    case VT_R8: dest->vt = VT_R8; V_R8(dest) = V_R8(src); break;
+
+    default: return FALSE;
+    }
+    return TRUE;
+
+}
+
+INT WINAPI VariantCompare(REFVARIANT refvar1, REFVARIANT refvar2)
+{
+    VARIANT v1, v2;
+    BOOL convert1, convert2;
+
+    TRACE("(%s %s)\n", debugstr_variant(refvar1), debugstr_variant(refvar2));
+
+    if (is_variant_empty(refvar1))
+        return is_variant_empty(refvar2) ? 0 : -1;
+    if (is_variant_empty(refvar2)) return 1;
+
+    /* dunno why... */
+    if (refvar1->vt != refvar2->vt && (refvar1->vt == VT_I1 || refvar2->vt == VT_I1))
+        return 0;
+    /* dunno why these two return always 0 (but UI1 doesn't, nor R8)... */
+    if ((refvar1->vt == VT_UI2 || refvar1->vt == VT_UI4 || refvar1->vt == VT_UI8) && refvar2->vt == VT_R4)
+        return 0;
+    if (refvar1->vt == VT_R4 && (refvar2->vt == VT_UI2 || refvar2->vt == VT_UI4 || refvar2->vt == VT_UI8))
+        return 0;
+
+    convert1 = convert_variant(refvar1, &v1);
+    convert2 = convert_variant(refvar2, &v2);
+    if (convert1 && convert2) /* handle numeric comparisons */
+    {
+#define SPACESHIP_CMP(a, b) ((a) == (b) ? 0 : ((a) < (b) ? -1 : 1))
+        if (v1.vt == VT_I8 && v2.vt == VT_I8)
+            return SPACESHIP_CMP(V_I8(&v1), V_I8(&v2));
+        if (v1.vt == VT_UI8 && v2.vt == VT_UI8)
+            return SPACESHIP_CMP(V_UI8(&v1), V_UI8(&v2));
+        if (v1.vt == VT_R8 && v2.vt == VT_R8)
+            return SPACESHIP_CMP(V_R8(&v1), V_R8(&v2));
+        if (v1.vt == VT_I8 && v2.vt == VT_UI8)
+        {
+            if (V_I8(&v1) < 0) return -1;
+            if (V_UI8(&v2) > (ULONG64)INT64_MAX) return -1;
+            return SPACESHIP_CMP((ULONG64)V_I8(&v1), V_UI8(&v2));
+        }
+        if (v1.vt == VT_UI8 && v2.vt == VT_I8)
+        {
+            if (V_I8(&v2) < 0) return 1;
+            if (V_UI8(&v1) > (ULONG64)INT64_MAX) return 1;
+            return SPACESHIP_CMP(V_UI8(&v1), (ULONG64)V_I8(&v2));
+        }
+        if (v1.vt == VT_R8 && v2.vt == VT_I8)
+            return SPACESHIP_CMP(V_R8(&v1), (double)V_I8(&v2));
+        if (v1.vt == VT_R8 && v2.vt == VT_UI8)
+            return SPACESHIP_CMP(V_R8(&v1), (double)V_UI8(&v2));
+        if (v1.vt == VT_I8 && v2.vt == VT_R8)
+            return SPACESHIP_CMP((double)V_I8(&v1), V_R8(&v2));
+        if (v1.vt == VT_UI8 && v2.vt == VT_R8)
+            return SPACESHIP_CMP((double)V_UI8(&v1), V_R8(&v2));
+        /* should not be reached */
+#undef SPACESHIP_CMP
+    }
+    if (refvar1->vt == refvar2->vt)
+    {
+        if (refvar1->vt == VT_BSTR)
+            return lstrcmpW(V_BSTR(refvar1), V_BSTR(refvar2));
+    }
+    else
+    {
+        /* this doesn't make a lot of sense either */
+        if (convert1 && refvar2->vt == VT_BSTR)
+            return -1;
+        if (refvar1->vt == VT_BSTR && convert2)
+            return 1;
+    }
+    /* potentially other cases here */
+    FIXME("Case not handled %s <=> %s\n", debugstr_variant(refvar1), debugstr_variant(refvar2));
+    return 0;
 }
 
 HRESULT WINAPI PropVariantToVariant(const PROPVARIANT *propvar, VARIANT *var)
