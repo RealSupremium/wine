@@ -1087,16 +1087,19 @@ typedef volatile struct
     obj_handle_t token;          /* process token */
     obj_handle_t debug;          /* process debug object */
     obj_handle_t parent_process; /* parent process */
-    unsigned int flags;          /* process creation flags */
+    unsigned int process_flags;  /* process creation flags */
+    unsigned int thread_flags;   /* main thread creation flags */
     int          socket_fd;      /* file descriptor for process socket */
     unsigned int access;         /* access rights for process object */
     unsigned short machine;      /* architecture that the new process will use */
     data_size_t  info_size;      /* size of startup info */
     data_size_t  handles_size;   /* length of explicit handles list */
     data_size_t  jobs_size;      /* length of jobs list */
+    data_size_t  sd_len;         /* size of security descriptor */
     VARARG(objattr,object_attributes);   /* object attributes */
     VARARG(handles,uints,handles_size);  /* handles list */
     VARARG(jobs,uints,jobs_size);        /* jobs list */
+    VARARG(sd,security_descriptor,sd_len); /* thread security descriptor */
     VARARG(info,startup_info,info_size); /* startup information */
     VARARG(env,unicode_str);     /* environment for new process */
 @REPLY
@@ -1109,7 +1112,11 @@ typedef volatile struct
 /* Retrieve information about a newly started process */
 @REQ(get_new_process_info)
     obj_handle_t info;           /* info handle returned from new_process_request */
+    unsigned int access;         /* wanted handle access rights */
+    unsigned int attributes;     /* handle object attributes */
 @REPLY
+    thread_id_t  tid;          /* main thread id */
+    obj_handle_t handle;       /* main thread handle (in the current process) */
     int          success;      /* did the process start successfully? */
     int          exit_code;    /* process exit code if failed */
 @END

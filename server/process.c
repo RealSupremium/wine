@@ -674,6 +674,8 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     process->unix_pid        = -1;
     process->exit_code       = STILL_ACTIVE;
     process->running_threads = 0;
+    process->thread_flags    = 0;
+    process->thread_sd       = NULL;
     process->priority        = PROCESS_PRIOCLASS_NORMAL;
     process->base_priority   = 8;
     process->disable_boost   = 0;
@@ -800,6 +802,7 @@ static void process_destroy( struct object *obj )
     free( process->rawinput_devices );
     free( process->dir_cache );
     free( process->image );
+    free( process->thread_sd );
 }
 
 /* dump a process on stdout for debugging purposes */
@@ -1151,13 +1154,13 @@ DECL_HANDLER(new_process)
     struct startup_info *info;
     const void *info_ptr;
     struct unicode_str name, desktop_path = {0};
-    const struct security_descriptor *sd;
+    const struct security_descriptor *sd, *thread_sd = NULL;
     const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, NULL );
     struct process *process = NULL;
     struct token *token = NULL;
     struct debug_obj *debug_obj = NULL;
     struct process *parent;
-    struct thread *parent_thread = current;
+    struct thread *thread, *parent_thread = current;
     int socket_fd = thread_get_inflight_fd( current, req->socket_fd );
     const obj_handle_t *handles = NULL;
     const obj_handle_t *job_handles = NULL;
@@ -1201,7 +1204,7 @@ DECL_HANDLER(new_process)
 
     /* If a job further in the job chain does not permit breakaway process creation
      * succeeds and the process which is trying to breakaway is assigned to that job. */
-    if (parent->job && (req->flags & PROCESS_CREATE_FLAGS_BREAKAWAY) &&
+    if (parent->job && (req->process_flags & PROCESS_CREATE_FLAGS_BREAKAWAY) &&
         !(parent->job->limit_flags & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)))
     {
         set_error( STATUS_ACCESS_DENIED );
@@ -1253,6 +1256,24 @@ DECL_HANDLER(new_process)
         job_handles = info_ptr;
         info_ptr = (const char *)info_ptr + req->jobs_size;
         info->data_size -= req->jobs_size;
+    }
+    if (req->sd_len > info->data_size)
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        close( socket_fd );
+        goto done;
+    }
+    if (req->sd_len)
+    {
+        thread_sd = info_ptr;
+        info_ptr = (const char *)thread_sd + req->sd_len;
+        info->data_size -= req->sd_len;
+    }
+    if (thread_sd && !sd_is_valid( thread_sd, req->sd_len ))
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        close( socket_fd );
+        goto done;
     }
 
     job_handle_count = req->jobs_size / sizeof(*handles);
@@ -1319,18 +1340,20 @@ DECL_HANDLER(new_process)
         goto done;
     }
 
-    if (!(process = create_process( socket_fd, parent, req->flags, info->data, sd,
+    if (!(process = create_process( socket_fd, parent, req->process_flags, info->data, sd,
                                     handles, req->handles_size / sizeof(*handles), token )))
         goto done;
 
     process->machine = req->machine;
     process->startup_info = (struct startup_info *)grab_object( info );
+    process->thread_flags = req->thread_flags;
+    if (thread_sd && !(process->thread_sd = memdup( thread_sd, req->sd_len ))) goto done;
 
     job = parent->job;
     while (job)
     {
         if (!(job->limit_flags & JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
-                && !(req->flags & PROCESS_CREATE_FLAGS_BREAKAWAY
+                && !(req->process_flags & PROCESS_CREATE_FLAGS_BREAKAWAY
                 && job->limit_flags & JOB_OBJECT_LIMIT_BREAKAWAY_OK))
         {
             add_job_process( job, process );
@@ -1360,7 +1383,7 @@ DECL_HANDLER(new_process)
         info->data->console = duplicate_handle( parent, info->data->console, process,
                                                 0, 0, DUPLICATE_SAME_ACCESS );
 
-    if (!(req->flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES) && info->data->console != 1)
+    if (!(req->process_flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES) && info->data->console != 1)
     {
         info->data->hstdin  = duplicate_handle( parent, info->data->hstdin, process,
                                                 0, 0, DUPLICATE_SAME_ACCESS | DUPLICATE_SAME_ATTRIBUTES );
@@ -1377,7 +1400,7 @@ DECL_HANDLER(new_process)
     if (debug_obj)
     {
         process->debug_obj = debug_obj;
-        process->debug_children = !(req->flags & PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT);
+        process->debug_children = !(req->process_flags & PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT);
     }
     else if (parent->debug_children)
     {
@@ -1391,6 +1414,10 @@ DECL_HANDLER(new_process)
         info->data->process_group_id = process->group_id;
 
     info->process = (struct process *)grab_object( process );
+
+    if (!(thread = create_thread( -1, process, process->thread_flags, process->thread_sd ))) goto done;
+    thread->system_regs = current->system_regs;
+
     reply->info = alloc_handle( current->process, info, SYNCHRONIZE, 0 );
     reply->pid = get_process_id( process );
     reply->handle = alloc_handle_no_access_check( current->process, process, req->access, objattr->attributes );
@@ -1407,14 +1434,22 @@ DECL_HANDLER(new_process)
 DECL_HANDLER(get_new_process_info)
 {
     struct startup_info *info;
+    struct thread *thread;
 
-    if ((info = (struct startup_info *)get_handle_obj( current->process, req->info,
-                                                       0, &startup_info_ops )))
+    if (!(info = (struct startup_info *)get_handle_obj( current->process, req->info, 0, &startup_info_ops ))) return;
+    if (!(thread = get_process_first_thread( info->process )))
     {
-        reply->success = is_process_init_done( info->process );
-        reply->exit_code = info->process->exit_code;
-        release_object( info );
+        set_error( STATUS_INVALID_PARAMETER );
+        goto done;
     }
+
+    reply->tid = get_thread_id( thread );
+    reply->handle = alloc_handle_no_access_check( current->process, thread, req->access, req->attributes );
+    reply->success = is_process_init_done( info->process );
+    reply->exit_code = info->process->exit_code;
+
+done:
+    release_object( info );
 }
 
 /* Itererate processes using global process list */

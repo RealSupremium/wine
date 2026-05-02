@@ -500,7 +500,8 @@ static struct context *create_thread_context( struct thread *thread )
 
 
 /* create a new thread */
-struct thread *create_thread( int fd, struct process *process, const struct security_descriptor *sd )
+struct thread *create_thread( int fd, struct process *process, unsigned int flags,
+                              const struct security_descriptor *sd )
 {
     struct desktop *desktop;
     struct thread *thread;
@@ -577,6 +578,10 @@ struct thread *create_thread( int fd, struct process *process, const struct secu
 
     set_fd_events( thread->request_fd, POLLIN );  /* start listening to events */
     add_process_thread( thread->process, thread );
+
+    if (flags & THREAD_CREATE_FLAGS_CREATE_SUSPENDED) thread->suspend++;
+    thread->dbg_hidden = !!(flags & THREAD_CREATE_FLAGS_HIDE_FROM_DEBUGGER);
+    thread->bypass_proc_suspend = !!(flags & THREAD_CREATE_FLAGS_BYPASS_PROCESS_FREEZE);
     return thread;
 
 error:
@@ -1670,17 +1675,9 @@ DECL_HANDLER(new_thread)
 
     if (process != current->process)
     {
-        if (request_fd != -1)  /* can't create a request fd in a different process */
-        {
-            close( request_fd );
-            set_error( STATUS_INVALID_PARAMETER );
-            goto done;
-        }
-        if (process->running_threads)  /* only the initial thread can be created in another process */
-        {
-            set_error( STATUS_ACCESS_DENIED );
-            goto done;
-        }
+        if (request_fd != -1) close( request_fd );
+        set_error( STATUS_ACCESS_DENIED );
+        goto done;
     }
     else if (request_fd == -1 || fcntl( request_fd, F_SETFL, O_NONBLOCK ) == -1)
     {
@@ -1695,12 +1692,9 @@ DECL_HANDLER(new_thread)
         goto done;
     }
 
-    if ((thread = create_thread( request_fd, process, sd )))
+    if ((thread = create_thread( request_fd, process, req->flags, sd )))
     {
         thread->system_regs = current->system_regs;
-        if (req->flags & THREAD_CREATE_FLAGS_CREATE_SUSPENDED) thread->suspend++;
-        thread->dbg_hidden = !!(req->flags & THREAD_CREATE_FLAGS_HIDE_FROM_DEBUGGER);
-        thread->bypass_proc_suspend = !!(req->flags & THREAD_CREATE_FLAGS_BYPASS_PROCESS_FREEZE);
         reply->tid = get_thread_id( thread );
         if ((reply->handle = alloc_handle_no_access_check( current->process, thread,
                                                            req->access, objattr->attributes )))
