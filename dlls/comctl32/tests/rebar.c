@@ -246,7 +246,7 @@ static void rbsize_add_band(rbsize_result_t *rbsr, int left, int top, int right,
 
 static rbsize_result_t *rbsize_results;
 
-#define rbsize_results_num 27
+#define rbsize_results_num 29
 
 static void rbsize_results_init(void)
 {
@@ -430,6 +430,14 @@ static void rbsize_results_init(void)
     rbsize_add_band(&rbsize_results[26], 0, 0, 90, 65, 0x40, 90);
     rbsize_add_band(&rbsize_results[26], 90, 0, 163, 65, 0x40, 90);
     rbsize_add_band(&rbsize_results[26], 163, 0, 226, 65, 0x40, 90);
+
+    rbsize_results[27] = rbsize_init(0, 0, 672, 0, 0, 0, 0);
+
+    rbsize_results[28] = rbsize_init(0, 0, 672, 65, 56, 1, 3);
+    rbsize_add_row(&rbsize_results[28], 65);
+    rbsize_add_band(&rbsize_results[28], 0, 0, 90, 65, 0x40, 90);
+    rbsize_add_band(&rbsize_results[28], 90, 0, 180, 65, 0x40, 90);
+    rbsize_add_band(&rbsize_results[28], 180, 0, 672, 65, 0x40, 90);
 }
 
 static void rbsize_results_free(void)
@@ -681,6 +689,35 @@ static void test_layout(void)
     SendMessageA(hRebar, RB_INSERTBANDA, -1, (LPARAM)&rbi);
     count = SendMessageA(hRebar, RB_GETROWCOUNT, 0, 0);
     ok(!count, "Unexpected row count %d.\n", count);
+
+    DestroyWindow(hRebar);
+
+    /* VARHEIGHT resizing test with cyIntegral == 0 on a horizontal rebar */
+    hRebar = create_rebar_control(0);
+    SetWindowLongA(hRebar, GWL_STYLE, GetWindowLongA(hRebar, GWL_STYLE) | RBS_AUTOSIZE);
+    check_sizes();
+    rbi.fMask = RBBIM_CHILD | RBBIM_CHILDSIZE | RBBIM_SIZE | RBBIM_STYLE;
+    rbi.fStyle = RBBS_VARIABLEHEIGHT;
+    rbi.cxMinChild = 50;
+    rbi.cyMinChild = 10;
+    rbi.cyIntegral = 11;
+    rbi.cyChild = 70;
+    rbi.cyMaxChild = 200;
+    rbi.cx = 90;
+    rbi.hwndChild = build_toolbar(0, hRebar);
+    SendMessageA(hRebar, RB_INSERTBANDA, -1, (LPARAM)&rbi);
+
+    rbi.cyChild = 50;
+    rbi.hwndChild = build_toolbar(0, hRebar);
+    SendMessageA(hRebar, RB_INSERTBANDA, -1, (LPARAM)&rbi);
+
+    rbi.cyMinChild = 40;
+    rbi.cyChild = 111; /* Intentionally too large */
+    rbi.cyIntegral = 0;
+    rbi.cyMaxChild = 65;
+    rbi.hwndChild = build_toolbar(0, hRebar);
+    SendMessageA(hRebar, RB_INSERTBANDA, -1, (LPARAM)&rbi);
+    check_sizes();
 
     DestroyWindow(hRebar);
 
