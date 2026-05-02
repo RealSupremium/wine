@@ -294,12 +294,15 @@ static struct key *find_subkey( const struct key *key, const struct unicode_str 
 {
     int i, min, max, res;
     data_size_t len;
+    bool first_comparison = true;
 
     min = 0;
     max = key->last_subkey;
     while (min <= max)
     {
-        i = (min + max) / 2;
+        /* when loading from sorted data, most entries are inserted at the last position */
+        i = first_comparison ? max : (min + max) / 2;
+        first_comparison = false;
         len = min( key->subkeys[i]->obj.name->len, name->len );
         res = memicmp_strW( key->subkeys[i]->obj.name->name, name->str, len );
         if (!res) res = key->subkeys[i]->obj.name->len - name->len;
