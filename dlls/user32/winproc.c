@@ -25,6 +25,7 @@
 #include "dbt.h"
 #include "wine/asm.h"
 #include "wine/debug.h"
+#include <assert.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(msg);
 WINE_DECLARE_DEBUG_CHANNEL(relay);
@@ -333,7 +334,10 @@ LRESULT WINPROC_CallProcAtoW( winproc_callback_t callback, HWND hwnd, UINT msg, 
         {
             WCHAR buffer[512];  /* FIXME: fixed sized buffer */
 
+            buffer[ARRAY_SIZE(buffer) - 1] = 0;
             ret = callback( hwnd, msg, wParam, (LPARAM)buffer, result, arg );
+            assert(!buffer[ARRAY_SIZE(buffer) - 1]);
+
             if (*result >= 0)
             {
                 DWORD len;
@@ -605,7 +609,10 @@ static LRESULT WINPROC_CallProcWtoA( winproc_callback_t callback, HWND hwnd, UIN
         {
             char buffer[512];  /* FIXME: fixed sized buffer */
 
+            buffer[ARRAY_SIZE(buffer) - 1] = 0;
             ret = callback( hwnd, msg, wParam, (LPARAM)buffer, result, arg );
+            assert(!buffer[ARRAY_SIZE(buffer) - 1]);
+
             if (*result >= 0)
             {
                 DWORD len;
