@@ -320,6 +320,14 @@ static void downsample(DWORD freq_adjust_den, DWORD freq_acc_start, float firgai
     float rem_step = FIXED_0_32_TO_FLOAT(-opos_num_step << FIR_STEP_SHIFT);
     int j;
 
+#if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
+    if (sse_supported) {
+        downsample_sse(opos_num, opos_num_step, rem, rem_step, firgain, required_input, input,
+                output);
+        return;
+    }
+#endif
+
     for (j = 0; j < required_input; ++j) {
         /* opos is in the range [-(fir_width - 1), count) */
         int opos = (int)(opos_num >> FREQ_ADJUST_SHIFT) - FIR_WIDTH;

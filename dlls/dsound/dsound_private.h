@@ -270,6 +270,8 @@ HRESULT enumerate_mmdevices(EDataFlow flow, GUID *guids,
 /* mixer_sse.c */
 
 #if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
+void downsample_sse(LONG64 opos_num, DWORD opos_num_step, float rem_float, float rem_step_float,
+        float firgain_float, UINT required_input, float *input, float *output);
 void upsample_sse(LONG64 ipos_num, DWORD ipos_num_step, float rem_inv_float,
         float rem_inv_step_float, UINT count, float *input, float *output);
 #endif
