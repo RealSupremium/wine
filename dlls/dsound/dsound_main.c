@@ -63,6 +63,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dsound);
 
+BOOL sse_supported;
+
 struct list DSOUND_renderers = LIST_INIT(DSOUND_renderers);
 CRITICAL_SECTION DSOUND_renderers_lock;
 static CRITICAL_SECTION_DEBUG DSOUND_renderers_lock_debug =
@@ -81,6 +83,11 @@ GUID *DSOUND_capture_guids;
 
 /* All default settings, you most likely don't want to touch these, see wiki on UsefulRegistryKeys */
 int ds_hel_buflen = 32768 * 2;
+
+static void init_cpu_features(void)
+{
+    sse_supported = IsProcessorFeaturePresent(PF_XMMI_INSTRUCTIONS_AVAILABLE);
+}
 
 /*
  * Get a config key from either the app-specific or the default config
@@ -787,6 +794,7 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpvReserved)
         DisableThreadLibraryCalls(hInstDLL);
         /* Increase refcount on dsound by 1 */
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (LPCWSTR)hInstDLL, &hInstDLL);
+        init_cpu_features();
         break;
     case DLL_PROCESS_DETACH:
         if (lpvReserved) break;

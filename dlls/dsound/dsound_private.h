@@ -33,6 +33,7 @@
 #include "wine/list.h"
 
 #define DS_MAX_CHANNELS 8
+#define FREQ_ADJUST_SHIFT 32
 
 extern int ds_hel_buflen;
 
@@ -251,6 +252,8 @@ HRESULT IDirectSoundCaptureImpl_Create(IUnknown *outer_unk, REFIID riid, void **
 #define STATE_CAPTURING 2
 #define STATE_STOPPING  3
 
+extern BOOL sse_supported;
+
 extern CRITICAL_SECTION DSOUND_renderers_lock;
 extern struct list DSOUND_renderers;
 
@@ -263,3 +266,10 @@ HRESULT get_mmdevice(EDataFlow flow, const GUID *tgt, IMMDevice **device);
 
 HRESULT enumerate_mmdevices(EDataFlow flow, GUID *guids,
         LPDSENUMCALLBACKW cb, void *user);
+
+/* mixer_sse.c */
+
+#if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
+void upsample_sse(LONG64 ipos_num, DWORD ipos_num_step, float rem_inv_float,
+        float rem_inv_step_float, UINT count, float *input, float *output);
+#endif

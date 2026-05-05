@@ -38,11 +38,12 @@
 #include "ks.h"
 #include "ksmedia.h"
 #include "dsound_private.h"
+
+#define FIR_IMPLEMENTATION
 #include "fir.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dsound);
 
-#define FREQ_ADJUST_SHIFT 32
 #define FIXED_0_32_TO_FLOAT(x) ((int)((x) >> 1) * (1.0f / (1ll << 31)))
 
 void DSOUND_RecalcVolPan(PDSVOLUMEPAN volpan)
@@ -367,6 +368,13 @@ static void upsample(DWORD freq_adjust_num, DWORD freq_acc_start, UINT count, fl
     float rem_inv = FIXED_0_32_TO_FLOAT((DWORD)ipos_num << FIR_STEP_SHIFT);
     float rem_inv_step = FIXED_0_32_TO_FLOAT(ipos_num_step << FIR_STEP_SHIFT);
     UINT i;
+
+#if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
+    if (sse_supported) {
+        upsample_sse(ipos_num, ipos_num_step, rem_inv, rem_inv_step, count, input, output);
+        return;
+    }
+#endif
 
     for(i = 0; i < count; ++i) {
         UINT ipos = ipos_num >> FREQ_ADJUST_SHIFT;
