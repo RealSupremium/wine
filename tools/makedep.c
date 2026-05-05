@@ -1723,12 +1723,13 @@ static void parse_file( struct makefile *make, struct incl_file *source, bool sr
  *
  * Add a source file to the list.
  */
-static struct incl_file *add_src_file( struct makefile *make, const char *name )
+static struct incl_file *add_src_file( struct makefile *make, const char *name, int arch )
 {
     struct incl_file *file = xmalloc( sizeof(*file) );
 
     memset( file, 0, sizeof(*file) );
     file->name = xstrdup(name);
+    file->arch = arch;
     file->use_msvcrt = is_using_msvcrt( make );
     list_add_tail( &make->sources, &file->entry );
     if (make == include_makefile)
@@ -3564,7 +3565,8 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
 
     if (strendswith( source->name, ".S" ) && is_subdir_other_arch( source->name, arch )) return;
 
-    obj_name = strmake( "%s%s.o", source->arch ? "" : arch_dirs[arch], obj );
+    obj_name = strmake( "%s%s.o",
+            (source->file->flags & FLAG_GENERATED) && source->arch ? "" : arch_dirs[arch], obj );
     strarray_add( targets, obj_name );
 
     if (source->file->flags & FLAG_C_UNIX)
@@ -3654,7 +3656,8 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
 
     if (sarif_converter && make->module && !make->external)
     {
-        const char *sast_name = strmake( "%s%s.sarif", source->arch ? "" : arch_dirs[arch], obj );
+        const char *sast_name = strmake( "%s%s.sarif",
+                (source->file->flags & FLAG_GENERATED) && source->arch ? "" : arch_dirs[arch], obj );
         output( "%s: %s\n", obj_dir_path( make, sast_name ), source->filename );
         output( "\t%s%s -o $@ %s", cmd_prefix( "SAST" ), var_cc, source->filename );
         output_filenames( defines );
@@ -4854,8 +4857,11 @@ static void load_sources( struct makefile *make )
     list_init( &make->sources );
     list_init( &make->includes );
 
-    value = get_expanded_make_var_array( make, "SOURCES" );
-    STRARRAY_FOR_EACH( file, &value ) add_src_file( make, file );
+    for (arch = 0; arch < archs.count; arch++)
+    {
+        value = get_expanded_arch_var_array( make, "SOURCES", arch );
+        STRARRAY_FOR_EACH( file, &value ) add_src_file( make, file, arch );
+    }
 
     add_generated_sources( make );
 

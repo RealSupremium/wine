@@ -146,7 +146,7 @@ sub parse_makefile($)
             $make{$var} = $2;
             next;
         }
-        if (/^\s*(SOURCES|INSTALL_LIB)\s*=\s*(.*)/)
+        if (/^\s*(SOURCES|[_A-Za-z][_A-Za-z0-9]*_SOURCES|INSTALL_LIB)\s*=\s*(.*)/)
         {
             my $var = $1;
             my @list = split(/\s+/, $2);
@@ -211,6 +211,22 @@ sub get_parent_makefile($)
         $path =~ s/[^\/]+\/$//;
     }
     return "$path$reldir/Makefile.in";
+}
+
+# exclude arch-specific source files that are listed in the existing makefile
+sub exclude_arch_source_files($)
+{
+    my $make = shift;
+
+    foreach my $var (keys %{$make})
+    {
+        next unless $var =~ /^[_A-Za-z][_A-Za-z0-9]*_SOURCES$/;
+
+        my %srcs;
+        foreach my $file (@{${$make}{$var}}) { $srcs{$file} = 1; }
+
+        @{${$make}{"=SOURCES"}} = map { defined $srcs{$_} ? () : ($_) } @{${$make}{"=SOURCES"}}
+    }
 }
 
 # preserve shared source files that are listed in the existing makefile
@@ -305,6 +321,9 @@ sub assign_sources_to_makefiles(@)
         }
         push @{${$make}{"=SOURCES"}}, $name;
     }
+
+    # exclude arch-specific source files
+    foreach my $file (@makefiles) { exclude_arch_source_files( $makefiles{$file} ); }
 
     # preserve shared source files from the parent makefile
     foreach my $file (@makefiles)
