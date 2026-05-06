@@ -5521,19 +5521,19 @@ static void test_CMYK_conversion(void)
     memset(&data, 0, sizeof(data));
     status = GdipBitmapLockBits(bitmap, NULL, ImageLockModeRead,
         PixelFormat32bppARGB, &data);
-    todo_wine ok(status == Ok, "LockBits CMYK->ARGB failed, status=%d\n", status);
-    todo_wine_if (status == Ok)
+    ok(status == Ok, "LockBits CMYK->ARGB failed, status=%d\n", status);
+    if (status == Ok)
     {
-        todo_wine ok(data.Width == 4, "expected width 4, got %d\n", data.Width);
-        todo_wine ok(data.Height == 1, "expected height 1, got %d\n", data.Height);
-        todo_wine ok(data.PixelFormat == PixelFormat32bppARGB,
+        ok(data.Width == 4, "expected width 4, got %d\n", data.Width);
+        ok(data.Height == 1, "expected height 1, got %d\n", data.Height);
+        ok(data.PixelFormat == PixelFormat32bppARGB,
            "expected PixelFormat32bppARGB, got %#x\n", data.PixelFormat);
 
         bits = data.Scan0;
         if (bits)
         {
             match = !memcmp(bits, expected_argb, sizeof(expected_argb));
-            todo_wine ok(match, "CMYK to ARGB conversion mismatch\n");
+            ok(match, "CMYK to ARGB conversion mismatch\n");
         }
         if (!match && bits)
         {
@@ -5550,7 +5550,7 @@ static void test_CMYK_conversion(void)
         }
 
         status = GdipBitmapUnlockBits(bitmap, &data);
-        todo_wine expect(Ok, status);
+        expect(Ok, status);
 
         GdipDisposeImage((GpImage *)bitmap);
     }
