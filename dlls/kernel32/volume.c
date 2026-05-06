@@ -265,6 +265,7 @@ BOOL WINAPI SetVolumeLabelW( LPCWSTR root, LPCWSTR label )
         break;
     case DRIVE_REMOVABLE:
     case DRIVE_FIXED:
+    case DRIVE_CDROM:
         {
             WCHAR labelW[] = L"A:\\.windows-label";
 
@@ -291,7 +292,6 @@ BOOL WINAPI SetVolumeLabelW( LPCWSTR root, LPCWSTR label )
         }
     case DRIVE_REMOTE:
     case DRIVE_RAMDISK:
-    case DRIVE_CDROM:
         SetLastError( ERROR_ACCESS_DENIED );
         break;
     }
