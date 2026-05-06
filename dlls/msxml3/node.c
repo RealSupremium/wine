@@ -2234,6 +2234,10 @@ static void transform_write_text(xmlDocPtr result, xsltStylesheetPtr style, xmlO
 static void transform_write_xmldecl(xmlDocPtr result, xsltStylesheetPtr style, BOOL omit_encoding, xmlOutputBufferPtr output)
 {
     int omit_xmldecl, standalone;
+    xmlNodePtr decl;
+
+    if ((decl = xmldoc_unlink_xmldecl(result)))
+        xmlFreeNode(decl);
 
     XSLT_GET_IMPORT_INT(omit_xmldecl, style, omitXmlDeclaration);
     if (omit_xmldecl == 1) return;
