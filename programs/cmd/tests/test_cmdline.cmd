@@ -52,6 +52,27 @@ echo No prompts or I would not get here1
 rem - Try cmd.exe /k as well
 cmd.exe /k "copy file1 file2 >nul && exit"
 echo No prompts or I would not get here2
+
+echo --- Test 19
+rem test cmd.exe /c with absolute path to executable containing a space, exceeding MAX_PATH
+cmd.exe /c "Z:\foobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoo bar.bat" >nul 2>nul
+echo errorlevel: %ERRORLEVEL%
+
+echo --- Test 20
+rem test cmd.exe /c with relative path to executable containing a space, exceeding MAX_PATH
+cmd.exe /c "foobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoo bar.bat" >nul 2>nul
+echo errorlevel: %ERRORLEVEL%
+
+echo --- Test 21
+rem test cmd.exe /c with absolute path including long directory + executable containing a space, exceeding MAX_PATH
+cmd.exe /c "Z:\foobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobar\foo bar.bat" >nul 2>nul
+echo errorlevel: %ERRORLEVEL%
+
+echo --- Test 22
+rem test cmd.exe /c with relative path including long directory + executable containing a space, exceeding MAX_PATH
+cmd.exe /c "foobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobarfoobar\foo bar.bat" >nul 2>nul
+echo errorlevel: %ERRORLEVEL%
+
 rem Directories are ignored when searching for executable files
 mkdir cmd.exe
 cmd.exe /c echo alabaster

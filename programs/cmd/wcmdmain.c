@@ -2009,7 +2009,7 @@ static RETURN_CODE search_command(WCHAR *command, struct search_command *sc, BOO
         if (len == 0 || len >= ARRAY_SIZE(pathtosearch) - 2)
             wcscpy(pathtosearch, L".");
         sc->has_extension = wcschr(firstParam, L'.') != NULL;
-        if (wcslen(firstParam) >= MAX_PATH)
+        if (wcslen(firstParam) >= ARRAY_SIZE(stemofsearch))
         {
             WCMD_output_asis_stderr(WCMD_LoadMessage(WCMD_LINETOOLONG));
             return ERROR_INVALID_FUNCTION;
@@ -2020,12 +2020,19 @@ static RETURN_CODE search_command(WCHAR *command, struct search_command *sc, BOO
     }
     else
     {
+        WCHAR* stem;
         /* Convert eg. ..\fred to include a directory by removing file part */
         if (!WCMD_get_fullpath(firstParam, ARRAY_SIZE(pathtosearch), pathtosearch, NULL))
             return ERROR_INVALID_FUNCTION;
         lastSlash = wcsrchr(pathtosearch, L'\\');
-        sc->has_extension = wcschr(lastSlash ? lastSlash + 1 : firstParam, L'.') != NULL;
-        wcscpy(stemofsearch, lastSlash ? lastSlash + 1 : firstParam);
+        stem = lastSlash ? lastSlash + 1 : firstParam;
+        if (wcslen(stem) >= ARRAY_SIZE(stemofsearch))
+        {
+            WCMD_output_asis_stderr(WCMD_LoadMessage(WCMD_LINETOOLONG));
+            return ERROR_INVALID_FUNCTION;
+        }
+        sc->has_extension = wcschr(stem, L'.') != NULL;
+        wcscpy(stemofsearch, stem);
 
         /* Reduce pathtosearch to a path with trailing '\' to support c:\a.bat and
            c:\windows\a.bat syntax                                                 */
@@ -2048,6 +2055,8 @@ static RETURN_CODE search_command(WCHAR *command, struct search_command *sc, BOO
 
         if (sc->has_path)
         {
+            if (wcslen(pathposn) >= ARRAY_SIZE(sc->path))
+                return ERROR_INVALID_FUNCTION;
             wcscpy(sc->path, pathposn);
             pathposn = NULL;
         }
@@ -2064,12 +2073,16 @@ static RETURN_CODE search_command(WCHAR *command, struct search_command *sc, BOO
 
             if (*pos)  /* Reached semicolon */
             {
+                if ((pos - pathposn) >= ARRAY_SIZE(sc->path))
+                    return ERROR_INVALID_FUNCTION;
                 memcpy(sc->path, pathposn, (pos-pathposn) * sizeof(WCHAR));
                 sc->path[(pos-pathposn)] = 0x00;
                 pathposn = pos+1;
             }
             else       /* Reached string end */
             {
+                if (wcslen(pathposn) >= ARRAY_SIZE(sc->path))
+                   return ERROR_INVALID_FUNCTION;
                 wcscpy(sc->path, pathposn);
                 pathposn = NULL;
             }
