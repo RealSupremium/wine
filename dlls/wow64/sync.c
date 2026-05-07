@@ -560,8 +560,7 @@ NTSTATUS WINAPI wow64_NtImpersonateClientOfPort( UINT *args )
     HANDLE handle = get_handle( &args );
     LPC_MESSAGE *msg = get_ptr( &args );
 
-    FIXME( "%p %p: stub\n", handle, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtImpersonateClientOfPort( handle, msg );
 }
 
 

@@ -321,7 +321,8 @@ static void test_ports_server( HANDLE PortHandle )
     NTSTATUS status;
     BOOL done = FALSE;
 
-    size = FIELD_OFFSET(LPC_MESSAGE, Data) + MAX_MESSAGE_LEN;
+    size = is_wow64 ? FIELD_OFFSET(LPC_MESSAGE64, Data[MAX_MESSAGE_LEN])
+                    : FIELD_OFFSET(LPC_MESSAGE, Data[MAX_MESSAGE_LEN]);
     LpcMessage = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
 
     while (TRUE)
@@ -493,7 +494,8 @@ static void test_zero_length_server(HANDLE PortHandle)
     NTSTATUS status;
     BOOL done = FALSE;
 
-    size = FIELD_OFFSET(LPC_MESSAGE, Data) + MAX_MESSAGE_LEN;
+    size = is_wow64 ? FIELD_OFFSET(LPC_MESSAGE64, Data[MAX_MESSAGE_LEN])
+                    : FIELD_OFFSET(LPC_MESSAGE, Data[MAX_MESSAGE_LEN]);
     LpcMessage = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
 
     while (!done)
