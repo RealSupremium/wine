@@ -1798,8 +1798,6 @@ BOOL WINAPI SQLWriteDSNToIniW(LPCWSTR lpszDSN, LPCWSTR lpszDriver)
     filename[0] = 0;
     if (RegOpenKeyW(HKEY_LOCAL_MACHINE, L"Software\\ODBC\\ODBCINST.INI\\", &hkey) == ERROR_SUCCESS)
     {
-        HKEY hkeydriver;
-
         if (RegOpenKeyW(hkey, lpszDriver, &hkeydriver) == ERROR_SUCCESS)
         {
             DWORD size = MAX_PATH * sizeof(WCHAR);
