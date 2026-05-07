@@ -701,7 +701,7 @@ NTSTATUS WINAPI NtSetInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS cla
         break;
 
     case TokenSessionId:
-        if (length < sizeof(DWORD))
+        if (length < sizeof(ULONG))
         {
             ret = STATUS_INFO_LENGTH_MISMATCH;
             break;
@@ -711,7 +711,13 @@ NTSTATUS WINAPI NtSetInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS cla
             ret = STATUS_ACCESS_VIOLATION;
             break;
         }
-        FIXME("TokenSessionId stub!\n");
+        SERVER_START_REQ( set_token_session_id )
+        {
+            req->handle = wine_server_obj_handle( token );
+            req->session_id = *((ULONG *)info);
+            ret = wine_server_call(req);
+        }
+        SERVER_END_REQ;
         ret = STATUS_SUCCESS;
         break;
 

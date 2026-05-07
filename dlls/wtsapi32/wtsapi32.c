@@ -347,26 +347,42 @@ BOOL WINAPI WTSEnumerateSessionsA(HANDLE server, DWORD reserved, DWORD version,
 BOOL WINAPI WTSEnumerateSessionsW(HANDLE server, DWORD reserved, DWORD version,
         PWTS_SESSION_INFOW *session_info, DWORD *count)
 {
-    static const WCHAR session_name[] = L"Console";
+    static const WCHAR interactive_session_name[] = L"Console";
+    static const WCHAR service_session_name[] = L"Services";
+    PWTS_SESSION_INFOW sessions;
+    size_t next_string_offset = 2 * sizeof(**session_info);
 
     FIXME("%p 0x%08lx 0x%08lx %p %p semi-stub.\n", server, reserved, version, session_info, count);
+    FIXME("Always returning default session id / name\n");
 
     if (!session_info || !count) return FALSE;
 
-    if (!(*session_info = malloc(sizeof(**session_info) + sizeof(session_name))))
+    if (!(*session_info = malloc(2 * sizeof(**session_info) + sizeof(interactive_session_name) + sizeof(service_session_name))))
     {
         SetLastError(ERROR_OUTOFMEMORY);
         return FALSE;
     }
-    if (!ProcessIdToSessionId( GetCurrentProcessId(), &(*session_info)->SessionId))
-    {
-        WTSFreeMemory(*session_info);
-        return FALSE;
-    }
-    *count = 1;
-    (*session_info)->State = WTSActive;
-    (*session_info)->pWinStationName = (WCHAR *)((char *)*session_info + sizeof(**session_info));
-    memcpy((*session_info)->pWinStationName, session_name, sizeof(session_name));
+
+    /* As per discussion in IRC, we hardcode the console and server session.
+     * If WINE ever supports multiple users, this probably needs to query smss.exe. */
+
+    *count = 2;
+
+    sessions = *session_info;
+
+    /* Services session; has session ID 0 */
+    sessions[0].SessionId = 0;
+    sessions[0].State = WTSDisconnected;
+    sessions[0].pWinStationName = (WCHAR *)((char *)*session_info + next_string_offset);
+    memcpy(sessions[0].pWinStationName, service_session_name, sizeof(service_session_name));
+
+    next_string_offset += sizeof(service_session_name);
+
+    /* Console session; WINE sets this to session ID 1 */
+    sessions[1].SessionId = 1;
+    sessions[1].State = WTSActive;
+    sessions[1].pWinStationName = (WCHAR*)((char *)*session_info + next_string_offset);
+    memcpy(sessions[1].pWinStationName, interactive_session_name, sizeof(interactive_session_name));
 
     return TRUE;
 }
@@ -652,9 +668,13 @@ BOOL WINAPI WTSQueryUserToken(ULONG session_id, PHANDLE token)
         return FALSE;
     }
 
-    return DuplicateHandle(GetCurrentProcess(), GetCurrentProcessToken(),
+    if(!DuplicateHandle(GetCurrentProcess(), GetCurrentProcessToken(),
                            GetCurrentProcess(), token,
-                           0, FALSE, DUPLICATE_SAME_ACCESS);
+                           0, FALSE, DUPLICATE_SAME_ACCESS))
+        return FALSE;
+
+
+    return SetTokenInformation(*token, TokenSessionId, &session_id, sizeof(ULONG));
 }
 
 /************************************************************

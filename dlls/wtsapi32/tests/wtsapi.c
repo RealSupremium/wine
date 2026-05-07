@@ -430,7 +430,7 @@ static void test_WTSEnumerateSessions(void)
         }
     }
     ok(console_found, "Console session not found.\n");
-    todo_wine ok(services_found, "Services session not found.\n");
+    ok(services_found, "Services session not found.\n");
 
     WTSFreeMemory(info);
     WTSFreeMemory(infoA);
