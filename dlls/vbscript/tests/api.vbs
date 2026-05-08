@@ -1730,6 +1730,17 @@ Dim ec
 set ec = new EmptyClass
 Call ok(TypeName(ec) = "EmptyClass", "TypeName(EmptyClass) = " & TypeName(ec))
 
+' TypeName for VBScript class instances
+Dim emptyClsObj
+Set emptyClsObj = New EmptyClass
+Call ok(TypeName(emptyClsObj) = "EmptyClass", "TypeName(EmptyClass) = " & TypeName(emptyClsObj))
+Call ok(getVT(TypeName(emptyClsObj)) = "VT_BSTR", "getVT(TypeName(EmptyClass)) = " & getVT(TypeName(emptyClsObj)))
+Dim valClsObj
+Set valClsObj = New ValClass
+Call ok(TypeName(valClsObj) = "ValClass", "TypeName(ValClass) = " & TypeName(valClsObj))
+Set emptyClsObj = Nothing
+Call ok(TypeName(emptyClsObj) = "Nothing", "TypeName after Set Nothing = " & TypeName(emptyClsObj))
+
 Call ok(VarType(Empty) = vbEmpty, "VarType(Empty) = " & VarType(Empty))
 Call ok(getVT(VarType(Empty)) = "VT_I2", "getVT(VarType(Empty)) = " & getVT(VarType(Empty)))
 Call ok(VarType(Null) = vbNull, "VarType(Null) = " & VarType(Null))

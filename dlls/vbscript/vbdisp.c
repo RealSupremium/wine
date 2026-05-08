@@ -424,12 +424,532 @@ static HRESULT WINAPI DispatchEx_GetTypeInfoCount(IDispatchEx *iface, UINT *pcti
     return S_OK;
 }
 
+typedef struct {
+    ITypeInfo ITypeInfo_iface;
+    LONG ref;
+    const class_desc_t *desc;
+    UINT num_funcs;
+    UINT num_vars;
+} VBDispTypeInfo;
+
+static inline VBDispTypeInfo *VBDispTypeInfo_from_ITypeInfo(ITypeInfo *iface)
+{
+    return CONTAINING_RECORD(iface, VBDispTypeInfo, ITypeInfo_iface);
+}
+
+static HRESULT WINAPI VBDispTypeInfo_QueryInterface(ITypeInfo *iface, REFIID riid, void **ppv)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    if (IsEqualGUID(&IID_IUnknown, riid) || IsEqualGUID(&IID_ITypeInfo, riid))
+        *ppv = &This->ITypeInfo_iface;
+    else
+    {
+        WARN("(%p)->(%s %p)\n", This, debugstr_guid(riid), ppv);
+        *ppv = NULL;
+        return E_NOINTERFACE;
+    }
+
+    IUnknown_AddRef((IUnknown *)*ppv);
+    return S_OK;
+}
+
+static ULONG WINAPI VBDispTypeInfo_AddRef(ITypeInfo *iface)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    LONG ref = InterlockedIncrement(&This->ref);
+
+    TRACE("(%p) ref=%ld\n", This, ref);
+
+    return ref;
+}
+
+static ULONG WINAPI VBDispTypeInfo_Release(ITypeInfo *iface)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    LONG ref = InterlockedDecrement(&This->ref);
+
+    TRACE("(%p) ref=%ld\n", This, ref);
+
+    if (!ref)
+        free(This);
+
+    return ref;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetTypeAttr(ITypeInfo *iface, TYPEATTR **ppTypeAttr)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    TYPEATTR *attr;
+
+    TRACE("(%p)->(%p)\n", This, ppTypeAttr);
+
+    if (!ppTypeAttr) return E_INVALIDARG;
+
+    attr = calloc(1, sizeof(*attr));
+    if (!attr) return E_OUTOFMEMORY;
+
+    attr->guid = GUID_VBScriptTypeInfo;
+    attr->lcid = LOCALE_USER_DEFAULT;
+    attr->memidConstructor = MEMBERID_NIL;
+    attr->memidDestructor = MEMBERID_NIL;
+    attr->cbSizeInstance = 4;
+    attr->typekind = TKIND_DISPATCH;
+    attr->cFuncs = This->num_funcs;
+    attr->cVars = This->num_vars;
+    attr->cImplTypes = 1;
+    attr->cbSizeVft = sizeof(IDispatchVtbl);
+    attr->cbAlignment = 4;
+    attr->wTypeFlags = TYPEFLAG_FDISPATCHABLE;
+    attr->wMajorVerNum = VBSCRIPT_MAJOR_VERSION;
+    attr->wMinorVerNum = VBSCRIPT_MINOR_VERSION;
+
+    *ppTypeAttr = attr;
+    return S_OK;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetTypeComp(ITypeInfo *iface, ITypeComp **ppTComp)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    FIXME("(%p)->(%p)\n", This, ppTComp);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetFuncDesc(ITypeInfo *iface, UINT index, FUNCDESC **ppFuncDesc)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    const class_desc_t *desc = This->desc;
+    FUNCDESC *funcdesc;
+    function_t *func;
+    UINT i, n = 0;
+
+    TRACE("(%p)->(%u %p)\n", This, index, ppFuncDesc);
+
+    if (!ppFuncDesc) return E_INVALIDARG;
+    if (index >= This->num_funcs) return TYPE_E_ELEMENTNOTFOUND;
+
+    /* Map index to the n-th public function */
+    for (i = 0; i < desc->func_cnt; i++)
+    {
+        if (!desc->funcs[i].is_public || !desc->funcs[i].name)
+            continue;
+        if (n == index)
+            break;
+        n++;
+    }
+
+    func = desc->funcs[i].entries[VBDISP_CALLGET];
+    if (!func)
+        func = desc->funcs[i].entries[VBDISP_LET];
+    if (!func)
+        func = desc->funcs[i].entries[VBDISP_SET];
+
+    funcdesc = calloc(1, sizeof(*funcdesc) + sizeof(ELEMDESC) * (func ? func->arg_cnt : 0));
+    if (!funcdesc) return E_OUTOFMEMORY;
+
+    funcdesc->memid = i;
+    funcdesc->funckind = FUNC_DISPATCH;
+    funcdesc->invkind = INVOKE_FUNC;
+    funcdesc->callconv = CC_STDCALL;
+
+    if (func)
+    {
+        UINT j;
+        funcdesc->cParams = func->arg_cnt;
+        funcdesc->elemdescFunc.tdesc.vt = (func->type == FUNC_SUB) ? VT_VOID : VT_VARIANT;
+        if (func->arg_cnt) funcdesc->lprgelemdescParam = (ELEMDESC *)(funcdesc + 1);
+        for (j = 0; j < func->arg_cnt; j++)
+            funcdesc->lprgelemdescParam[j].tdesc.vt = VT_VARIANT;
+    }
+    else
+    {
+        funcdesc->elemdescFunc.tdesc.vt = VT_VARIANT;
+    }
+
+    *ppFuncDesc = funcdesc;
+    return S_OK;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetVarDesc(ITypeInfo *iface, UINT index, VARDESC **ppVarDesc)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    const class_desc_t *desc = This->desc;
+    VARDESC *vardesc;
+    UINT i, n = 0;
+
+    TRACE("(%p)->(%u %p)\n", This, index, ppVarDesc);
+
+    if (!ppVarDesc) return E_INVALIDARG;
+    if (index >= This->num_vars) return TYPE_E_ELEMENTNOTFOUND;
+
+    /* Map index to the n-th public property */
+    for (i = 0; i < desc->prop_cnt; i++)
+    {
+        if (!desc->props[i].is_public)
+            continue;
+        if (n == index)
+            break;
+        n++;
+    }
+
+    vardesc = calloc(1, sizeof(*vardesc));
+    if (!vardesc) return E_OUTOFMEMORY;
+
+    vardesc->memid = i + desc->func_cnt;
+    vardesc->varkind = VAR_DISPATCH;
+    vardesc->elemdescVar.tdesc.vt = VT_VARIANT;
+
+    *ppVarDesc = vardesc;
+    return S_OK;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetNames(ITypeInfo *iface, MEMBERID memid, BSTR *rgBstrNames,
+        UINT cMaxNames, UINT *pcNames)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    const class_desc_t *desc = This->desc;
+
+    TRACE("(%p)->(%ld %p %u %p)\n", This, memid, rgBstrNames, cMaxNames, pcNames);
+
+    if (!rgBstrNames || !pcNames) return E_INVALIDARG;
+
+    *pcNames = 0;
+    if (!cMaxNames) return S_OK;
+
+    if (memid < 0) return TYPE_E_ELEMENTNOTFOUND;
+
+    if ((UINT)memid < desc->func_cnt)
+    {
+        function_t *func;
+        UINT i;
+
+        if (!desc->funcs[memid].name)
+            return TYPE_E_ELEMENTNOTFOUND;
+
+        rgBstrNames[0] = SysAllocString(desc->funcs[memid].name);
+        if (!rgBstrNames[0]) return E_OUTOFMEMORY;
+
+        func = desc->funcs[memid].entries[VBDISP_CALLGET];
+        if (!func) func = desc->funcs[memid].entries[VBDISP_LET];
+        if (!func) func = desc->funcs[memid].entries[VBDISP_SET];
+
+        *pcNames = 1;
+        if (func)
+        {
+            UINT num = min(cMaxNames, func->arg_cnt + 1);
+            for (i = 1; i < num; i++)
+            {
+                if (!(rgBstrNames[i] = SysAllocString(func->args[i - 1].name)))
+                {
+                    do SysFreeString(rgBstrNames[--i]); while (i);
+                    *pcNames = 0;
+                    return E_OUTOFMEMORY;
+                }
+            }
+            *pcNames = num;
+        }
+        return S_OK;
+    }
+
+    if ((UINT)memid < desc->func_cnt + desc->prop_cnt)
+    {
+        UINT prop_idx = memid - desc->func_cnt;
+        rgBstrNames[0] = SysAllocString(desc->props[prop_idx].name);
+        if (!rgBstrNames[0]) return E_OUTOFMEMORY;
+        *pcNames = 1;
+        return S_OK;
+    }
+
+    return TYPE_E_ELEMENTNOTFOUND;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetRefTypeOfImplType(ITypeInfo *iface, UINT index, HREFTYPE *pRefType)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    TRACE("(%p)->(%u %p)\n", This, index, pRefType);
+
+    if (!pRefType) return E_INVALIDARG;
+    if (index != 0) return TYPE_E_ELEMENTNOTFOUND;
+
+    *pRefType = 1;
+    return S_OK;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetImplTypeFlags(ITypeInfo *iface, UINT index, INT *pImplTypeFlags)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    TRACE("(%p)->(%u %p)\n", This, index, pImplTypeFlags);
+
+    if (!pImplTypeFlags) return E_INVALIDARG;
+    if (index != 0) return TYPE_E_ELEMENTNOTFOUND;
+
+    *pImplTypeFlags = 0;
+    return S_OK;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetIDsOfNames(ITypeInfo *iface, LPOLESTR *rgszNames,
+        UINT cNames, MEMBERID *pMemId)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    const class_desc_t *desc = This->desc;
+    const WCHAR *name;
+    UINT i;
+
+    TRACE("(%p)->(%p %u %p)\n", This, rgszNames, cNames, pMemId);
+
+    if (!rgszNames || !cNames || !pMemId) return E_INVALIDARG;
+
+    for (i = 0; i < cNames; i++) pMemId[i] = MEMBERID_NIL;
+    name = rgszNames[0];
+
+    for (i = 0; i < desc->func_cnt; i++)
+    {
+        if (!desc->funcs[i].is_public || !desc->funcs[i].name)
+            continue;
+        if (!vbs_wcsicmp(name, desc->funcs[i].name))
+        {
+            pMemId[0] = i;
+            return S_OK;
+        }
+    }
+
+    for (i = 0; i < desc->prop_cnt; i++)
+    {
+        if (!desc->props[i].is_public)
+            continue;
+        if (!vbs_wcsicmp(name, desc->props[i].name))
+        {
+            pMemId[0] = i + desc->func_cnt;
+            return S_OK;
+        }
+    }
+
+    return DISP_E_UNKNOWNNAME;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_Invoke(ITypeInfo *iface, PVOID pvInstance, MEMBERID memid,
+        WORD wFlags, DISPPARAMS *pDispParams, VARIANT *pVarResult, EXCEPINFO *pExcepInfo, UINT *puArgErr)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    IDispatch *disp;
+    HRESULT hr;
+
+    TRACE("(%p)->(%p %ld %d %p %p %p %p)\n", This, pvInstance, memid, wFlags,
+          pDispParams, pVarResult, pExcepInfo, puArgErr);
+
+    if (!pvInstance) return E_INVALIDARG;
+
+    hr = IUnknown_QueryInterface((IUnknown *)pvInstance, &IID_IDispatch, (void **)&disp);
+    if (FAILED(hr)) return hr;
+
+    hr = IDispatch_Invoke(disp, memid, &IID_NULL, LOCALE_USER_DEFAULT, wFlags,
+                          pDispParams, pVarResult, pExcepInfo, puArgErr);
+    IDispatch_Release(disp);
+    return hr;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetDocumentation(ITypeInfo *iface, MEMBERID memid, BSTR *pBstrName,
+        BSTR *pBstrDocString, DWORD *pdwHelpContext, BSTR *pBstrHelpFile)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    const class_desc_t *desc = This->desc;
+
+    TRACE("(%p)->(%ld %p %p %p %p)\n", This, memid, pBstrName, pBstrDocString, pdwHelpContext, pBstrHelpFile);
+
+    if (pBstrDocString) *pBstrDocString = NULL;
+    if (pdwHelpContext) *pdwHelpContext = 0;
+    if (pBstrHelpFile) *pBstrHelpFile = NULL;
+
+    if (memid == MEMBERID_NIL)
+    {
+        if (pBstrName && !(*pBstrName = SysAllocString(desc->name)))
+            return E_OUTOFMEMORY;
+        return S_OK;
+    }
+
+    if (memid < 0) return TYPE_E_ELEMENTNOTFOUND;
+
+    if ((UINT)memid < desc->func_cnt)
+    {
+        if (!desc->funcs[memid].name) return TYPE_E_ELEMENTNOTFOUND;
+        if (pBstrName && !(*pBstrName = SysAllocString(desc->funcs[memid].name)))
+            return E_OUTOFMEMORY;
+        return S_OK;
+    }
+
+    if ((UINT)memid < desc->func_cnt + desc->prop_cnt)
+    {
+        UINT prop_idx = memid - desc->func_cnt;
+        if (pBstrName && !(*pBstrName = SysAllocString(desc->props[prop_idx].name)))
+            return E_OUTOFMEMORY;
+        return S_OK;
+    }
+
+    return TYPE_E_ELEMENTNOTFOUND;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetDllEntry(ITypeInfo *iface, MEMBERID memid, INVOKEKIND invKind,
+        BSTR *pBstrDllName, BSTR *pBstrName, WORD *pwOrdinal)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    TRACE("(%p)->(%ld %d %p %p %p)\n", This, memid, invKind, pBstrDllName, pBstrName, pwOrdinal);
+
+    if (pBstrDllName) *pBstrDllName = NULL;
+    if (pBstrName) *pBstrName = NULL;
+    if (pwOrdinal) *pwOrdinal = 0;
+
+    return TYPE_E_BADMODULEKIND;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetRefTypeInfo(ITypeInfo *iface, HREFTYPE hRefType, ITypeInfo **ppTInfo)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+    HRESULT hr;
+
+    TRACE("(%p)->(%lx %p)\n", This, hRefType, ppTInfo);
+
+    if (!ppTInfo || (INT)hRefType < 0) return E_INVALIDARG;
+
+    if (hRefType & ~3) return E_FAIL;
+    if (hRefType & 1)
+    {
+        hr = get_dispatch_typeinfo(ppTInfo);
+        if (FAILED(hr)) return hr;
+    }
+    else
+        *ppTInfo = iface;
+
+    ITypeInfo_AddRef(*ppTInfo);
+    return S_OK;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_AddressOfMember(ITypeInfo *iface, MEMBERID memid, INVOKEKIND invKind, PVOID *ppv)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    TRACE("(%p)->(%ld %d %p)\n", This, memid, invKind, ppv);
+
+    if (!ppv) return E_INVALIDARG;
+    *ppv = NULL;
+
+    return TYPE_E_BADMODULEKIND;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_CreateInstance(ITypeInfo *iface, IUnknown *pUnkOuter, REFIID riid, PVOID *ppvObj)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    TRACE("(%p)->(%p %s %p)\n", This, pUnkOuter, debugstr_guid(riid), ppvObj);
+
+    if (!ppvObj) return E_INVALIDARG;
+    *ppvObj = NULL;
+
+    return TYPE_E_BADMODULEKIND;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetMops(ITypeInfo *iface, MEMBERID memid, BSTR *pBstrMops)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    TRACE("(%p)->(%ld %p)\n", This, memid, pBstrMops);
+
+    if (!pBstrMops) return E_INVALIDARG;
+
+    *pBstrMops = NULL;
+    return S_OK;
+}
+
+static HRESULT WINAPI VBDispTypeInfo_GetContainingTypeLib(ITypeInfo *iface, ITypeLib **ppTLib, UINT *pIndex)
+{
+    VBDispTypeInfo *This = VBDispTypeInfo_from_ITypeInfo(iface);
+
+    FIXME("(%p)->(%p %p)\n", This, ppTLib, pIndex);
+
+    return E_NOTIMPL;
+}
+
+static void WINAPI VBDispTypeInfo_ReleaseTypeAttr(ITypeInfo *iface, TYPEATTR *pTypeAttr)
+{
+    TRACE("(%p)->(%p)\n", iface, pTypeAttr);
+    free(pTypeAttr);
+}
+
+static void WINAPI VBDispTypeInfo_ReleaseFuncDesc(ITypeInfo *iface, FUNCDESC *pFuncDesc)
+{
+    TRACE("(%p)->(%p)\n", iface, pFuncDesc);
+    free(pFuncDesc);
+}
+
+static void WINAPI VBDispTypeInfo_ReleaseVarDesc(ITypeInfo *iface, VARDESC *pVarDesc)
+{
+    TRACE("(%p)->(%p)\n", iface, pVarDesc);
+    free(pVarDesc);
+}
+
+static const ITypeInfoVtbl VBDispTypeInfoVtbl = {
+    VBDispTypeInfo_QueryInterface,
+    VBDispTypeInfo_AddRef,
+    VBDispTypeInfo_Release,
+    VBDispTypeInfo_GetTypeAttr,
+    VBDispTypeInfo_GetTypeComp,
+    VBDispTypeInfo_GetFuncDesc,
+    VBDispTypeInfo_GetVarDesc,
+    VBDispTypeInfo_GetNames,
+    VBDispTypeInfo_GetRefTypeOfImplType,
+    VBDispTypeInfo_GetImplTypeFlags,
+    VBDispTypeInfo_GetIDsOfNames,
+    VBDispTypeInfo_Invoke,
+    VBDispTypeInfo_GetDocumentation,
+    VBDispTypeInfo_GetDllEntry,
+    VBDispTypeInfo_GetRefTypeInfo,
+    VBDispTypeInfo_AddressOfMember,
+    VBDispTypeInfo_CreateInstance,
+    VBDispTypeInfo_GetMops,
+    VBDispTypeInfo_GetContainingTypeLib,
+    VBDispTypeInfo_ReleaseTypeAttr,
+    VBDispTypeInfo_ReleaseFuncDesc,
+    VBDispTypeInfo_ReleaseVarDesc
+};
+
 static HRESULT WINAPI DispatchEx_GetTypeInfo(IDispatchEx *iface, UINT iTInfo, LCID lcid,
                                               ITypeInfo **ppTInfo)
 {
     vbdisp_t *This = impl_from_IDispatchEx(iface);
-    FIXME("(%p)->(%u %lu %p)\n", This, iTInfo, lcid, ppTInfo);
-    return E_NOTIMPL;
+    VBDispTypeInfo *type_info;
+    unsigned i;
+
+    TRACE("(%p)->(%u %lu %p)\n", This, iTInfo, lcid, ppTInfo);
+
+    if (iTInfo)
+        return DISP_E_BADINDEX;
+
+    if (!This->desc)
+        return E_UNEXPECTED;
+
+    if (!(type_info = malloc(sizeof(*type_info))))
+        return E_OUTOFMEMORY;
+
+    type_info->ITypeInfo_iface.lpVtbl = &VBDispTypeInfoVtbl;
+    type_info->ref = 1;
+    type_info->desc = This->desc;
+    type_info->num_funcs = 0;
+    type_info->num_vars = 0;
+
+    for (i = 0; i < This->desc->func_cnt; i++)
+        if (This->desc->funcs[i].is_public && This->desc->funcs[i].name)
+            type_info->num_funcs++;
+
+    for (i = 0; i < This->desc->prop_cnt; i++)
+        if (This->desc->props[i].is_public)
+            type_info->num_vars++;
+
+    *ppTInfo = &type_info->ITypeInfo_iface;
+    return S_OK;
 }
 
 static HRESULT WINAPI DispatchEx_GetIDsOfNames(IDispatchEx *iface, REFIID riid,
