@@ -366,6 +366,8 @@ static char object_complex[] =
 "3;;;, 0;;;, 1;;;, 2;;;,\n"
 "3;;;, 1;;;, 2;;;, 3;;;,\n"
 "3;;;, 3;;;, 1;;;, 2;;;,\n"
+/* for heap alloc test */
+"Vector{0.0;;;, 0.0;;;, 0.0;;;}\n"
 "}\n";
 
 static char template_using_index_color_lower[] =
@@ -1005,6 +1007,63 @@ static void test_complex_object(void)
     IDirectXFile_Release(dxfile);
 }
 
+static void test_getdata_separate_heap_alloc(void)
+{
+    IDirectXFile *dxfile = NULL;
+    IDirectXFileEnumObject *enum_object;
+    IDirectXFileData *root_data, *child_data;
+    IDirectXFileObject *child_obj;
+    DXFILELOADMEMORY load_info;
+    HRESULT hr;
+    size_t distance;
+
+    DWORD root_size, child_size;
+    void *root_ptr, *child_ptr;
+
+    if (!pDirectXFileCreate)
+    {
+        win_skip("DirectXFileCreate is not available\n");
+        return;
+    }
+
+    hr = pDirectXFileCreate(&dxfile);
+    ok(hr == DXFILE_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IDirectXFile_RegisterTemplates(dxfile, templates_complex_object, sizeof(templates_complex_object) - 1);
+    ok(hr == DXFILE_OK, "Unexpected hr %#lx.\n", hr);
+
+    load_info.lpMemory = object_complex;
+    load_info.dSize = sizeof(object_complex) - 1;
+    hr = IDirectXFile_CreateEnumObject(dxfile, &load_info, DXFILELOAD_FROMMEMORY, &enum_object);
+    ok(hr == DXFILE_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IDirectXFileEnumObject_GetNextDataObject(enum_object, &root_data);
+    ok(hr == DXFILE_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IDirectXFileData_GetData(root_data, NULL, &root_size, &root_ptr);
+    ok(hr == DXFILE_OK, "Unexpected hr %#lx.\n", hr);
+    ok(root_size == 104, "Unexpected root size %lu.\n", root_size);
+
+    hr = IDirectXFileData_GetNextObject(root_data, &child_obj);
+    ok(hr == DXFILE_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IDirectXFileObject_QueryInterface(child_obj, &IID_IDirectXFileData, (void** )&child_data);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IDirectXFileData_GetData(child_data, NULL, &child_size, &child_ptr);
+    ok(hr == DXFILE_OK, "Unexpected hr %#lx.\n", hr);
+    ok(child_size == 12, "Unexpected child size %lu.\n", child_size);
+
+    distance = (root_ptr > child_ptr) ? (BYTE*) root_ptr - (BYTE*) child_ptr : (BYTE*) child_ptr - (BYTE*) root_ptr;
+    ok(distance > root_size + child_size, "Unexpected distance %Iu.\n", distance);
+
+    IDirectXFileData_Release(child_data);
+    IDirectXFileObject_Release(child_obj);
+
+    IDirectXFileData_Release(root_data);
+    IDirectXFileEnumObject_Release(enum_object);
+    IDirectXFile_Release(dxfile);
+}
+
 static void test_standard_templates(void)
 {
     IDirectXFile *dxfile = NULL;
@@ -1061,6 +1120,7 @@ START_TEST(d3dxof)
     test_syntax();
     test_syntax_semicolon_comma();
     test_complex_object();
+    test_getdata_separate_heap_alloc();
     test_standard_templates();
     test_type_index_color();
 

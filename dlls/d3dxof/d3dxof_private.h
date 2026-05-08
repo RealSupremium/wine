@@ -104,6 +104,7 @@ typedef struct {
     BOOL from_ref;
     ULONG level;
     LPBYTE pstrings;
+    LPBYTE pdata_user_copy;
 } IDirectXFileDataImpl;
 
 typedef struct {
