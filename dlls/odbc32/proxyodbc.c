@@ -6596,10 +6596,17 @@ static SQLRETURN prepare_unix_w( struct statement *stmt, SQLWCHAR *statement, SQ
 
 static SQLRETURN prepare_win32_w( struct statement *stmt, SQLWCHAR *statement, SQLINTEGER len )
 {
+    SQLRETURN ret = SQL_ERROR;
+
     if (stmt->hdr.win32_funcs->SQLPrepareW)
         return stmt->hdr.win32_funcs->SQLPrepareW( stmt->hdr.win32_handle, statement, len );
-    if (stmt->hdr.win32_funcs->SQLPrepare) FIXME( "Unicode to ANSI conversion not handled\n" );
-    return SQL_ERROR;
+    if (stmt->hdr.win32_funcs->SQLPrepare)
+    {
+        SQLCHAR *statementA = strnWtoA( statement, len );
+        ret = stmt->hdr.win32_funcs->SQLPrepare( stmt->hdr.win32_handle, statementA, SQL_NTS );
+        free(statementA);
+    }
+    return ret;
 }
 
 /*************************************************************************
@@ -8094,11 +8101,33 @@ static SQLRETURN native_sql_unix_w( struct connection *con, SQLWCHAR *in_stateme
 static SQLRETURN native_sql_win32_w( struct connection *con, SQLWCHAR *in_statement, SQLINTEGER len,
                                      SQLWCHAR *out_statement, SQLINTEGER buflen, SQLINTEGER *retlen )
 {
+    SQLRETURN ret = SQL_ERROR;
+
     if (con->hdr.win32_funcs->SQLNativeSqlW)
         return con->hdr.win32_funcs->SQLNativeSqlW( con->hdr.win32_handle, in_statement, len, out_statement, buflen,
                                                     retlen );
-    if (con->hdr.win32_funcs->SQLNativeSql) FIXME( "Unicode to ANSI conversion not handled\n" );
-    return SQL_ERROR;
+    if (con->hdr.win32_funcs->SQLNativeSql)
+    {
+        SQLCHAR *statement = strnWtoA( in_statement, len );
+        SQLCHAR *out = NULL;
+        if (buflen)
+            out = malloc( buflen );
+
+        ret = con->hdr.win32_funcs->SQLNativeSql( con->hdr.win32_handle, statement, SQL_NTS, out, buflen, retlen );
+        if(ret == SQL_SUCCESS)
+        {
+            if (out_statement)
+            {
+                MultiByteToWideChar( CP_ACP, 0, (const char *)out, -1, out_statement, buflen );
+                out_statement[buflen] = 0;
+            }
+        }
+        if (retlen) *retlen *= sizeof(WCHAR);
+
+        free( statement );
+        free( out );
+    }
+    return ret;
 }
 
 /*************************************************************************
