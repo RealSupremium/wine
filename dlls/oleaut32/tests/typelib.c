@@ -8824,7 +8824,6 @@ static void test_dispatch_no_implparent(void)
     hr = ITypeInfo_GetTypeAttr(ti, &typeattr);
     ok(hr == S_OK, "got %#lx\n", hr);
     ok(typeattr->typekind == TKIND_DISPATCH, "typekind %d\n", typeattr->typekind);
-    todo_wine
     ok(typeattr->cFuncs == 1, "cFuncs %u\n", typeattr->cFuncs);
     ok(typeattr->cVars == 1, "cVars %u\n", typeattr->cVars);
     ok(typeattr->cImplTypes == 0, "cImplTypes %u\n", typeattr->cImplTypes);
@@ -8832,7 +8831,6 @@ static void test_dispatch_no_implparent(void)
 
     href = 0xdeadbeef;
     hr = ITypeInfo_GetRefTypeOfImplType(ti, 0, &href);
-    todo_wine
     ok(hr == TYPE_E_ELEMENTNOTFOUND, "got %#lx\n", hr);
 
     ITypeInfo_Release(ti);
