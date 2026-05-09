@@ -8822,7 +8822,6 @@ static void test_dispatch_with_implparent(void)
     hr = ITypeInfo_GetTypeAttr(ti, &typeattr);
     ok(hr == S_OK, "got %#lx\n", hr);
     ok(typeattr->typekind == TKIND_DISPATCH, "typekind %d\n", typeattr->typekind);
-    todo_wine
     ok(typeattr->cFuncs == 1, "in-memory cFuncs %u\n", typeattr->cFuncs);
     ok(typeattr->cImplTypes == 1, "in-memory cImplTypes %u\n", typeattr->cImplTypes);
     ok(typeattr->cbSizeVft == sizeof(IDispatchVtbl), "in-memory cbSizeVft %u\n", typeattr->cbSizeVft);
@@ -8842,7 +8841,6 @@ static void test_dispatch_with_implparent(void)
     ok(hr == S_OK, "got %#lx\n", hr);
     hr = ITypeInfo_GetTypeAttr(ti, &typeattr);
     ok(hr == S_OK, "got %#lx\n", hr);
-    todo_wine
     ok(typeattr->cFuncs == 1, "reloaded cFuncs %u\n", typeattr->cFuncs);
     ok(typeattr->cImplTypes == 1, "reloaded cImplTypes %u\n", typeattr->cImplTypes);
     ITypeInfo_ReleaseTypeAttr(ti, typeattr);
