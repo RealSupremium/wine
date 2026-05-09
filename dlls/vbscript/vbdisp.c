@@ -478,11 +478,34 @@ static HRESULT add_class_member_func(ICreateTypeInfo *cti, unsigned slot, DISPID
     return hr;
 }
 
+static HRESULT add_class_funcprop(ICreateTypeInfo *cti, unsigned *slot, unsigned i,
+                                  const class_desc_t *desc)
+{
+    const vbdisp_funcprop_desc_t *fp = &desc->funcs[i];
+    vbdisp_invoke_type_t which;
+    HRESULT hr;
+
+    if(!fp->is_public || !fp->name) return S_OK;
+    if(desc->class_initialize_id && i == desc->class_initialize_id) return S_OK;
+    if(desc->class_terminate_id && i == desc->class_terminate_id) return S_OK;
+
+    if(fp->entries[VBDISP_CALLGET])     which = VBDISP_CALLGET;
+    else if(fp->entries[VBDISP_LET])    which = VBDISP_LET;
+    else if(fp->entries[VBDISP_SET])    which = VBDISP_SET;
+    else return S_OK;
+
+    hr = add_class_member_func(cti, *slot, i, fp, which);
+    if(SUCCEEDED(hr)) (*slot)++;
+    return hr;
+}
+
 static HRESULT build_class_typeinfo(class_desc_t *desc, ITypeInfo **out)
 {
     ICreateTypeLib2 *ctl = NULL;
     ICreateTypeInfo *cti = NULL;
-    ITypeLib *tl = NULL;
+    ITypeLib *stdole = NULL, *tl = NULL;
+    ITypeInfo *idispatch_ti = NULL;
+    HREFTYPE href;
     HRESULT hr;
     unsigned i, slot;
 
@@ -496,26 +519,29 @@ static HRESULT build_class_typeinfo(class_desc_t *desc, ITypeInfo **out)
 
     ICreateTypeInfo_SetTypeFlags(cti, TYPEFLAG_FDISPATCHABLE);
 
+    hr = LoadTypeLib(L"stdole2.tlb", &stdole);
+    if(SUCCEEDED(hr)) {
+        hr = ITypeLib_GetTypeInfoOfGuid(stdole, &IID_IDispatch, &idispatch_ti);
+        if(SUCCEEDED(hr)) {
+            hr = ICreateTypeInfo_AddRefTypeInfo(cti, idispatch_ti, &href);
+            if(SUCCEEDED(hr))
+                hr = ICreateTypeInfo_AddImplType(cti, 0, href);
+        }
+    }
+    if(FAILED(hr)) goto done;
+
     /* One FUNCDESC per public named func/property (matching native).
      * Property get/let/set collapse into a single entry; pick the get
-     * entry when present, else let, else set. */
+     * entry when present, else let, else set. desc->funcs[0] holds the
+     * default getter/method; native lays out non-default funcs in
+     * declaration order with the default last. */
     slot = 0;
-    for(i = 0; i < desc->func_cnt; i++) {
-        const vbdisp_funcprop_desc_t *fp = &desc->funcs[i];
-        vbdisp_invoke_type_t which;
-        if(!fp->is_public || !fp->name) continue;
-        if(desc->class_initialize_id && i == desc->class_initialize_id) continue;
-        if(desc->class_terminate_id && i == desc->class_terminate_id) continue;
-
-        if(fp->entries[VBDISP_CALLGET])     which = VBDISP_CALLGET;
-        else if(fp->entries[VBDISP_LET])    which = VBDISP_LET;
-        else if(fp->entries[VBDISP_SET])    which = VBDISP_SET;
-        else continue;
-
-        hr = add_class_member_func(cti, slot, i, fp, which);
+    for(i = 1; i < desc->func_cnt; i++) {
+        hr = add_class_funcprop(cti, &slot, i, desc);
         if(FAILED(hr)) goto done;
-        slot++;
     }
+    hr = add_class_funcprop(cti, &slot, 0, desc);
+    if(FAILED(hr)) goto done;
 
     /* Public properties (Dim'd vars). */
     slot = 0;
@@ -547,6 +573,8 @@ static HRESULT build_class_typeinfo(class_desc_t *desc, ITypeInfo **out)
     hr = ITypeLib_GetTypeInfo(tl, 0, out);
 
 done:
+    if(idispatch_ti) ITypeInfo_Release(idispatch_ti);
+    if(stdole) ITypeLib_Release(stdole);
     if(tl)  ITypeLib_Release(tl);
     if(cti) ICreateTypeInfo_Release(cti);
     if(ctl) ICreateTypeLib2_Release(ctl);
