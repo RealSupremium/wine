@@ -6814,7 +6814,8 @@ static void test_VarAnd(void)
     static const WCHAR szFalse[] = { '#','F','A','L','S','E','#','\0' };
     static const WCHAR szTrue[] = { '#','T','R','U','E','#','\0' };
     VARIANT left, right, exp, result;
-    BSTR false_str, true_str;
+    BSTR false_str, true_str, bstrmaxi4, bstrmini4, bstr9999999998, bstr3;
+    BSTR bstrfloat1p49, bstrfloatm1p49, bstrfloat1p59, bstrfloatm1p59;
     VARTYPE i;
     HRESULT hres;
 
@@ -6822,6 +6823,14 @@ static void test_VarAnd(void)
 
     true_str = SysAllocString(szTrue);
     false_str = SysAllocString(szFalse);
+    bstrmaxi4 = SysAllocString(L"2147483647");
+    bstrmini4 = SysAllocString(L"-2147483648");
+    bstr9999999998   = SysAllocString(L"9999999998");
+    bstr3            = SysAllocString(L"3");
+    bstrfloat1p49    = SysAllocString(L"1.49");
+    bstrfloatm1p49   = SysAllocString(L"-1.49");
+    bstrfloat1p59    = SysAllocString(L"1.59");
+    bstrfloatm1p59   = SysAllocString(L"-1.59");
 
     /* Test all possible flag/vt combinations & the resulting vt type */
     for (i = 0; i < ARRAY_SIZE(ExtraFlags); i++)
@@ -7154,6 +7163,8 @@ static void test_VarAnd(void)
     VARAND(UI1,255,BSTR,false_str,I2,0);
     VARAND(UI1,0,BSTR,true_str,I2,0);
     VARAND(UI1,255,BSTR,true_str,I2,255);
+    VARAND(UI1, 1, BSTR, bstrmaxi4, I4, 1);
+    VARAND(UI1, 1, BSTR, bstrmini4, I4, 0);
     VARANDCY(UI1,255,10000,I4,1);
     VARANDCY(UI1,255,0,I4,0);
     VARANDCY(UI1,0,0,I4,0);
@@ -7197,6 +7208,8 @@ static void test_VarAnd(void)
     VARAND(I2,-1,BSTR,false_str,I2,0);
     VARAND(I2,0,BSTR,true_str,I2,0);
     VARAND(I2,-1,BSTR,true_str,I2,-1);
+    VARAND(I2,1,BSTR,bstrmaxi4,I4,1);
+    VARAND(I2,1,BSTR,bstrmini4,I4,0);
     VARANDCY(I2,-1,10000,I4,1);
     VARANDCY(I2,-1,0,I4,0);
     VARANDCY(I2,0,0,I4,0);
@@ -7458,11 +7471,39 @@ static void test_VarAnd(void)
     VARAND(BSTR,false_str,BSTR,false_str,BOOL,0);
     VARAND(BSTR,true_str,BSTR,false_str,BOOL,VARIANT_FALSE);
     VARAND(BSTR,true_str,BSTR,true_str,BOOL,VARIANT_TRUE);
+    VARAND(BSTR, bstrfloat1p49,  I2, 1, I4, 1);
+    VARAND(BSTR, bstrfloatm1p49, I2, 1, I4, 1);
+    VARAND(BSTR, bstrfloat1p59,  I2, 1, I4, 0);
+    VARAND(BSTR, bstrfloatm1p59, I2, 1, I4, 0);
     VARANDCY(BSTR,true_str,10000,I4,1);
     VARANDCY(BSTR,false_str,10000,I4,0);
 
+    VariantInit(&left);
+    VariantInit(&right);
+    VariantInit(&result);
+
+    V_VT(&left) = VT_BSTR;
+    V_BSTR(&left) = bstr9999999998;
+    V_VT(&right) = VT_BSTR;
+    V_BSTR(&right) = bstr3;
+    hres = pVarAnd(&left, &right, &result);
+    ok(hres == DISP_E_OVERFLOW,"got 0x%08lx\n", hres);
+
+    VariantClear(&left);
+    VariantClear(&right);
+    VariantClear(&result);
+
+
     SysFreeString(true_str);
     SysFreeString(false_str);
+    SysFreeString(bstrmaxi4);
+    SysFreeString(bstrmini4);
+    SysFreeString(bstr9999999998);
+    SysFreeString(bstr3);
+    SysFreeString(bstrfloat1p49);
+    SysFreeString(bstrfloatm1p49);
+    SysFreeString(bstrfloat1p59);
+    SysFreeString(bstrfloatm1p59);
 }
 
 static void test_cmp( int line, LCID lcid, UINT flags, VARIANT *left, VARIANT *right, HRESULT result )
