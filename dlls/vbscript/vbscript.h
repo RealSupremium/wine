@@ -157,12 +157,28 @@ typedef struct {
     script_ctx_t *ctx;
 } BuiltinDisp;
 
+typedef struct {
+    WCHAR *name;
+    DISPID dispid; /* DISPID_UNKNOWN when the host didn't claim this name */
+} probed_name_t;
+
 typedef struct named_item_t {
     ScriptDisp *script_obj;
     IDispatch *disp;
+    IDispatch *dim_probe_disp;
     unsigned ref;
     DWORD flags;
     LPWSTR name;
+    BOOL dim_disp_probed;
+
+    /* Names already probed against dim_probe_disp, with the dispid the
+     * host returned (or DISPID_UNKNOWN if it didn't claim the name).
+     * Native VBScript only probes a given name once per named item
+     * across the script lifetime; later runtime lookups reuse the
+     * cached result instead of issuing another GetIDsOfNames. */
+    probed_name_t *probed_names;
+    unsigned probed_names_cnt;
+    unsigned probed_names_size;
 
     struct list entry;
 } named_item_t;
@@ -427,6 +443,8 @@ BOOL is_exec_local_scope(exec_ctx_t*);
 HRESULT exec_add_caller_dynamic_var(script_ctx_t*,exec_ctx_t*,const WCHAR*);
 void release_dynamic_var(dynamic_var_t*);
 named_item_t *lookup_named_item(script_ctx_t*,const WCHAR*,unsigned);
+HRESULT ensure_named_item_disp(script_ctx_t*,named_item_t*);
+DISPID lookup_probed_name(named_item_t*,const WCHAR*,BOOL*);
 void release_named_item(named_item_t*);
 void clear_error_loc(script_ctx_t*);
 void clear_ei(EXCEPINFO*);

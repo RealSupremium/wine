@@ -93,6 +93,83 @@ static inline BOOL is_started(VBScript *This)
         || This->state == SCRIPTSTATE_DISCONNECTED;
 }
 
+static HRESULT retrieve_named_item_disp(IActiveScriptSite *site, named_item_t *item);
+static HRESULT fetch_named_item_disp(IActiveScriptSite *site, const WCHAR *name, IDispatch **out);
+
+HRESULT ensure_named_item_disp(script_ctx_t *ctx, named_item_t *item)
+{
+    if(item->disp || (item->flags & SCRIPTITEM_CODEONLY))
+        return S_OK;
+    /* If the dim-probe already fetched a host dispatch for this item, reuse
+     * it as the runtime cache instead of issuing a second GetItemInfo.
+     * Native VBScript shares the dispatch when the probe ran first; only
+     * when runtime use precedes the probe do the two slots diverge (the
+     * rotating-dispatch case). */
+    if(item->dim_probe_disp) {
+        IDispatch_AddRef(item->dim_probe_disp);
+        item->disp = item->dim_probe_disp;
+        return S_OK;
+    }
+    return retrieve_named_item_disp(ctx->site, item);
+}
+
+static probed_name_t *find_probed_name(named_item_t *item, const WCHAR *name)
+{
+    unsigned i;
+    for(i = 0; i < item->probed_names_cnt; i++)
+        if(!vbs_wcsicmp(item->probed_names[i].name, name))
+            return &item->probed_names[i];
+    return NULL;
+}
+
+/* Probe `name` against the named-item's probe IDispatch unless we've
+ * already probed it. Native VBScript only probes a given name once per
+ * named item across the script lifetime; the dispid is cached so later
+ * runtime lookups don't reissue GetIDsOfNames. */
+static void probe_name_once(named_item_t *item, const WCHAR *name)
+{
+    probed_name_t *new_arr;
+    BSTR bstr;
+    DISPID id;
+    HRESULT hres;
+
+    if(find_probed_name(item, name)) return;
+    if(item->probed_names_cnt == item->probed_names_size) {
+        unsigned new_size = item->probed_names_size ? item->probed_names_size * 2 : 8;
+        new_arr = realloc(item->probed_names, new_size * sizeof(*new_arr));
+        if(!new_arr) return;
+        item->probed_names = new_arr;
+        item->probed_names_size = new_size;
+    }
+    item->probed_names[item->probed_names_cnt].name = wcsdup(name);
+    if(!item->probed_names[item->probed_names_cnt].name) return;
+    item->probed_names[item->probed_names_cnt].dispid = DISPID_UNKNOWN;
+
+    bstr = SysAllocString(name);
+    if(bstr) {
+        hres = disp_get_id(item->dim_probe_disp, bstr, VBDISP_CALLGET, TRUE, &id);
+        if(SUCCEEDED(hres))
+            item->probed_names[item->probed_names_cnt].dispid = id;
+        SysFreeString(bstr);
+    }
+    item->probed_names_cnt++;
+}
+
+/* Look up `name` in the named-item's probe cache. Returns the cached
+ * dispid, or DISPID_UNKNOWN if the name was probed and the host did not
+ * claim it. Returns DISPID_UNKNOWN and sets *cached to FALSE if the name
+ * has not been probed. */
+DISPID lookup_probed_name(named_item_t *item, const WCHAR *name, BOOL *cached)
+{
+    probed_name_t *p = find_probed_name(item, name);
+    if(!p) {
+        *cached = FALSE;
+        return DISPID_UNKNOWN;
+    }
+    *cached = TRUE;
+    return p->dispid;
+}
+
 HRESULT exec_global_code(script_ctx_t *ctx, vbscode_t *code, VARIANT *res, BOOL extern_caller)
 {
     ScriptDisp *obj = ctx->script_obj;
@@ -136,6 +213,73 @@ HRESULT exec_global_code(script_ctx_t *ctx, vbscode_t *code, VARIANT *res, BOOL 
             return E_OUTOFMEMORY;
         obj->global_funcs = new_funcs;
         obj->global_funcs_size = cnt;
+    }
+
+    /* For visible named items, native VBScript fetches a dedicated host
+       IDispatch via GetItemInfo on the first top-level declaration parse
+       and probes each top-level name on it. Native order is:
+         (1) Subs/Functions in declaration order
+         (2) Classes in declaration order
+         (3) Explicit Dim variables in declaration order
+         (4) Implicit declarations from top-level assignments (LHS), in
+             source order, deduplicated against the names above.
+       The probe IDispatch is independent of the runtime cache
+       (named_item->disp) so subsequent qualified access keeps using the
+       runtime cache. Probe results are never used to skip name creation;
+       declarations always succeed. */
+    if(code->named_item
+       && (code->named_item->flags & SCRIPTITEM_ISVISIBLE)
+       && !(code->named_item->flags & (SCRIPTITEM_CODEONLY | SCRIPTITEM_GLOBALMEMBERS)))
+    {
+        BOOL has_top_level_assigns = FALSE;
+        instr_t *ip;
+
+        for (ip = code->instrs + code->main_code.code_off; ip->op != OP_ret; ip++) {
+            if (ip->op == OP_assign_ident || ip->op == OP_set_ident) {
+                has_top_level_assigns = TRUE;
+                break;
+            }
+        }
+
+        if(code->main_code.var_cnt || code->funcs || code->classes || has_top_level_assigns)
+        {
+            if(!code->named_item->dim_disp_probed) {
+                fetch_named_item_disp(ctx->site, code->named_item->name, &code->named_item->dim_probe_disp);
+                code->named_item->dim_disp_probed = TRUE;
+            }
+
+            if(code->named_item->dim_probe_disp) {
+                class_desc_t *class_iter;
+                class_desc_t **classes_ordered = NULL;
+                unsigned class_n = 0, k;
+
+                /* code->funcs is in declaration order (head-first). */
+                for (func_iter = code->funcs; func_iter; func_iter = func_iter->next)
+                    probe_name_once(code->named_item, func_iter->name);
+                /* code->classes is built by prepend, so iterating head-first
+                 * gives reverse-declaration order. Reverse via local array. */
+                for (class_iter = code->classes; class_iter; class_iter = class_iter->next) class_n++;
+                if (class_n) {
+                    classes_ordered = malloc(class_n * sizeof(*classes_ordered));
+                    if (classes_ordered) {
+                        k = class_n;
+                        for (class_iter = code->classes; class_iter; class_iter = class_iter->next)
+                            classes_ordered[--k] = class_iter;
+                        for (k = 0; k < class_n; k++)
+                            probe_name_once(code->named_item, classes_ordered[k]->name);
+                    }
+                }
+                for (i = 0; i < code->main_code.var_cnt; i++)
+                    probe_name_once(code->named_item, code->main_code.vars[i].name);
+                /* Implicit declarations from bare top-level assignments,
+                 * in source order. probe_name_once already deduplicates. */
+                for (ip = code->instrs + code->main_code.code_off; ip->op != OP_ret; ip++) {
+                    if (ip->op == OP_assign_ident || ip->op == OP_set_ident)
+                        probe_name_once(code->named_item, ip->arg1.bstr);
+                }
+                free(classes_ordered);
+            }
+        }
     }
 
     for (i = 0; i < code->main_code.var_cnt; i++)
@@ -216,25 +360,32 @@ static void exec_queued_code(script_ctx_t *ctx)
     }
 }
 
-static HRESULT retrieve_named_item_disp(IActiveScriptSite *site, named_item_t *item)
+static HRESULT fetch_named_item_disp(IActiveScriptSite *site, const WCHAR *name, IDispatch **out)
 {
     IUnknown *unk;
     HRESULT hres;
 
-    hres = IActiveScriptSite_GetItemInfo(site, item->name, SCRIPTINFO_IUNKNOWN, &unk, NULL);
+    *out = NULL;
+    if(!site)
+        return E_UNEXPECTED;
+
+    hres = IActiveScriptSite_GetItemInfo(site, name, SCRIPTINFO_IUNKNOWN, &unk, NULL);
     if(FAILED(hres)) {
         WARN("GetItemInfo failed: %08lx\n", hres);
         return hres;
     }
 
-    hres = IUnknown_QueryInterface(unk, &IID_IDispatch, (void**)&item->disp);
+    hres = IUnknown_QueryInterface(unk, &IID_IDispatch, (void**)out);
     IUnknown_Release(unk);
-    if(FAILED(hres)) {
+    if(FAILED(hres))
         WARN("object does not implement IDispatch\n");
-        return hres;
-    }
 
-    return S_OK;
+    return hres;
+}
+
+static HRESULT retrieve_named_item_disp(IActiveScriptSite *site, named_item_t *item)
+{
+    return fetch_named_item_disp(site, item->name, &item->disp);
 }
 
 named_item_t *lookup_named_item(script_ctx_t *ctx, const WCHAR *name, unsigned flags)
@@ -249,7 +400,7 @@ named_item_t *lookup_named_item(script_ctx_t *ctx, const WCHAR *name, unsigned f
                 if(FAILED(hres)) return NULL;
             }
 
-            if(!item->disp && (flags || !(item->flags & SCRIPTITEM_CODEONLY))) {
+            if(!item->disp && flags) {
                 hres = retrieve_named_item_disp(ctx->site, item);
                 if(FAILED(hres)) continue;
             }
@@ -272,8 +423,12 @@ static void release_named_item_script_obj(named_item_t *item)
 
 void release_named_item(named_item_t *item)
 {
+    unsigned i;
     if(--item->ref) return;
 
+    for(i = 0; i < item->probed_names_cnt; i++)
+        free(item->probed_names[i].name);
+    free(item->probed_names);
     free(item->name);
     free(item);
 }
@@ -307,6 +462,21 @@ static void release_script(script_ctx_t *ctx)
         {
             IDispatch_Release(item->disp);
             item->disp = NULL;
+        }
+        if(item->dim_probe_disp)
+        {
+            IDispatch_Release(item->dim_probe_disp);
+            item->dim_probe_disp = NULL;
+        }
+        item->dim_disp_probed = FALSE;
+        {
+            unsigned pi;
+            for(pi = 0; pi < item->probed_names_cnt; pi++)
+                free(item->probed_names[pi].name);
+            free(item->probed_names);
+            item->probed_names = NULL;
+            item->probed_names_cnt = 0;
+            item->probed_names_size = 0;
         }
         release_named_item_script_obj(item);
         if(!(item->flags & SCRIPTITEM_ISPERSISTENT))
@@ -867,8 +1037,13 @@ static HRESULT WINAPI VBScript_AddNamedItem(IActiveScript *iface, LPCOLESTR pstr
 
     item->ref = 1;
     item->disp = disp;
+    item->dim_probe_disp = NULL;
     item->flags = dwFlags;
     item->script_obj = NULL;
+    item->dim_disp_probed = FALSE;
+    item->probed_names = NULL;
+    item->probed_names_cnt = 0;
+    item->probed_names_size = 0;
     item->name = wcsdup(pstrName);
     if(!item->name) {
         if(disp)
