@@ -8808,7 +8808,7 @@ static void test_AddressOfMember(void)
     addr = (void*)0xdeadbeef;
     hr = ITypeInfo_AddressOfMember(ti, 0x10000000, INVOKE_FUNC, &addr);
     ok(hr == TYPE_E_BADMODULEKIND, "AddressOfMember hr=%#lx\n", hr);
-    todo_wine ok(!addr, "AddressOfMember left addr=%p, expected NULL\n", addr);
+    ok(!addr, "AddressOfMember left addr=%p, expected NULL\n", addr);
 
     ITypeInfo_Release(ti);
     ICreateTypeInfo_Release(createti);
