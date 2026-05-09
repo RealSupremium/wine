@@ -8790,7 +8790,7 @@ static void test_CreateInstance_typekind(void)
 
     obj = (void*)0xdeadbeef;
     hr = ITypeInfo_CreateInstance(ti, NULL, &IID_IUnknown, &obj);
-    todo_wine ok(hr == TYPE_E_BADMODULEKIND, "CreateInstance hr=%#lx\n", hr);
+    ok(hr == TYPE_E_BADMODULEKIND, "CreateInstance hr=%#lx\n", hr);
     ok(!obj, "CreateInstance left obj=%p, expected NULL\n", obj);
 
     ITypeInfo_Release(ti);
