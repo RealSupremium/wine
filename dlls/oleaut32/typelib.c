@@ -5954,7 +5954,13 @@ static HRESULT ITypeInfoImpl_GetInternalDispatchFuncDesc( ITypeInfo *iface,
     else
         *hrefoffset = DISPATCH_HREF_OFFSET;
 
-    if(This->impltypes)
+    /* Only walk impltypes when the stored cbSizeVft has room for inherited
+     * slots beyond our own funcs. Typelibs built via ICreateTypeLib2 store
+     * cbSizeVft = own_count * ptr_size and expose only own funcs through
+     * GetFuncDesc; MIDL-built typelibs store cbSizeVft = (own+inh)*ptr_size
+     * and rely on impltypes traversal to surface inherited slots. */
+    if(This->impltypes
+       && This->typeattr.cbSizeVft > This->typeattr.cFuncs * This->pTypeLib->ptr_size)
     {
         ITypeInfo *pSubTypeInfo;
         UINT sub_funcs;

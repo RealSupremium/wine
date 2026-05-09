@@ -8923,18 +8923,15 @@ static void test_dispatch_funcdesc_bound(void)
     hr = ITypeInfo_GetFuncDesc(ti, 0, &got);
     ok(hr == S_OK, "GetFuncDesc(0) got %#lx\n", hr);
     if (SUCCEEDED(hr)) {
-        todo_wine
         ok(got->memid == 0x100, "GetFuncDesc(0) memid %#lx\n", got->memid);
         ITypeInfo_ReleaseFuncDesc(ti, got);
     }
     hr = ITypeInfo_GetFuncDesc(ti, 1, &got);
     ok(hr == S_OK, "GetFuncDesc(1) got %#lx\n", hr);
     if (SUCCEEDED(hr)) {
-        todo_wine
         ok(got->memid == 0x101, "GetFuncDesc(1) memid %#lx\n", got->memid);
         ITypeInfo_ReleaseFuncDesc(ti, got);
     }
-    todo_wine
     ok(ITypeInfo_GetFuncDesc(ti, 2, &got) == TYPE_E_ELEMENTNOTFOUND,
        "GetFuncDesc(2) should return TYPE_E_ELEMENTNOTFOUND\n");
 
