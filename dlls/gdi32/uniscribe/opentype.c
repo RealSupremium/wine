@@ -1956,7 +1956,7 @@ static int GPOS_apply_MarkToBase(const ScriptCache *script_cache, const OT_Looku
                     TRACE("Mark %x(%i) and base %x(%i)\n",glyphs[glyph_index], mark_index, glyphs[base_glyph], base_index);
                     offset = GET_BE_WORD(mbpf1->MarkArray);
                     ma = (const GPOS_MarkArray*)((const BYTE*)mbpf1 + offset);
-                    if (mark_index > GET_BE_WORD(ma->MarkCount))
+                    if (mark_index >= GET_BE_WORD(ma->MarkCount))
                     {
                         ERR("Mark index exceeded mark count\n");
                         return -1;
@@ -2042,7 +2042,7 @@ static void GPOS_apply_MarkToLigature(const OT_LookupTable *look, const SCRIPT_A
                     TRACE("Mark %x(%i) and ligature %x(%i)\n",glyphs[glyph_index], mark_index, glyphs[glyph_index - write_dir], ligature_index);
                     offset = GET_BE_WORD(mlpf1->MarkArray);
                     ma = (const GPOS_MarkArray*)((const BYTE*)mlpf1 + offset);
-                    if (mark_index > GET_BE_WORD(ma->MarkCount))
+                    if (mark_index >= GET_BE_WORD(ma->MarkCount))
                     {
                         ERR("Mark index exceeded mark count\n");
                         return;
@@ -2052,7 +2052,7 @@ static void GPOS_apply_MarkToLigature(const OT_LookupTable *look, const SCRIPT_A
                     TRACE("Mark Class %i total classes %i\n",mark_class,class_count);
                     offset = GET_BE_WORD(mlpf1->LigatureArray);
                     la = (const GPOS_LigatureArray*)((const BYTE*)mlpf1 + offset);
-                    if (ligature_index > GET_BE_WORD(la->LigatureCount))
+                    if (ligature_index >= GET_BE_WORD(la->LigatureCount))
                     {
                         ERR("Ligature index exceeded ligature count\n");
                         return;
@@ -2135,7 +2135,7 @@ static BOOL GPOS_apply_MarkToMark(const OT_LookupTable *look, const SCRIPT_ANALY
                     TRACE("Mark %x(%i) and Mark2 %x(%i)\n",glyphs[glyph_index], mark_index, glyphs[glyph_index - write_dir], mark2_index);
                     offset = GET_BE_WORD(mmpf1->Mark1Array);
                     ma = (const GPOS_MarkArray*)((const BYTE*)mmpf1 + offset);
-                    if (mark_index > GET_BE_WORD(ma->MarkCount))
+                    if (mark_index >= GET_BE_WORD(ma->MarkCount))
                     {
                         ERR("Mark index exceeded mark count\n");
                         return FALSE;
