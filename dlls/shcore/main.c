@@ -293,8 +293,11 @@ HRESULT WINAPI GetCurrentProcessExplicitAppUserModelID(WCHAR **appid)
     params = RtlGetCurrentPeb()->ProcessParameters;
     if (params->dwFlags & STARTF_TITLEISAPPID)
     {
-        *appid = CoTaskMemAlloc( params->WindowTitle.MaximumLength );
-        if (*appid) wcscpy( *appid, params->WindowTitle.Buffer );
+        *appid = CoTaskMemAlloc( params->WindowTitle.MaximumLength + sizeof(WCHAR));
+        if (*appid) {
+		memcpy( *appid, params->WindowTitle.Buffer, params->WindowTitle.MaximumLength );
+		*appid[params->WindowTitle.MaximumLength/sizeof(WCHAR)] = 0;
+	}
         else ret = E_OUTOFMEMORY;
     }
     else ret = E_FAIL;
