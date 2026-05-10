@@ -1837,8 +1837,18 @@ static int GPOS_apply_PairAdjustment(const OT_LookupTable *look, const SCRIPT_AN
                 class2 = OT_get_glyph_class( (const BYTE *)ppf2 + GET_BE_WORD(ppf2->ClassDef2), glyphs[glyph_index + write_dir] );
                 if (class1 < class1_count && class2 < class2_count)
                 {
-                    const WORD *pair_val = ppf2->Class1Record + (class1 * class2_count + class2) * (val_fmt1_size + val_fmt2_size);
+                    unsigned int pair_offset = (unsigned int)class1 * class2_count + class2;
+                    unsigned int record_size = val_fmt1_size + val_fmt2_size;
+                    const WORD *pair_val;
                     int next = 1;
+
+                    if (record_size > 0 && pair_offset > INT_MAX / record_size)
+                    {
+                        ERR("Integer overflow in pair value offset\n");
+                        return 1;
+                    }
+
+                    pair_val = ppf2->Class1Record + (pair_offset * record_size);
 
                     TRACE( "Format 2: Found Pair %x,%x\n", glyphs[glyph_index], glyphs[glyph_index + write_dir] );
 
@@ -1951,6 +1961,7 @@ static int GPOS_apply_MarkToBase(const ScriptCache *script_cache, const OT_Looku
                     int mark_class;
                     int class_count = GET_BE_WORD(mbpf1->ClassCount);
                     int baserecord_size;
+                    int baserecord_offset;
                     POINT base_pt;
                     POINT mark_pt;
                     TRACE("Mark %x(%i) and base %x(%i)\n",glyphs[glyph_index], mark_index, glyphs[base_glyph], base_index);
@@ -1977,7 +1988,18 @@ static int GPOS_apply_MarkToBase(const ScriptCache *script_cache, const OT_Looku
                         return -1;
                     }
                     baserecord_size = class_count * sizeof(WORD);
-                    br = (const GPOS_BaseRecord*)((const BYTE*)ba + sizeof(WORD) + (baserecord_size * base_index));
+                    if (base_index > 0 && baserecord_size > INT_MAX / base_index)
+                    {
+                        ERR("Integer overflow in base record size\n");
+                        return -1;
+                    }
+                    baserecord_offset = baserecord_size * base_index;
+                    if (baserecord_offset > INT_MAX - sizeof(WORD))
+                    {
+                        ERR("Integer overflow in base record size\n");
+                        return -1;
+                    }
+                    br = (const GPOS_BaseRecord*)((const BYTE*)ba + sizeof(WORD) + baserecord_offset);
                     offset = GET_BE_WORD(br->BaseAnchor[mark_class]);
                     GPOS_get_anchor_values((const BYTE*)ba + offset, &base_pt, ppem);
                     offset = GET_BE_WORD(mr->MarkAnchor);
@@ -2062,6 +2084,11 @@ static void GPOS_apply_MarkToLigature(const OT_LookupTable *look, const SCRIPT_A
 
                     component_count = GET_BE_WORD(lt->ComponentCount);
                     component_size = class_count * sizeof(WORD);
+                    if (component_count > 0 && component_size > INT_MAX / component_count)
+                    {
+                        ERR("Integer overflow in component record size\n");
+                        return;
+                    }
                     offset = 0;
                     for (i = 0; i < component_count && !offset; i++)
                     {
@@ -2130,6 +2157,7 @@ static BOOL GPOS_apply_MarkToMark(const OT_LookupTable *look, const SCRIPT_ANALY
                     int mark_class;
                     int class_count = GET_BE_WORD(mmpf1->ClassCount);
                     int mark2record_size;
+                    int mark2_offset;
                     POINT mark2_pt;
                     POINT mark_pt;
                     TRACE("Mark %x(%i) and Mark2 %x(%i)\n",glyphs[glyph_index], mark_index, glyphs[glyph_index - write_dir], mark2_index);
@@ -2156,7 +2184,18 @@ static BOOL GPOS_apply_MarkToMark(const OT_LookupTable *look, const SCRIPT_ANALY
                         return FALSE;
                     }
                     mark2record_size = class_count * sizeof(WORD);
-                    m2r = (const GPOS_Mark2Record*)((const BYTE*)m2a + sizeof(WORD) + (mark2record_size * mark2_index));
+                    if (mark2_index > 0 && mark2record_size > INT_MAX / mark2_index)
+                    {
+                        ERR("Integer overflow in mark2 record size\n");
+                        return FALSE;
+                    }
+                    mark2_offset = mark2record_size * mark2_index;
+                    if (mark2_offset > INT_MAX - sizeof(WORD))
+                    {
+                        ERR("Integer overflow in mark2 record size\n");
+                        return FALSE;
+                    }
+                    m2r = (const GPOS_Mark2Record*)((const BYTE*)m2a + sizeof(WORD) + mark2_offset);
                     offset = GET_BE_WORD(m2r->Mark2Anchor[mark_class]);
                     GPOS_get_anchor_values((const BYTE*)m2a + offset, &mark2_pt, ppem);
                     offset = GET_BE_WORD(mr->MarkAnchor);
