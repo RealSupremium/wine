@@ -1722,7 +1722,7 @@ static void GPOS_apply_SingleAdjustment(const OT_LookupTable *look, const SCRIPT
             spf2 = (const GPOS_SinglePosFormat2*)spf1;
             offset = GET_BE_WORD(spf2->Coverage);
             index  = GSUB_is_glyph_covered((const BYTE*)spf2+offset, glyphs[glyph_index]);
-            if (index != -1)
+            if (index != -1 && index < GET_BE_WORD(spf2->ValueCount))
             {
                 int size;
                 GPOS_ValueRecord ValueRecord = {0,0,0,0,0,0,0,0};
@@ -1873,10 +1873,10 @@ static void GPOS_apply_CursiveAttachment(const OT_LookupTable *look, const SCRIP
             int index_exit, index_entry;
             WORD offset = GET_BE_WORD( cpf1->Coverage );
             index_exit = GSUB_is_glyph_covered((const BYTE*)cpf1+offset, glyphs[glyph_index]);
-            if (index_exit != -1 && cpf1->EntryExitRecord[index_exit].ExitAnchor!= 0)
+            if (index_exit != -1 && index_exit < GET_BE_WORD(cpf1->EntryExitCount) && cpf1->EntryExitRecord[index_exit].ExitAnchor!= 0)
             {
                 index_entry = GSUB_is_glyph_covered((const BYTE*)cpf1+offset, glyphs[glyph_index+write_dir]);
-                if (index_entry != -1 && cpf1->EntryExitRecord[index_entry].EntryAnchor != 0)
+                if (index_entry != -1 && index_entry < GET_BE_WORD(cpf1->EntryExitCount) && cpf1->EntryExitRecord[index_entry].EntryAnchor != 0)
                 {
                     POINT exit_pt, entry_pt;
                     offset = GET_BE_WORD(cpf1->EntryExitRecord[index_exit].ExitAnchor);
@@ -1913,6 +1913,12 @@ static int GPOS_apply_MarkToBase(const ScriptCache *script_cache, const OT_Looku
             glyph_class_table = (const BYTE *)script_cache->GDEF_Table + offset;
     }
 
+    if (glyph_index - write_dir >= glyph_count)
+    {
+        WARN("Out of bounds access in glyphs array\n");
+        return FALSE;
+    }
+
     TRACE("MarkToBase Attachment Positioning Subtable\n");
 
     for (j = 0; j < GET_BE_WORD(look->SubTableCount); j++)
@@ -1930,7 +1936,7 @@ static int GPOS_apply_MarkToBase(const ScriptCache *script_cache, const OT_Looku
 
                 if (glyph_class_table)
                 {
-                    while (OT_get_glyph_class(glyph_class_table, glyphs[base_glyph]) == MarkGlyph && base_glyph > 0 && base_glyph < glyph_count)
+                    while ((unsigned int)base_glyph < glyph_count && OT_get_glyph_class(glyph_class_table, glyphs[base_glyph]) == MarkGlyph)
                         base_glyph -= write_dir;
                 }
 
@@ -1958,8 +1964,18 @@ static int GPOS_apply_MarkToBase(const ScriptCache *script_cache, const OT_Looku
                     mr = &ma->MarkRecord[mark_index];
                     mark_class = GET_BE_WORD(mr->Class);
                     TRACE("Mark Class %i total classes %i\n",mark_class,class_count);
+                    if (mark_class >= class_count)
+                    {
+                        ERR("Mark class exceeded total classes\n");
+                        return -1;
+                    }
                     offset = GET_BE_WORD(mbpf1->BaseArray);
                     ba = (const GPOS_BaseArray*)((const BYTE*)mbpf1 + offset);
+                    if (base_index >= GET_BE_WORD(ba->BaseCount))
+                    {
+                        ERR("Base index exceeded base count\n");
+                        return -1;
+                    }
                     baserecord_size = class_count * sizeof(WORD);
                     br = (const GPOS_BaseRecord*)((const BYTE*)ba + sizeof(WORD) + (baserecord_size * base_index));
                     offset = GET_BE_WORD(br->BaseAnchor[mark_class]);
@@ -1986,6 +2002,12 @@ static void GPOS_apply_MarkToLigature(const OT_LookupTable *look, const SCRIPT_A
 {
     int j;
     int write_dir = (analysis->fRTL && !analysis->fLogicalOrder) ? -1 : 1;
+
+    if (glyph_index - write_dir >= glyph_count)
+    {
+        WARN("Out of bounds access in glyphs array\n");
+        return;
+    }
 
     TRACE("MarkToLigature Attachment Positioning Subtable\n");
 
@@ -2078,6 +2100,12 @@ static BOOL GPOS_apply_MarkToMark(const OT_LookupTable *look, const SCRIPT_ANALY
     BOOL rc = FALSE;
     int write_dir = (analysis->fRTL && !analysis->fLogicalOrder) ? -1 : 1;
 
+    if (glyph_index - write_dir >= glyph_count)
+    {
+        WARN("Out of bounds access in glyphs array\n");
+        return FALSE;
+    }
+
     TRACE("MarkToMark Attachment Positioning Subtable\n");
 
     for (j = 0; j < GET_BE_WORD(look->SubTableCount); j++)
@@ -2115,8 +2143,18 @@ static BOOL GPOS_apply_MarkToMark(const OT_LookupTable *look, const SCRIPT_ANALY
                     mr = &ma->MarkRecord[mark_index];
                     mark_class = GET_BE_WORD(mr->Class);
                     TRACE("Mark Class %i total classes %i\n",mark_class,class_count);
+                    if (mark_class >= class_count)
+                    {
+                        ERR("Mark class exceeded total classes\n");
+                        return FALSE;
+                    }
                     offset = GET_BE_WORD(mmpf1->Mark2Array);
                     m2a = (const GPOS_Mark2Array*)((const BYTE*)mmpf1 + offset);
+                    if (mark2_index >= GET_BE_WORD(m2a->Mark2Count))
+                    {
+                        ERR("Mark2 index exceeded mark2 count\n");
+                        return FALSE;
+                    }
                     mark2record_size = class_count * sizeof(WORD);
                     m2r = (const GPOS_Mark2Record*)((const BYTE*)m2a + sizeof(WORD) + (mark2record_size * mark2_index));
                     offset = GET_BE_WORD(m2r->Mark2Anchor[mark_class]);
@@ -2178,6 +2216,9 @@ static unsigned int GPOS_apply_ContextPos(const ScriptCache *script_cache, const
                 glyph_class_table = (const BYTE *)cpf2 + offset;
 
                 class = OT_get_glyph_class(glyph_class_table,glyphs[glyph_index]);
+
+                if (class >= GET_BE_WORD(cpf2->PosClassSetCnt))
+                    continue;
 
                 offset = GET_BE_WORD(cpf2->PosClassSet[class]);
                 if (offset == 0)
@@ -2387,6 +2428,12 @@ static unsigned int GPOS_apply_lookup(const ScriptCache *script_cache, const OUT
     const OT_LookupTable *look;
     int ppem = lpotm->otmTextMetrics.tmAscent + lpotm->otmTextMetrics.tmDescent - lpotm->otmTextMetrics.tmInternalLeading;
     enum gpos_lookup_type type;
+
+    if (glyph_index >= glyph_count)
+    {
+        WARN("Glyph index greater than total glyphs\n");
+        return 1;
+    }
 
     offset = GET_BE_WORD(lookup->Lookup[lookup_index]);
     look = (const OT_LookupTable*)((const BYTE*)lookup + offset);
