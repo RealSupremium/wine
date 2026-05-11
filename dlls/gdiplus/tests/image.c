@@ -5481,6 +5481,81 @@ static void test_PARGB_conversion(void)
     GdipDisposeImage((GpImage *)bitmap);
 }
 
+static void test_CMYK_conversion(void)
+{
+    static const BYTE cmyk_bits[16] =
+    {
+        /* pixel 0: C=0,M=0,Y=0,K=0 -> white */
+        0x00,0x00,0x00,0x00,
+        /* pixel 1: C=0,M=0,Y=0,K=255 -> black */
+        0x00,0x00,0x00,0xff,
+        /* pixel 2: C=128,M=64,Y=32,K=16 -> R=119,G=179,B=209 */
+        0x80,0x40,0x20,0x10,
+        /* pixel 3: C=255,M=255,Y=255,K=0 -> black */
+        0xff,0xff,0xff,0x00
+    };
+    /* Expected ARGB output in BGRA memory layout:
+     * pixel 0: R=255,G=255,B=255,A=255 -> ff,ff,ff,ff
+     * pixel 1: R=0,G=0,B=0,A=255 -> 00,00,00,ff
+     * pixel 2: R=119,G=179,B=209,A=255 -> d1,b3,77,ff
+     * pixel 3: R=0,G=0,B=0,A=255 -> 00,00,00,ff
+     */
+    static const BYTE expected_argb[16] =
+    {
+        0xff,0xff,0xff,0xff,
+        0x00,0x00,0x00,0xff,
+        0xd1,0xb3,0x77,0xff,
+        0x00,0x00,0x00,0xff
+    };
+    GpBitmap *bitmap;
+    BitmapData data;
+    GpStatus status;
+    BYTE *bits;
+    int match = 0;
+
+    status = GdipCreateBitmapFromScan0(4, 1, 16, PixelFormat32bppCMYK,
+        (BYTE*)cmyk_bits, &bitmap);
+    ok(status == Ok, "GdipCreateBitmapFromScan0(CMYK) failed, status=%d\n", status);
+    if (status != Ok) return;
+
+    memset(&data, 0, sizeof(data));
+    status = GdipBitmapLockBits(bitmap, NULL, ImageLockModeRead,
+        PixelFormat32bppARGB, &data);
+    todo_wine ok(status == Ok, "LockBits CMYK->ARGB failed, status=%d\n", status);
+    todo_wine_if (status == Ok)
+    {
+        todo_wine ok(data.Width == 4, "expected width 4, got %d\n", data.Width);
+        todo_wine ok(data.Height == 1, "expected height 1, got %d\n", data.Height);
+        todo_wine ok(data.PixelFormat == PixelFormat32bppARGB,
+           "expected PixelFormat32bppARGB, got %#x\n", data.PixelFormat);
+
+        bits = data.Scan0;
+        if (bits)
+        {
+            match = !memcmp(bits, expected_argb, sizeof(expected_argb));
+            todo_wine ok(match, "CMYK to ARGB conversion mismatch\n");
+        }
+        if (!match && bits)
+        {
+            trace("expected: %02x,%02x,%02x,%02x %02x,%02x,%02x,%02x %02x,%02x,%02x,%02x %02x,%02x,%02x,%02x\n",
+                  expected_argb[0], expected_argb[1], expected_argb[2], expected_argb[3],
+                  expected_argb[4], expected_argb[5], expected_argb[6], expected_argb[7],
+                  expected_argb[8], expected_argb[9], expected_argb[10], expected_argb[11],
+                  expected_argb[12], expected_argb[13], expected_argb[14], expected_argb[15]);
+            trace("got:      %02x,%02x,%02x,%02x %02x,%02x,%02x,%02x %02x,%02x,%02x,%02x %02x,%02x,%02x,%02x\n",
+                  bits[0], bits[1], bits[2], bits[3],
+                  bits[4], bits[5], bits[6], bits[7],
+                  bits[8], bits[9], bits[10], bits[11],
+                  bits[12], bits[13], bits[14], bits[15]);
+        }
+
+        status = GdipBitmapUnlockBits(bitmap, &data);
+        todo_wine expect(Ok, status);
+
+        GdipDisposeImage((GpImage *)bitmap);
+    }
+}
+
 
 static void test_CloneBitmapArea(void)
 {
@@ -6863,6 +6938,7 @@ START_TEST(image)
     test_CloneBitmapArea();
     test_ARGB_conversion();
     test_PARGB_conversion();
+    test_CMYK_conversion();
     test_DrawImage_scale();
     test_image_format();
     test_DrawImage();
