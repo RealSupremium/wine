@@ -498,8 +498,36 @@ HRESULT WINAPI RoRegisterActivationFactories(HSTRING *classes, PFNGETACTIVATIONF
  */
 HRESULT WINAPI GetRestrictedErrorInfo(IRestrictedErrorInfo **info)
 {
-    FIXME( "(%p)\n", info );
-    return E_NOTIMPL;
+    IErrorInfo *error_info = NULL;
+    HRESULT hr;
+
+    TRACE("(%p)\n", info);
+
+    if (!info) return E_POINTER;
+    *info = NULL;
+
+    hr = GetErrorInfo(0, &error_info);
+    if (hr == S_FALSE)
+        return S_FALSE;
+    if (FAILED(hr))
+    {
+        WARN("GetErrorInfo failed, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    if (!error_info)
+        return S_FALSE;
+
+    hr = IErrorInfo_QueryInterface(error_info, &IID_IRestrictedErrorInfo, (void **)info);
+    IErrorInfo_Release(error_info);
+
+    if (FAILED(hr))
+    {
+        TRACE("Current error object does not support IRestrictedErrorInfo.\n");
+        return S_FALSE;
+    }
+
+    return S_OK;
 }
 
 /***********************************************************************
@@ -507,8 +535,25 @@ HRESULT WINAPI GetRestrictedErrorInfo(IRestrictedErrorInfo **info)
  */
 HRESULT WINAPI SetRestrictedErrorInfo(IRestrictedErrorInfo *info)
 {
-    FIXME( "(%p)\n", info );
-    return E_NOTIMPL;
+    IErrorInfo *error_info = NULL;
+    HRESULT hr;
+
+    TRACE("(%p)\n", info);
+
+    if (!info)
+        return SetErrorInfo(0, NULL);
+
+    hr = IRestrictedErrorInfo_QueryInterface(info, &IID_IErrorInfo, (void **)&error_info);
+    if (FAILED(hr))
+    {
+        WARN("Restricted error object does not expose IErrorInfo, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    hr = SetErrorInfo(0, error_info);
+    IErrorInfo_Release(error_info);
+
+    return hr;
 }
 
 /***********************************************************************
