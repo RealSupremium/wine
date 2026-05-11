@@ -399,7 +399,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
 
     memset( result, 0, sizeof(*result) );
 
-    switch (call->type)
+    switch (call->common.type)
     {
     case APC_NONE:
         break;
@@ -409,7 +409,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         ULONG_PTR info = call->async_io.result;
         unsigned int status;
 
-        result->type = call->type;
+        result->type = call->common.type;
         status = call->async_io.status;
         if (user->callback( user, &info, &status ))
         {
@@ -422,7 +422,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         break;
     }
     case APC_VIRTUAL_ALLOC:
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->virtual_alloc.addr );
         size = call->virtual_alloc.size;
         bits = call->virtual_alloc.zero_bits;
@@ -443,7 +443,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         MEM_EXTENDED_PARAMETER ext[2];
         ULONG count = 0;
 
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->virtual_alloc_ex.addr );
         size = call->virtual_alloc_ex.size;
         if ((ULONG_PTR)addr != call->virtual_alloc_ex.addr || size != call->virtual_alloc_ex.size)
@@ -487,7 +487,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         break;
     }
     case APC_VIRTUAL_FREE:
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->virtual_free.addr );
         size = call->virtual_free.size;
         if ((ULONG_PTR)addr == call->virtual_free.addr && size == call->virtual_free.size)
@@ -502,7 +502,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
     case APC_VIRTUAL_QUERY:
     {
         MEMORY_BASIC_INFORMATION info;
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->virtual_query.addr );
         if ((ULONG_PTR)addr == call->virtual_query.addr)
             result->virtual_query.status = NtQueryVirtualMemory( NtCurrentProcess(),
@@ -524,7 +524,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         break;
     }
     case APC_VIRTUAL_PROTECT:
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->virtual_protect.addr );
         size = call->virtual_protect.size;
         if ((ULONG_PTR)addr == call->virtual_protect.addr && size == call->virtual_protect.size)
@@ -539,7 +539,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         else result->virtual_protect.status = STATUS_INVALID_PARAMETER;
         break;
     case APC_VIRTUAL_FLUSH:
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->virtual_flush.addr );
         size = call->virtual_flush.size;
         if ((ULONG_PTR)addr == call->virtual_flush.addr && size == call->virtual_flush.size)
@@ -552,7 +552,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         else result->virtual_flush.status = STATUS_INVALID_PARAMETER;
         break;
     case APC_VIRTUAL_LOCK:
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->virtual_lock.addr );
         size = call->virtual_lock.size;
         if ((ULONG_PTR)addr == call->virtual_lock.addr && size == call->virtual_lock.size)
@@ -564,7 +564,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         else result->virtual_lock.status = STATUS_INVALID_PARAMETER;
         break;
     case APC_VIRTUAL_UNLOCK:
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->virtual_unlock.addr );
         size = call->virtual_unlock.size;
         if ((ULONG_PTR)addr == call->virtual_unlock.addr && size == call->virtual_unlock.size)
@@ -576,7 +576,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         else result->virtual_unlock.status = STATUS_INVALID_PARAMETER;
         break;
     case APC_MAP_VIEW:
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->map_view.addr );
         size = call->map_view.size;
         bits = call->map_view.zero_bits;
@@ -603,7 +603,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         LARGE_INTEGER offset;
         ULONG_PTR limit_low, limit_high;
 
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->map_view_ex.addr );
         size = call->map_view_ex.size;
         offset.QuadPart = call->map_view_ex.offset;
@@ -643,7 +643,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         break;
     }
     case APC_UNMAP_VIEW:
-        result->type = call->type;
+        result->type = call->common.type;
         addr = wine_server_get_ptr( call->unmap_view.addr );
         if ((ULONG_PTR)addr == call->unmap_view.addr)
             result->unmap_view.status = NtUnmapViewOfSectionEx( NtCurrentProcess(), addr, call->unmap_view.flags );
@@ -663,7 +663,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         void *func = wine_server_get_ptr( call->create_thread.func );
         void *arg  = wine_server_get_ptr( call->create_thread.arg );
 
-        result->type = call->type;
+        result->type = call->common.type;
         if (reserve == call->create_thread.reserve && commit == call->create_thread.commit &&
             (ULONG_PTR)func == call->create_thread.func && (ULONG_PTR)arg == call->create_thread.arg)
         {
@@ -694,7 +694,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
     {
         HANDLE dst_handle = NULL;
 
-        result->type = call->type;
+        result->type = call->common.type;
 
         result->dup_handle.status = NtDuplicateObject( NtCurrentProcess(),
                                                        wine_server_ptr_handle(call->dup_handle.src_handle),
@@ -706,7 +706,7 @@ static void invoke_system_apc( const union apc_call *call, union apc_result *res
         break;
     }
     default:
-        server_protocol_error( "get_apc_request: bad type %d\n", call->type );
+        server_protocol_error( "get_apc_request: bad type %d\n", call->common.type );
         break;
     }
 }

@@ -518,7 +518,10 @@ struct user_apc
 
 union apc_call
 {
-    enum apc_type type;
+    struct
+    {
+        enum apc_type type;
+    } common;
     struct user_apc user;
     struct
     {
