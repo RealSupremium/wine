@@ -19,7 +19,15 @@
 #include "d2d1_private.h"
 #include <d3dcompiler.h>
 
+#ifndef __i386__
+#include "unixlib.h"
+#endif
+
 WINE_DEFAULT_DEBUG_CHANNEL(d2d);
+
+#ifndef __i386__
+#define UNIX_CALL(func, params) WINE_UNIX_CALL(unix_ ## func, params)
+#endif
 
 #define INITIAL_CLIP_STACK_SIZE 4
 
@@ -3127,16 +3135,142 @@ static HRESULT STDMETHODCALLTYPE d2d_device_context_GetSvgGlyphImage(ID2D1Device
 static HRESULT STDMETHODCALLTYPE d2d_device_context_CreateSvgDocument(ID2D1DeviceContext6 *iface,
         IStream *input_xml_stream, D2D1_SIZE_F viewport_size, ID2D1SvgDocument **svg_document)
 {
-    FIXME("iface %p, input_xml_stream %p, svg_document %p stub!\n", iface, input_xml_stream,
-            svg_document);
 
-    return E_NOTIMPL;
+struct d2d_device_context *context = impl_from_ID2D1DeviceContext(iface);
+
+    TRACE("iface %p, input_xml_stream %p, viewport_size {%.8e, %.8e}, svg_document %p. \n",
+            iface, input_xml_stream, viewport_size.width, viewport_size.height, svg_document);
+
+    return d2d_svg_document_create(context, input_xml_stream, viewport_size, svg_document);
 }
 
 static void STDMETHODCALLTYPE d2d_device_context_DrawSvgDocument(ID2D1DeviceContext6 *iface,
         ID2D1SvgDocument *svg_document)
 {
-    FIXME("iface %p, svg_document %p stub!\n", iface, svg_document);
+#ifdef __i386__
+    FIXME("SVG rendering is not supported on 32-bit\n");
+#else
+    struct d2d_device_context *context = impl_from_ID2D1DeviceContext(iface);
+    struct d2d_svg_document *svg_doc;
+    struct rsvg_render_params params;
+    ID2D1Bitmap *staging_bitmap = NULL;
+    void *pixels = NULL;
+    D2D1_RECT_F dest_rect;
+    D2D1_SIZE_U pixel_size;
+    D2D1_SIZE_F view_size;
+    D2D1_BITMAP_PROPERTIES props = {0};
+    UINT32 stride;
+    HRESULT hr;
+    NTSTATUS status;
+
+    TRACE("DrawSvgDocument START: svg_document=%p unixlib=%p\n", svg_document, wine_dbgstr_longlong(__wine_unixlib_handle));
+
+    if(!svg_document)
+    {
+        ERR("Invalid svg_document %p\n",svg_document);
+        return;
+    }
+
+    if(!__wine_unixlib_handle)
+    {
+        ERR("Unix lib not available\n");
+        return;
+    }
+
+    /* Get internal SVG document structure */
+    svg_doc = impl_from_ID2D1Resource((ID2D1Resource *)svg_document);
+    if(svg_doc == NULL)
+    {
+        FIXME("Couldn't get d2d_svg_document struct from ID2D1SvgDocument\n");
+        return;
+    }
+
+    /* Set bitmap size and view size */
+    view_size = svg_doc->viewport_size;
+
+    if(view_size.width <= 0.1f || view_size.height <= 0.1f)
+    {
+        ERR("Invalid view size must be non zero. %fx%f\n", view_size.width, view_size.height);
+        return;
+    }
+
+    TRACE("Setting up pixel size and stride.\n");
+
+    pixel_size.width = (UINT32)max(1.0f, ceilf(view_size.width * context->desc.dpiX / 96.0f));
+    pixel_size.height = (UINT32)max(1.0f, ceilf(view_size.height * context->desc.dpiY / 96.0f));
+    stride = pixel_size.width * 4;
+
+    TRACE("pixel size: %u x %u, view size: %f x %f, stride: %u.\n", pixel_size.width, pixel_size.height, view_size.width, view_size.height, stride);
+
+    TRACE("Allocating heap memory for pixel buffer.\n");
+    /* Set up pixel buffer */
+    pixels = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, stride * pixel_size.height);
+    if(!pixels)
+    {
+        ERR("Couldn't allocate pixel buffer for SVG rendering. Requested size: %u\n", (stride * pixel_size.height));
+        return;
+    }
+
+    TRACE("Setting up rendering parameters.\n");
+    /* Set up render params */
+    params.handle = svg_doc->rsvg_handle;
+    params.pixels = pixels;
+    params.width = pixel_size.width;
+    params.height = pixel_size.height;
+    params.stride = stride;
+    params.svg_width = svg_doc->viewport_size.width;
+    params.svg_height = svg_doc->viewport_size.height;
+
+    /* unix lib call to render with cairo directly to buffer */
+    TRACE("Calling Unix librsvg thunk\n");
+
+    status = UNIX_CALL(rsvg_render, &params);
+
+    TRACE("UNIX_CALL returned status=%08lx\n", status);
+    if(status)
+    {
+        ERR("Failed to render SVG: %08lx\n", status);
+        return;
+    }
+
+    TRACE("Successfully rendered SVG document\n");
+
+    /* Create bitmap properties */
+    TRACE("Setting up CreateBitmap function properties.\n");
+    props.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    props.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+    props.dpiX = context->desc.dpiX;
+    props.dpiY = context->desc.dpiY;
+
+    hr = ID2D1RenderTarget_CreateBitmap((ID2D1RenderTarget *)iface, pixel_size, pixels, stride, &props, &staging_bitmap);
+
+    if(FAILED(hr))
+    {
+        ERR("Failed to create staging bitmap: %lx\n", hr);
+        return;
+    }
+
+    dest_rect.left = 0.0f;
+    dest_rect.top = 0.0f;
+    dest_rect.right = view_size.width;
+    dest_rect.bottom = view_size.height;
+
+    TRACE("Destination rect properties: left: %f, right:%f, top:%f, bottom:%f\n",dest_rect.left, dest_rect.right, dest_rect.top, dest_rect.bottom);
+
+    d2d_device_context_draw_bitmap(context, staging_bitmap, &dest_rect, 1.0f,
+                                    D2D1_INTERPOLATION_MODE_LINEAR, NULL, NULL, NULL);
+
+    TRACE("Bitmap drawn to target rect\n");
+
+    TRACE("Cleaning up\n");
+
+    ID2D1Bitmap_Release(staging_bitmap);
+    HeapFree(GetProcessHeap(), 0, pixels);
+    /* Reset x87 FPU state after Cairo rendering. Cairo's fsin leaves the PE
+     * (Precision Exception) flag set, which causes SIGFPE when inherited by
+     * new threads running unmasked exceptions (CW=0x0040).*/
+    __asm__ volatile ("fninit");
+#endif
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_device_context_CreateColorContextFromDxgiColorSpace(

@@ -17,10 +17,15 @@
  */
 
 #define D2D1_INIT_GUID
+
 #include "d2d1_private.h"
 
 #include "xmllite.h"
 #include "wine/list.h"
+
+#ifndef __i386__
+#include "wine/unixlib.h"
+#endif
 
 WINE_DECLARE_DEBUG_CHANNEL(winediag);
 WINE_DEFAULT_DEBUG_CHANNEL(d2d);
@@ -1696,6 +1701,11 @@ static void d2d_settings_init(void)
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void *reserved)
 {
     if (reason == DLL_PROCESS_ATTACH)
+    {
         d2d_settings_init();
+#ifndef __i386__
+        __wine_init_unix_call();
+#endif
+    }
     return TRUE;
 }
