@@ -2110,7 +2110,7 @@ static void test_video_file(void)
     ok(testsink_audio.byte_count == 8777, "Audio sink got %u bytes.\n", testsink_audio.byte_count);
 
     /* Native uses 55 for the first sample timestamp, but there's no need to copy the exact value. */
-    todo_wine ok(min(testsink_video.sample_start, testsink_audio.sample_start) < 100,
+    ok(min(testsink_video.sample_start, testsink_audio.sample_start) < 100,
        "The first sample timestamp is off by more 100, video %I64d and audio %I64d.\n",
        testsink_video.sample_start, testsink_audio.sample_start);
 
