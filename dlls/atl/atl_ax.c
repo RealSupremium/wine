@@ -62,13 +62,10 @@ static LRESULT CALLBACK AtlAxWin_wndproc( HWND hWnd, UINT wMsg, WPARAM wParam, L
 {
     if ( wMsg == WM_CREATE )
     {
-            DWORD len = GetWindowTextLengthW( hWnd ) + 1;
-            WCHAR *ptr = malloc( len*sizeof(WCHAR) );
-            if (!ptr)
+            LPCREATESTRUCTW pcs = (LPCREATESTRUCTW)lParam;
+            if (!pcs)
                 return 1;
-            GetWindowTextW( hWnd, ptr, len );
-            AtlAxCreateControlEx( ptr, hWnd, NULL, NULL, NULL, NULL, NULL );
-            free( ptr );
+            AtlAxCreateControlEx( pcs->lpszName, hWnd, NULL, NULL, NULL, NULL, NULL );
             return 0;
     }
     return DefWindowProcW( hWnd, wMsg, wParam, lParam );
