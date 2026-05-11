@@ -3010,11 +3010,12 @@ static void ShapeCharGlyphProp_Arabic( HDC hdc, ScriptCache *psc, SCRIPT_ANALYSI
         if (k>=0)
         {
             for (; k < cChars && pwLogClust[k] == i; k++)
-                char_index[char_count++] = k;
+                if (char_count < ARRAY_SIZE(char_index))
+                    char_index[char_count++] = k;
         }
 
-        isInit = (i == initGlyph || (i+dirR > 0 && i+dirR < cGlyphs && spaces[i+dirR]));
-        isFinal = (i == finaGlyph || (i+dirL > 0 && i+dirL < cGlyphs && spaces[i+dirL]));
+        isInit = (i == initGlyph || ((unsigned int)i+dirR < (unsigned int)cGlyphs && spaces[i+dirR]));
+        isFinal = (i == finaGlyph || ((unsigned int)i+dirL < (unsigned int)cGlyphs && spaces[i+dirL]));
 
         if (char_count == 0)
             continue;
@@ -3088,7 +3089,8 @@ static void ShapeCharGlyphProp_Hebrew( HDC hdc, ScriptCache *psc, SCRIPT_ANALYSI
         if (k>=0)
         {
             for (; k < cChars && pwLogClust[k] == i; k++)
-                char_index[char_count++] = k;
+                if (char_count < ARRAY_SIZE(char_index))
+                    char_index[char_count++] = k;
         }
 
         if (char_count == 0)
@@ -3134,7 +3136,8 @@ static void ShapeCharGlyphProp_Thai( HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS 
         if (k>=0)
         {
             for (; k < cChars && pwLogClust[k] == i; k++)
-                char_index[char_count++] = k;
+                if (char_count < ARRAY_SIZE(char_index))
+                    char_index[char_count++] = k;
         }
 
         if (i == finaGlyph)
@@ -3159,7 +3162,11 @@ static void ShapeCharGlyphProp_Thai( HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS 
     for (i = 0; i < cGlyphs; i++)
     {
         if (!pGlyphProp[i].sva.fClusterStart)
-            pGlyphProp[i-dirL].sva.uJustification = SCRIPT_JUSTIFY_NONE;
+        {
+            unsigned int neighbour = i-dirL;
+            if (neighbour < (unsigned int)cGlyphs)
+                pGlyphProp[neighbour].sva.uJustification = SCRIPT_JUSTIFY_NONE;
+        }
     }
 }
 
@@ -3207,7 +3214,8 @@ static void ShapeCharGlyphProp_Tibet( HDC hdc, ScriptCache* psc, SCRIPT_ANALYSIS
         if (k>=0)
         {
             for (; k < cChars && pwLogClust[k] == i; k++)
-                char_index[char_count++] = k;
+                if (char_count < ARRAY_SIZE(char_index))
+                    char_index[char_count++] = k;
         }
 
         if (char_count == 0)
@@ -3249,7 +3257,8 @@ static void ShapeCharGlyphProp_BaseIndic( HDC hdc, ScriptCache *psc, SCRIPT_ANAL
         if (k>=0)
         {
             for (; k < cChars && pwLogClust[k] == i; k++)
-                char_index[char_count++] = k;
+                if (char_count < ARRAY_SIZE(char_index))
+                    char_index[char_count++] = k;
         }
 
         if (override_gsub)
