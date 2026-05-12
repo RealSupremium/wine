@@ -11193,6 +11193,15 @@ static HRESULT WINAPI ICreateTypeInfo2_fnLayOut(ICreateTypeInfo2 *iface)
     if (user_vft > This->typeattr.cbSizeVft)
         This->typeattr.cbSizeVft = user_vft + This->pTypeLib->ptr_size;
 
+    /* For TKIND_DISPATCH, the IDispatch vtbl slots are not part of the
+     * stored cbSizeVft on native ICreateTypeLib2 typelibs - GetTypeAttr
+     * later overrides cbSizeVft to sizeof(IDispatchVtbl) for the public
+     * API regardless. Subtract the prefix here so that GetTypeAttr's
+     * `cFuncs = cbSizeVft / ptr_size` derivation yields the own-func
+     * count (matching native), without changing oVft assignments. */
+    if (This->typeattr.typekind == TKIND_DISPATCH)
+        This->typeattr.cbSizeVft -= 7 * This->pTypeLib->ptr_size;
+
     for(i = 0; i < This->typeattr.cVars; ++i){
         TLBVarDesc *var_desc = &This->vardescs[i];
         if(var_desc->vardesc.memid == MEMBERID_NIL){
