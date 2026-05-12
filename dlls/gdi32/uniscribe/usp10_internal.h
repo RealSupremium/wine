@@ -218,6 +218,7 @@ typedef struct _scriptData
 } scriptData;
 
 typedef struct {
+    BOOL valid;
     INT start;
     INT base;
     INT ralf;
@@ -284,9 +285,8 @@ HRESULT SHAPE_GetFontFeatureTags(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa
                                  OPENTYPE_TAG tagScript, OPENTYPE_TAG tagLangSys,
                                  int cMaxTags, OPENTYPE_TAG *pFeatureTags, int *pcTags);
 
-void Indic_ReorderCharacters(HDC hdc, SCRIPT_ANALYSIS *psa, ScriptCache *psc, WCHAR *input,
-                             unsigned int cChars, IndicSyllable **syllables, int *syllable_count,
-                             lexical_function lexical_f, reorder_function reorder_f, BOOL modern);
+void Indic_ReorderCharacters(WCHAR *input, IndicSyllable *syllables, int syllable_count,
+                             lexical_function lexical_f, reorder_function reorder_f);
 void Indic_ParseSyllables(HDC hdc, SCRIPT_ANALYSIS *psa, ScriptCache *psc, const WCHAR *input,
                           unsigned int cChar, IndicSyllable **syllables, int *syllable_count,
                           lexical_function lex, BOOL modern);
