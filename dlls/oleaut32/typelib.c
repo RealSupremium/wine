@@ -5757,7 +5757,7 @@ static HRESULT WINAPI ITypeInfo_fnGetTypeAttr( ITypeInfo2 *iface,
     if (This->tdescAlias)
         TLB_CopyTypeDesc(&(*ppTypeAttr)->tdescAlias, This->tdescAlias, *ppTypeAttr + 1);
 
-    if((*ppTypeAttr)->typekind == TKIND_DISPATCH) {
+    if((*ppTypeAttr)->typekind == TKIND_DISPATCH && This->typeattr.cImplTypes) {
         /* This should include all the inherited funcs */
         (*ppTypeAttr)->cFuncs = (*ppTypeAttr)->cbSizeVft / This->pTypeLib->ptr_size;
         /* This is always the size of IDispatch's vtbl */
@@ -6279,9 +6279,13 @@ static HRESULT WINAPI ITypeInfo_fnGetRefTypeOfImplType(
         hr = TYPE_E_ELEMENTNOTFOUND;
       }
     }
-    else if(index == 0 && This->typeattr.typekind == TKIND_DISPATCH)
+    else if(index == 0 && This->typeattr.typekind == TKIND_DISPATCH
+            && This->pTypeLib->dispatch_href != -1)
     {
-      /* All TKIND_DISPATCHs are made to look like they inherit from IDispatch */
+      /* TKIND_DISPATCH inherits from IDispatch when the typelib has a
+       * registered IDispatch reference. Without one (e.g. typelibs built
+       * via ICreateTypeLib2 with no explicit AddImplType), index 0 is
+       * out of range. */
       *pRefType = This->pTypeLib->dispatch_href;
     }
     else

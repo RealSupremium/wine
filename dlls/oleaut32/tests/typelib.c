@@ -8763,6 +8763,82 @@ static void test_DeleteFuncDesc(void)
     DeleteFileW(filenameW);
 }
 
+static void test_dispatch_no_implparent(void)
+{
+    OLECHAR typelibW[] = L"typelib";
+    OLECHAR ifaceW[] = L"iface";
+    OLECHAR funcW[] = L"func";
+    OLECHAR *funcnames[] = { funcW };
+    OLECHAR varW[] = L"var";
+    WCHAR filenameW[MAX_PATH], temp_path[MAX_PATH];
+    ICreateTypeInfo *createti;
+    ICreateTypeLib2 *createtl;
+    FUNCDESC funcdesc;
+    VARDESC vardesc;
+    TYPEATTR *typeattr;
+    HREFTYPE href;
+    ITypeInfo *ti;
+    HRESULT hr;
+
+    GetTempPathW(ARRAY_SIZE(temp_path), temp_path);
+    GetTempFileNameW(temp_path, L"tlb", 0, filenameW);
+
+    hr = CreateTypeLib2(SYS_WIN64, filenameW, &createtl);
+    ok(hr == S_OK, "got %#lx\n", hr);
+
+    hr = ICreateTypeLib2_SetName(createtl, typelibW);
+    ok(hr == S_OK, "got %#lx\n", hr);
+
+    hr = ICreateTypeLib2_CreateTypeInfo(createtl, ifaceW, TKIND_DISPATCH, &createti);
+    ok(hr == S_OK, "got %#lx\n", hr);
+
+    hr = ICreateTypeInfo_SetTypeFlags(createti, TYPEFLAG_FDISPATCHABLE);
+    ok(hr == S_OK, "got %#lx\n", hr);
+
+    memset(&funcdesc, 0, sizeof(funcdesc));
+    funcdesc.memid = 0x100;
+    funcdesc.funckind = FUNC_DISPATCH;
+    funcdesc.invkind = INVOKE_FUNC;
+    funcdesc.callconv = CC_STDCALL;
+    funcdesc.elemdescFunc.tdesc.vt = VT_VOID;
+    hr = ICreateTypeInfo_AddFuncDesc(createti, 0, &funcdesc);
+    ok(hr == S_OK, "got %#lx\n", hr);
+    hr = ICreateTypeInfo_SetFuncAndParamNames(createti, 0, funcnames, 1);
+    ok(hr == S_OK, "got %#lx\n", hr);
+
+    memset(&vardesc, 0, sizeof(vardesc));
+    vardesc.memid = 0x101;
+    vardesc.varkind = VAR_DISPATCH;
+    vardesc.elemdescVar.tdesc.vt = VT_I4;
+    hr = ICreateTypeInfo_AddVarDesc(createti, 0, &vardesc);
+    ok(hr == S_OK, "got %#lx\n", hr);
+    hr = ICreateTypeInfo_SetVarName(createti, 0, varW);
+    ok(hr == S_OK, "got %#lx\n", hr);
+
+    hr = ICreateTypeInfo_LayOut(createti);
+    ok(hr == S_OK, "got %#lx\n", hr);
+
+    hr = ICreateTypeInfo_QueryInterface(createti, &IID_ITypeInfo, (void **)&ti);
+    ok(hr == S_OK, "got %#lx\n", hr);
+
+    hr = ITypeInfo_GetTypeAttr(ti, &typeattr);
+    ok(hr == S_OK, "got %#lx\n", hr);
+    ok(typeattr->typekind == TKIND_DISPATCH, "typekind %d\n", typeattr->typekind);
+    ok(typeattr->cFuncs == 1, "cFuncs %u\n", typeattr->cFuncs);
+    ok(typeattr->cVars == 1, "cVars %u\n", typeattr->cVars);
+    ok(typeattr->cImplTypes == 0, "cImplTypes %u\n", typeattr->cImplTypes);
+    ITypeInfo_ReleaseTypeAttr(ti, typeattr);
+
+    href = 0xdeadbeef;
+    hr = ITypeInfo_GetRefTypeOfImplType(ti, 0, &href);
+    ok(hr == TYPE_E_ELEMENTNOTFOUND, "got %#lx\n", hr);
+
+    ITypeInfo_Release(ti);
+    ICreateTypeInfo_Release(createti);
+    ICreateTypeLib2_Release(createtl);
+    DeleteFileW(filenameW);
+}
+
 START_TEST(typelib)
 {
     const WCHAR *filename;
@@ -8806,4 +8882,5 @@ START_TEST(typelib)
     test_stub();
     test_DeleteImplType();
     test_DeleteFuncDesc();
+    test_dispatch_no_implparent();
 }
