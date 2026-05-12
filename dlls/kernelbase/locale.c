@@ -724,6 +724,9 @@ const NLS_LOCALE_DATA * WINAPI NlsValidateLocale( LCID *lcid, ULONG flags )
     const NLS_LOCALE_LCNAME_INDEX *name_entry;
     const NLS_LOCALE_LCID_INDEX *entry;
     const NLS_LOCALE_DATA *locale;
+    WCHAR buf[LOCALE_NAME_MAX_LENGTH + 1];
+    UNICODE_STRING str;
+    NTSTATUS status;
 
     switch (*lcid)
     {
@@ -734,9 +737,19 @@ const NLS_LOCALE_DATA * WINAPI NlsValidateLocale( LCID *lcid, ULONG flags )
     case LOCALE_USER_DEFAULT:
     case LOCALE_CUSTOM_DEFAULT:
     case LOCALE_CUSTOM_UNSPECIFIED:
-    case LOCALE_CUSTOM_UI_DEFAULT:
         *lcid = user_lcid;
         return user_locale;
+    case LOCALE_CUSTOM_UI_DEFAULT:
+        str.Buffer = buf;
+        str.MaximumLength = sizeof(buf);
+        status = RtlLcidToLocaleName( *lcid, &str, 0, FALSE );
+        if (!status) status = RtlLocaleNameToLcid( buf, lcid, 0 );
+        if (status)
+        {
+            SetLastError( RtlNtStatusToDosError( status ));
+            return NULL;
+        }
+        /* fall through */
     default:
         if (!(entry = find_lcid_entry( *lcid ))) return NULL;
         locale = get_locale_data( entry->idx );
@@ -4853,6 +4866,9 @@ INT WINAPI DECLSPEC_HOTPATCH CompareStringW( LCID lcid, DWORD flags, const WCHAR
 {
     const WCHAR *locale = LOCALE_NAME_USER_DEFAULT;
     const NLS_LOCALE_LCID_INDEX *entry;
+    WCHAR buf[LOCALE_NAME_MAX_LENGTH + 1];
+    UNICODE_STRING str;
+    NTSTATUS status;
 
     switch (lcid)
     {
@@ -4861,7 +4877,17 @@ INT WINAPI DECLSPEC_HOTPATCH CompareStringW( LCID lcid, DWORD flags, const WCHAR
     case LOCALE_SYSTEM_DEFAULT:
     case LOCALE_CUSTOM_DEFAULT:
     case LOCALE_CUSTOM_UNSPECIFIED:
+        break;
     case LOCALE_CUSTOM_UI_DEFAULT:
+        str.Buffer = buf;
+        str.MaximumLength = sizeof(buf);
+        status = RtlLcidToLocaleName( lcid, &str, 0, FALSE );
+        if (status)
+        {
+            SetLastError( RtlNtStatusToDosError( status ));
+            return 0;
+        }
+        locale = buf;
         break;
     default:
         if (lcid == user_lcid || lcid == system_lcid) break;
@@ -5190,6 +5216,9 @@ INT WINAPI DECLSPEC_HOTPATCH FindNLSString( LCID lcid, DWORD flags, const WCHAR 
 {
     const WCHAR *locale = LOCALE_NAME_USER_DEFAULT;
     const NLS_LOCALE_LCID_INDEX *entry;
+    WCHAR buf[LOCALE_NAME_MAX_LENGTH + 1];
+    UNICODE_STRING str;
+    NTSTATUS status;
 
     switch (lcid)
     {
@@ -5198,7 +5227,17 @@ INT WINAPI DECLSPEC_HOTPATCH FindNLSString( LCID lcid, DWORD flags, const WCHAR 
     case LOCALE_SYSTEM_DEFAULT:
     case LOCALE_CUSTOM_DEFAULT:
     case LOCALE_CUSTOM_UNSPECIFIED:
+        break;
     case LOCALE_CUSTOM_UI_DEFAULT:
+        str.Buffer = buf;
+        str.MaximumLength = sizeof(buf);
+        status = RtlLcidToLocaleName( lcid, &str, 0, FALSE );
+        if (status)
+        {
+            SetLastError( RtlNtStatusToDosError( status ));
+            return 0;
+        }
+        locale = buf;
         break;
     default:
         if (lcid == user_lcid || lcid == system_lcid) break;
@@ -6409,7 +6448,10 @@ INT WINAPI DECLSPEC_HOTPATCH GetUserDefaultLocaleName( LPWSTR name, INT len )
  */
 LANGID WINAPI DECLSPEC_HOTPATCH GetUserDefaultUILanguage(void)
 {
-    return LANGIDFROMLCID( GetUserDefaultLCID() );
+    LANGID lang;
+
+    RtlpQueryDefaultUILanguage( &lang, FALSE );
+    return lang;
 }
 
 
@@ -6960,6 +7002,9 @@ INT WINAPI DECLSPEC_HOTPATCH LCMapStringW( LCID lcid, DWORD flags, const WCHAR *
 {
     const WCHAR *locale = LOCALE_NAME_USER_DEFAULT;
     const NLS_LOCALE_LCID_INDEX *entry;
+    WCHAR buf[LOCALE_NAME_MAX_LENGTH + 1];
+    UNICODE_STRING str;
+    NTSTATUS status;
 
     switch (lcid)
     {
@@ -6968,7 +7013,17 @@ INT WINAPI DECLSPEC_HOTPATCH LCMapStringW( LCID lcid, DWORD flags, const WCHAR *
     case LOCALE_SYSTEM_DEFAULT:
     case LOCALE_CUSTOM_DEFAULT:
     case LOCALE_CUSTOM_UNSPECIFIED:
+        break;
     case LOCALE_CUSTOM_UI_DEFAULT:
+        str.Buffer = buf;
+        str.MaximumLength = sizeof(buf);
+        status = RtlLcidToLocaleName( lcid, &str, 0, FALSE );
+        if (status)
+        {
+            SetLastError( RtlNtStatusToDosError( status ));
+            return 0;
+        }
+        locale = buf;
         break;
     default:
         if (lcid == user_lcid || lcid == system_lcid) break;

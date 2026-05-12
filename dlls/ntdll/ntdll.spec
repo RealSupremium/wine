@@ -1158,6 +1158,7 @@
 @ stdcall RtlpNtOpenKey(ptr long ptr)
 @ stdcall RtlpNtQueryValueKey(long ptr ptr ptr ptr)
 @ stdcall RtlpNtSetValueKey(ptr long ptr long)
+@ stdcall RtlpQueryDefaultUILanguage(ptr long)
 @ stdcall RtlpUnWaitCriticalSection(ptr)
 @ stdcall RtlpWaitForCriticalSection(ptr)
 @ stdcall RtlxAnsiStringToUnicodeSize(ptr) RtlAnsiStringToUnicodeSize
