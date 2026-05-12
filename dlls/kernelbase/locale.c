@@ -1772,6 +1772,69 @@ invalid:
 }
 
 
+/* find a localized country name for a geo entry */
+static int get_geo_country_name( const struct geo_id *geo, WCHAR *buffer, int len )
+{
+    WCHAR name[10];
+    const WCHAR *lang_str, *territory;
+    const NLS_LOCALE_LCNAME_INDEX *entry;
+    const NLS_LOCALE_DATA *locale;
+    unsigned int i, lang_len;
+    int ret;
+
+    /* only nations have friendly names */
+    if (geo->class != GEOCLASS_NATION) return 0;
+
+    territory = geo->iso2;
+    if (!territory[0] || (territory[0] == 'X' && territory[1] == 'X')) return 0;
+
+    /* get the user's language */
+    lang_str = locale_strings + user_locale->siso639langname + 1;
+    lang_len = locale_strings[user_locale->siso639langname];
+
+    /* build locale name {lang}-{territory} */
+    if (lang_len + 1 + 2 >= ARRAY_SIZE(name)) return 0;
+    memcpy( name, lang_str, lang_len * sizeof(WCHAR) );
+    name[lang_len] = '-';
+    name[lang_len + 1] = territory[0];
+    name[lang_len + 2] = territory[1];
+    name[lang_len + 3] = 0;
+
+    /* try to find an exact locale match */
+    if ((entry = find_lcname_entry( name )))
+    {
+        locale = get_locale_data( entry->idx );
+        ret = locale_strings[locale->snativectryname] + 1;
+        if (!buffer || !len) return ret;
+        memcpy( buffer, locale_strings + locale->snativectryname + 1, min( ret, len ) * sizeof(WCHAR) );
+        if (len < ret) SetLastError( ERROR_INSUFFICIENT_BUFFER );
+        return len < ret ? 0 : ret;
+    }
+
+    /* fallback: find any locale for this territory and return English name */
+    for (i = 0; i < locale_table->nb_lcnames; i++)
+    {
+        const WCHAR *str;
+
+        if (lcnames_index[i].id & 0x80000000) continue;
+        locale = get_locale_data( lcnames_index[i].idx );
+        if (!locale->inotneutral) continue;
+
+        str = locale_strings + locale->siso3166ctryname + 1;
+        if (str[0] == territory[0] && str[1] == territory[1])
+        {
+            ret = locale_strings[locale->sengcountry] + 1;
+            if (!buffer || !len) return ret;
+            memcpy( buffer, locale_strings + locale->sengcountry + 1, min( ret, len ) * sizeof(WCHAR) );
+            if (len < ret) SetLastError( ERROR_INSUFFICIENT_BUFFER );
+            return len < ret ? 0 : ret;
+        }
+    }
+
+    return 0;
+}
+
+
 /* get geo information from the locale.nls file */
 static int get_geo_info( const struct geo_id *geo, enum SYSGEOTYPE type,
                          WCHAR *buffer, int len, LANGID lang )
@@ -1815,9 +1878,10 @@ static int get_geo_info( const struct geo_id *geo, enum SYSGEOTYPE type,
     case GEO_CURRENCYSYMBOL:
         str = geo->currsymbol;
         break;
+    case GEO_FRIENDLYNAME:
+        return get_geo_country_name( geo, buffer, len );
     case GEO_RFC1766:
     case GEO_LCID:
-    case GEO_FRIENDLYNAME:
     case GEO_OFFICIALNAME:
     case GEO_TIMEZONES:
     case GEO_OFFICIALLANGUAGES:
