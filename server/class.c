@@ -185,6 +185,7 @@ DECL_HANDLER(create_class)
     user_handle_t icon = 0, icon_small = 0;
     atom_t atom = req->atom, base_atom;
     unsigned int name_offset = 0;
+    client_ptr_t menu_name = 0;
     WCHAR buffer[16];
 
     if (req->flags & CREATE_CLASS_ICON)
@@ -200,6 +201,13 @@ DECL_HANDLER(create_class)
         memcpy( &icon_small, name.str, sizeof(icon_small) );
         name.str += sizeof(icon_small) / sizeof(WCHAR);
         name.len -= sizeof(icon_small);
+    }
+    if (req->flags & CREATE_CLASS_MENU)
+    {
+        if (name.len < sizeof(menu_name)) return set_error( STATUS_INVALID_PARAMETER );
+        memcpy( &menu_name, name.str, sizeof(menu_name) );
+        name.str += sizeof(menu_name) / sizeof(WCHAR);
+        name.len -= sizeof(menu_name);
     }
 
     if (atom && !name.len) name = integral_atom_name( buffer, atom );
@@ -265,6 +273,7 @@ DECL_HANDLER(create_class)
         shared->cls_extra    = req->cls_extra;
         shared->icon         = icon;
         shared->icon_small   = icon_small;
+        shared->menu_name    = menu_name;
         memset( (void *)shared->extra, 0, req->cls_extra );
     }
     SHARED_WRITE_END;
@@ -351,6 +360,10 @@ DECL_HANDLER(set_class_info)
         case GCLP_HICONSM:
             reply->old_info = shared->icon_small;
             shared->icon_small = req->new_info;
+            break;
+        case GCLP_MENUNAME:
+            reply->old_info = shared->menu_name;
+            shared->menu_name = req->new_info;
             break;
         default:
             if (req->size > sizeof(req->new_info) || req->offset < 0 ||
