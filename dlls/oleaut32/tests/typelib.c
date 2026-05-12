@@ -8763,6 +8763,42 @@ static void test_DeleteFuncDesc(void)
     DeleteFileW(filenameW);
 }
 
+/* CreateInstance on a non-coclass typeinfo (here TKIND_DISPATCH built
+ * via ICreateTypeLib2) returns TYPE_E_BADMODULEKIND on native Windows.
+ * Wine currently returns E_INVALIDARG. */
+static void test_CreateInstance_typekind(void)
+{
+    WCHAR filenameW[MAX_PATH], temp_path[MAX_PATH];
+    static OLECHAR tinameW[] = L"dispiface";
+    ICreateTypeLib2 *createtl;
+    ICreateTypeInfo *createti;
+    ITypeInfo *ti;
+    void *obj;
+    HRESULT hr;
+
+    GetTempPathW(ARRAY_SIZE(temp_path), temp_path);
+    GetTempFileNameW(temp_path, L"tlb", 0, filenameW);
+
+    hr = CreateTypeLib2(SYS_WIN64, filenameW, &createtl);
+    ok(hr == S_OK, "CreateTypeLib2 hr=%#lx\n", hr);
+    hr = ICreateTypeLib2_CreateTypeInfo(createtl, tinameW, TKIND_DISPATCH, &createti);
+    ok(hr == S_OK, "CreateTypeInfo hr=%#lx\n", hr);
+    hr = ICreateTypeInfo_LayOut(createti);
+    ok(hr == S_OK, "LayOut hr=%#lx\n", hr);
+    hr = ICreateTypeInfo_QueryInterface(createti, &IID_ITypeInfo, (void**)&ti);
+    ok(hr == S_OK, "QI(ITypeInfo) hr=%#lx\n", hr);
+
+    obj = (void*)0xdeadbeef;
+    hr = ITypeInfo_CreateInstance(ti, NULL, &IID_IUnknown, &obj);
+    ok(hr == TYPE_E_BADMODULEKIND, "CreateInstance hr=%#lx\n", hr);
+    ok(!obj, "CreateInstance left obj=%p, expected NULL\n", obj);
+
+    ITypeInfo_Release(ti);
+    ICreateTypeInfo_Release(createti);
+    ICreateTypeLib2_Release(createtl);
+    DeleteFileW(filenameW);
+}
+
 START_TEST(typelib)
 {
     const WCHAR *filename;
@@ -8806,4 +8842,5 @@ START_TEST(typelib)
     test_stub();
     test_DeleteImplType();
     test_DeleteFuncDesc();
+    test_CreateInstance_typekind();
 }

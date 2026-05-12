@@ -8069,7 +8069,7 @@ static HRESULT WINAPI ITypeInfo_fnCreateInstance( ITypeInfo2 *iface,
     if(pTA->typekind != TKIND_COCLASS)
     {
         WARN("CreateInstance on typeinfo of type %x\n", pTA->typekind);
-        hr = E_INVALIDARG;
+        hr = TYPE_E_BADMODULEKIND;
         goto end;
     }
 
