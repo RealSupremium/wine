@@ -298,14 +298,20 @@ static HRESULT stream_create_transforms(struct stream *stream,
         {
             /* Create the converter with a recursive call. */
             hr = stream_create_transforms(stream, input_type, encoder_input_type, FALSE, attributes);
-            IMFMediaType_Release(encoder_input_type);
             if (SUCCEEDED(hr))
             {
                 /* Converter is already set in the recursive call, set encoder here. */
-                stream->encoder = transform;
-                TRACE("Created encoder %p.", transform);
-                break;
+                if (SUCCEEDED(hr = stream_set_transform(stream, transform, encoder_input_type, output_type, TRUE)))
+                {
+                    IMFMediaType_Release(encoder_input_type);
+                    break;
+                }
+                else
+                {
+                    stream_release_transforms(stream);
+                }
             }
+            IMFMediaType_Release(encoder_input_type);
         }
 
         IMFTransform_Release(transform);
@@ -316,6 +322,112 @@ static HRESULT stream_create_transforms(struct stream *stream,
     CoTaskMemFree(activates);
 
     return hr;
+}
+
+static HRESULT stream_queue_sample(struct stream *stream, IMFSample *sample)
+{
+    struct pending_item *item;
+
+    if (!(item = calloc(1, sizeof(*item))))
+        return E_OUTOFMEMORY;
+
+    item->sample = sample;
+    IMFSample_AddRef(item->sample);
+    list_add_tail(&stream->queue, &item->entry);
+
+    return S_OK;
+}
+
+static HRESULT allocate_transform_output(IMFTransform *transform, IMFSample **sample)
+{
+    MFT_OUTPUT_STREAM_INFO output_info;
+    IMFMediaBuffer *buffer;
+    HRESULT hr;
+
+    *sample = NULL;
+
+    if (FAILED(hr = IMFTransform_GetOutputStreamInfo(transform, 0, &output_info)))
+        return hr;
+    if (output_info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES)
+        return S_OK;
+    if (!output_info.cbSize)
+    {
+        if (output_info.dwFlags & MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES)
+            return S_OK;
+        WARN("Transform %p returned zero output cbSize.\n", transform);
+        return E_FAIL;
+    }
+
+    if (FAILED(hr = MFCreateSample(sample)))
+        return hr;
+    if (FAILED(hr = MFCreateMemoryBuffer(output_info.cbSize, &buffer)))
+    {
+        IMFSample_Release(*sample);
+        *sample = NULL;
+        return hr;
+    }
+    hr = IMFSample_AddBuffer(*sample, buffer);
+    IMFMediaBuffer_Release(buffer);
+    if (FAILED(hr))
+    {
+        IMFSample_Release(*sample);
+        *sample = NULL;
+    }
+
+    return hr;
+}
+
+static HRESULT stream_process_sample(struct stream *stream, BOOL use_converter, IMFSample *sample);
+
+static HRESULT stream_drain_transform_output(struct stream *stream, BOOL use_converter)
+{
+    IMFTransform *transform = use_converter ? stream->converter : stream->encoder;
+    MFT_OUTPUT_DATA_BUFFER output_buffer;
+    HRESULT hr = S_OK;
+    DWORD status;
+
+    while (SUCCEEDED(hr))
+    {
+        memset(&output_buffer, 0, sizeof(output_buffer));
+        if (FAILED(hr = allocate_transform_output(transform, &output_buffer.pSample)))
+            break;
+
+        if (SUCCEEDED(hr = IMFTransform_ProcessOutput(transform, 0, 1, &output_buffer, &status)))
+        {
+            if (use_converter && stream->encoder)
+                hr = stream_process_sample(stream, FALSE, output_buffer.pSample);
+            else
+                hr = stream_queue_sample(stream, output_buffer.pSample);
+        }
+
+        if (output_buffer.pSample)
+            IMFSample_Release(output_buffer.pSample);
+        if (output_buffer.pEvents)
+            IMFCollection_Release(output_buffer.pEvents);
+    }
+
+    if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT)
+        hr = S_OK;
+
+    return hr;
+}
+
+static HRESULT stream_process_sample(struct stream *stream, BOOL use_converter, IMFSample *sample)
+{
+    IMFTransform *transform = use_converter ? stream->converter : stream->encoder;
+    HRESULT hr;
+
+    hr = IMFTransform_ProcessInput(transform, 0, sample, 0);
+    if (hr == MF_E_NOTACCEPTING)
+    {
+        if (FAILED(hr = stream_drain_transform_output(stream, use_converter)))
+            return hr;
+        hr = IMFTransform_ProcessInput(transform, 0, sample, 0);
+    }
+    if (FAILED(hr))
+        return hr;
+
+    return stream_drain_transform_output(stream, use_converter);
 }
 
 static struct stream *sink_writer_get_stream(const struct sink_writer *writer, DWORD index)
@@ -712,22 +824,6 @@ static HRESULT sink_writer_process_sample(struct sink_writer *writer, struct str
     return hr;
 }
 
-static HRESULT sink_writer_encode_sample(struct sink_writer *writer, struct stream *stream, IMFSample *sample)
-{
-    struct pending_item *item;
-
-    /* FIXME: call the encoder, queue its output */
-
-    if (!(item = calloc(1, sizeof(*item))))
-        return E_OUTOFMEMORY;
-
-    item->sample = sample;
-    IMFSample_AddRef(item->sample);
-    list_add_tail(&stream->queue, &item->entry);
-
-    return S_OK;
-}
-
 static HRESULT sink_writer_write_sample(struct sink_writer *writer, struct stream *stream, IMFSample *sample)
 {
     LONGLONG timestamp;
@@ -744,7 +840,15 @@ static HRESULT sink_writer_write_sample(struct sink_writer *writer, struct strea
     writer->stats.qwNumSamplesReceived++;
     writer->stats.dwByteCountQueued += length;
 
-    if (FAILED(hr = sink_writer_encode_sample(writer, stream, sample))) return hr;
+    /* Process stream sample. */
+    if (stream->converter)
+        hr = stream_process_sample(stream, TRUE, sample);
+    else if (stream->encoder)
+        hr = stream_process_sample(stream, FALSE, sample);
+    else
+        hr = stream_queue_sample(stream, sample);
+    if (FAILED(hr))
+        return hr;
 
     if (stream->stats.dwNumOutstandingSinkSampleRequests)
         hr = sink_writer_process_sample(writer, stream);
