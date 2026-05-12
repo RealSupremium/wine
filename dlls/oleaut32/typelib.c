@@ -7998,6 +7998,10 @@ static HRESULT WINAPI ITypeInfo_fnAddressOfMember( ITypeInfo2 *iface,
 
     TRACE("%p, %lx, %#x, %p.\n", iface, memid, invKind, ppv);
 
+    if (!ppv)
+        return E_INVALIDARG;
+    *ppv = NULL;
+
     hr = ITypeInfo2_GetDllEntry(iface, memid, invKind, &dll, &entry, &ordinal);
     if (FAILED(hr))
         return hr;

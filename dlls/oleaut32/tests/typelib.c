@@ -8763,6 +8763,59 @@ static void test_DeleteFuncDesc(void)
     DeleteFileW(filenameW);
 }
 
+/* AddressOfMember on a TKIND_DISPATCH (built via ICreateTypeLib2) has
+ * no DLL backing, so it should fail with TYPE_E_BADMODULEKIND and
+ * leave the out-pointer NULL. */
+static void test_AddressOfMember(void)
+{
+    WCHAR filenameW[MAX_PATH], temp_path[MAX_PATH];
+    static OLECHAR tinameW[] = L"dispiface";
+    static OLECHAR methodW[] = L"meth";
+    LPOLESTR pmethodW = methodW;
+    ICreateTypeLib2 *createtl;
+    ICreateTypeInfo *createti;
+    FUNCDESC funcdesc;
+    ITypeInfo *ti;
+    void *addr;
+    HRESULT hr;
+
+    GetTempPathW(ARRAY_SIZE(temp_path), temp_path);
+    GetTempFileNameW(temp_path, L"tlb", 0, filenameW);
+
+    hr = CreateTypeLib2(SYS_WIN64, filenameW, &createtl);
+    ok(hr == S_OK, "CreateTypeLib2 hr=%#lx\n", hr);
+
+    hr = ICreateTypeLib2_CreateTypeInfo(createtl, tinameW, TKIND_DISPATCH, &createti);
+    ok(hr == S_OK, "CreateTypeInfo hr=%#lx\n", hr);
+
+    memset(&funcdesc, 0, sizeof(funcdesc));
+    funcdesc.memid = 0x10000000;
+    funcdesc.funckind = FUNC_DISPATCH;
+    funcdesc.invkind = INVOKE_FUNC;
+    funcdesc.callconv = CC_STDCALL;
+    funcdesc.elemdescFunc.tdesc.vt = VT_VOID;
+    hr = ICreateTypeInfo_AddFuncDesc(createti, 0, &funcdesc);
+    ok(hr == S_OK, "AddFuncDesc hr=%#lx\n", hr);
+    hr = ICreateTypeInfo_SetFuncAndParamNames(createti, 0, &pmethodW, 1);
+    ok(hr == S_OK, "SetFuncAndParamNames hr=%#lx\n", hr);
+
+    hr = ICreateTypeInfo_LayOut(createti);
+    ok(hr == S_OK, "LayOut hr=%#lx\n", hr);
+
+    hr = ICreateTypeInfo_QueryInterface(createti, &IID_ITypeInfo, (void**)&ti);
+    ok(hr == S_OK, "QI(ITypeInfo) hr=%#lx\n", hr);
+
+    addr = (void*)0xdeadbeef;
+    hr = ITypeInfo_AddressOfMember(ti, 0x10000000, INVOKE_FUNC, &addr);
+    ok(hr == TYPE_E_BADMODULEKIND, "AddressOfMember hr=%#lx\n", hr);
+    ok(!addr, "AddressOfMember left addr=%p, expected NULL\n", addr);
+
+    ITypeInfo_Release(ti);
+    ICreateTypeInfo_Release(createti);
+    ICreateTypeLib2_Release(createtl);
+    DeleteFileW(filenameW);
+}
+
 START_TEST(typelib)
 {
     const WCHAR *filename;
@@ -8806,4 +8859,5 @@ START_TEST(typelib)
     test_stub();
     test_DeleteImplType();
     test_DeleteFuncDesc();
+    test_AddressOfMember();
 }
