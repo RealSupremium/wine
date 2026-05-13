@@ -78,7 +78,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(thread);
 WINE_DECLARE_DEBUG_CHANNEL(seh);
-WINE_DECLARE_DEBUG_CHANNEL(syscall);
 WINE_DECLARE_DEBUG_CHANNEL(threadname);
 
 static LONG nb_threads = 1;
@@ -1113,26 +1112,6 @@ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
 
 
 /***********************************************************************
- *           start_thread
- *
- * Startup routine for a newly created thread.
- */
-static void start_thread( struct thread_data *data )
-{
-    struct teb_data *teb_data = get_teb_data( data );
-    BOOL suspend;
-
-    data->pthread_id = pthread_self();
-    pthread_setspecific( thread_data_key, data );
-
-    teb_data->syscall_table = KeServiceDescriptorTable;
-    teb_data->syscall_trace = TRACE_ON(syscall);
-    server_init_thread( data->start, &suspend );
-    signal_start_thread( data->start, data->param, suspend, data->teb );
-}
-
-
-/***********************************************************************
  *           get_machine_context_size
  */
 static SIZE_T get_machine_context_size( USHORT machine )
@@ -1270,7 +1249,7 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
  */
 static NTSTATUS create_server_thread( HANDLE *handle, struct thread_data **data_ret,
                                       ACCESS_MASK access, OBJECT_ATTRIBUTES *attr,
-                                      void *start, void *param, ULONG flags )
+                                      void *start, void *param, ULONG flags, BOOL is_system )
 {
     data_size_t len;
     struct object_attributes *objattr;
@@ -1293,6 +1272,7 @@ static NTSTATUS create_server_thread( HANDLE *handle, struct thread_data **data_
         req->process    = wine_server_obj_handle( NtCurrentProcess() );
         req->access     = access;
         req->flags      = flags;
+        req->is_system  = !!is_system;
         req->request_fd = request_pipe[0];
         wine_server_add_data( req, objattr, len );
         if (!(status = wine_server_call( req )))
@@ -1344,7 +1324,7 @@ static NTSTATUS spawn_thread( struct thread_data *data )
     pthread_attr_setguardsize( &attr, 0 );
     pthread_attr_setscope( &attr, PTHREAD_SCOPE_SYSTEM ); /* force creating a kernel thread */
     InterlockedIncrement( &nb_threads );
-    if (pthread_create( &pthread_id, &attr, (void * (*)(void *))start_thread, data ))
+    if (pthread_create( &pthread_id, &attr, (void * (*)(void *))server_init_thread, data ))
     {
         InterlockedDecrement( &nb_threads );
         status = STATUS_NO_MEMORY;
@@ -1462,7 +1442,7 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
 
     if (!access) access = THREAD_ALL_ACCESS;
 
-    if ((status = create_server_thread( handle, &data, access, attr, start, param, flags )))
+    if ((status = create_server_thread( handle, &data, access, attr, start, param, flags, FALSE )))
         return status;
 
     if ((status = virtual_alloc_teb( data ))) goto done;
@@ -1491,6 +1471,35 @@ done:
         return status;
     }
     if (attr_list) status = update_attr_list( attr_list, *handle, &teb->ClientId, teb );
+    return status;
+}
+
+
+/***********************************************************************
+ *              PsCreateSystemThread   (ntdll.so)
+ */
+NTSTATUS WINAPI PsCreateSystemThread( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBUTES *attr,
+                                      HANDLE process, CLIENT_ID *id, PKSTART_ROUTINE start, void *param )
+{
+    struct thread_data *data;
+    NTSTATUS status;
+    ULONG flags = THREAD_CREATE_FLAGS_BYPASS_PROCESS_FREEZE;
+
+    if ((status = create_server_thread( handle, &data, access, attr, start, param, flags, TRUE )))
+        return status;
+
+    if ((status = spawn_thread( data )))
+    {
+        NtClose( *handle );
+        virtual_free_thread_data( data );
+        return status;
+    }
+
+    if (id)
+    {
+        id->UniqueProcess = ULongToHandle( pid );
+        id->UniqueThread  = ULongToHandle( data->tid );
+    }
     return status;
 }
 
@@ -1572,7 +1581,8 @@ void wait_suspend( CONTEXT *context )
  *
  * Send an EXCEPTION_DEBUG_EVENT event to the debugger.
  */
-NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_chance, BOOL exception )
+NTSTATUS send_debug_event( struct thread_data *data, EXCEPTION_RECORD *rec,
+                           CONTEXT *context, BOOL first_chance, BOOL exception )
 {
     unsigned int ret;
     DWORD i;
@@ -1580,6 +1590,12 @@ NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_c
     client_ptr_t params[EXCEPTION_MAXIMUM_PARAMETERS];
     union select_op select_op;
     sigset_t old_set;
+
+    if (!data->teb)
+    {
+        ERR_(seh)( "Exception %x in system thread at %p\n", rec->ExceptionCode, rec->ExceptionAddress );
+        NtTerminateProcess( NtCurrentProcess(), rec->ExceptionCode );
+    }
 
     if (!peb->BeingDebugged) return 0;  /* no debugger present */
 
@@ -1633,12 +1649,13 @@ NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_c
  */
 NTSTATUS WINAPI NtRaiseException( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_chance )
 {
-    NTSTATUS status = send_debug_event( rec, context, first_chance, !(is_win64 || is_wow64() || is_old_wow64()) );
+    struct thread_data *data = get_thread_data();
+    NTSTATUS status = send_debug_event( data, rec, context, first_chance, !(is_win64 || is_wow64()) );
 
     if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
         return NtContinue( context, FALSE );
 
-    if (first_chance) return call_user_exception_dispatcher( rec, context );
+    if (first_chance) return call_user_exception_dispatcher( data, rec, context );
 
     if (rec->ExceptionFlags & EXCEPTION_STACK_INVALID)
         ERR_(seh)("Exception frame is not in stack limits => unable to dispatch exception.\n");
@@ -1769,6 +1786,15 @@ NTSTATUS WINAPI NtTerminateThread( HANDLE handle, LONG exit_code )
         exit_thread( exit_code );
     }
     return ret;
+}
+
+
+/******************************************************************************
+ *              PsTerminateSystemThread  (ntdll.so)
+ */
+NTSTATUS WINAPI PsTerminateSystemThread( NTSTATUS exit_code )
+{
+    for (;;) exit_thread( exit_code );
 }
 
 

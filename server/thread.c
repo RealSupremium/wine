@@ -423,6 +423,7 @@ static inline void init_thread_structure( struct thread *thread )
     thread->suspend         = 0;
     thread->dbg_hidden      = 0;
     thread->bypass_proc_suspend = 0;
+    thread->is_system       = 0;
     thread->desktop_users   = 0;
     thread->token           = NULL;
     thread->desc            = NULL;
@@ -576,7 +577,6 @@ struct thread *create_thread( int fd, struct process *process, const struct secu
     }
 
     set_fd_events( thread->request_fd, POLLIN );  /* start listening to events */
-    add_process_thread( thread->process, thread );
     return thread;
 
 error:
@@ -1699,8 +1699,10 @@ DECL_HANDLER(new_thread)
     {
         thread->system_regs = current->system_regs;
         if (req->flags & THREAD_CREATE_FLAGS_CREATE_SUSPENDED) thread->suspend++;
+        thread->is_system = req->is_system;
         thread->dbg_hidden = !!(req->flags & THREAD_CREATE_FLAGS_HIDE_FROM_DEBUGGER);
         thread->bypass_proc_suspend = !!(req->flags & THREAD_CREATE_FLAGS_BYPASS_PROCESS_FREEZE);
+        add_process_thread( process, thread );
         reply->tid = get_thread_id( thread );
         if ((reply->handle = alloc_handle_no_access_check( current->process, thread,
                                                            req->access, objattr->attributes )))
@@ -1798,7 +1800,7 @@ DECL_HANDLER(init_thread)
     current->entry_point = req->entry;
 
     init_thread_context( current );
-    generate_debug_event( current, DbgCreateThreadStateChange, &req->entry );
+    if (!current->is_system) generate_debug_event( current, DbgCreateThreadStateChange, &req->entry );
     set_thread_base_priority( current, current->base_priority );
     set_thread_affinity( current, current->affinity );
 
@@ -1858,7 +1860,7 @@ DECL_HANDLER(get_thread_info)
             reply->flags |= GET_THREAD_INFO_FLAG_DBG_HIDDEN;
         if (thread->state == TERMINATED)
             reply->flags |= GET_THREAD_INFO_FLAG_TERMINATED;
-        if (thread->process->running_threads == 1)
+        if (thread->process->user_threads == 1)
             reply->flags |= GET_THREAD_INFO_FLAG_LAST;
         if (thread->disable_boost)
             reply->flags |= GET_THREAD_INFO_FLAG_DISABLE_BOOST;
@@ -2088,6 +2090,13 @@ DECL_HANDLER(queue_apc)
             return;
         }
         thread = get_thread_from_handle( req->handle, THREAD_SET_CONTEXT );
+        if (thread->is_system)
+        {
+            release_object( apc );
+            release_object( thread );
+            set_error( STATUS_ACCESS_DENIED );
+            return;
+        }
         if (thread && call && call->user.flags & SERVER_USER_APC_SPECIAL && is_wow64_process( thread->process ))
         {
             release_object( apc );
@@ -2220,6 +2229,8 @@ DECL_HANDLER(get_thread_context)
         if (!(thread = get_thread_from_handle( req->handle, THREAD_GET_CONTEXT ))) return;
         if (req->machine != native_machine && req->machine != thread->process->machine)
             set_error( STATUS_INVALID_PARAMETER );
+        else if (thread->is_system)
+            set_error( STATUS_ACCESS_DENIED );
         else if (thread->state != RUNNING)
             set_error( STATUS_UNSUCCESSFUL );
         else
@@ -2302,7 +2313,11 @@ DECL_HANDLER(set_thread_context)
     if (contexts[CTX_NATIVE].machine != native_machine ||
         (ctx_count == 2 && contexts[CTX_WOW].machine != thread->process->machine))
         set_error( STATUS_INVALID_PARAMETER );
-    else if (thread->state != TERMINATED)
+    else if (thread->is_system)
+        set_error( STATUS_ACCESS_DENIED );
+    else if (thread->state == TERMINATED)
+        set_error( STATUS_UNSUCCESSFUL );
+    else
     {
         unsigned int flags = system_flags & contexts[CTX_NATIVE].flags;
 
@@ -2337,7 +2352,6 @@ DECL_HANDLER(set_thread_context)
             }
         }
     }
-    else set_error( STATUS_UNSUCCESSFUL );
 
     release_object( thread );
 }
@@ -2378,7 +2392,7 @@ DECL_HANDLER(get_next_thread)
     while (ptr)
     {
         thread = LIST_ENTRY( ptr, struct thread, entry );
-        if (thread->process == process &&
+        if (thread->process == process && !thread->is_system &&
             (reply->handle = alloc_handle( current->process, thread, req->access, req->attributes )))
         {
             release_object( process );

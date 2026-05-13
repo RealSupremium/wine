@@ -109,6 +109,7 @@ struct thread_data
     int          alert_fd;          /* inproc sync fd for user apc alerts */
     DWORD        tid;               /* thread id */
     BOOL         allow_writes;      /* ThreadAllowWrites flags */
+    BOOL         suspend;           /* suspend on startup */
     pthread_t    pthread_id;        /* pthread thread id */
     void        *jmp_buf;           /* setjmp buffer for exception handling */
     void        *start;             /* thread entry point */
@@ -255,7 +256,7 @@ extern int wine_server_receive_fd( obj_handle_t *handle );
 extern void process_exit_wrapper( int status ) DECLSPEC_NORETURN;
 extern size_t server_init_process(void);
 extern void server_init_process_done(void);
-extern void server_init_thread( void *entry_point, BOOL *suspend );
+extern void server_init_thread( struct thread_data *data );
 extern int server_pipe( int fd[2] );
 
 extern void fpux_to_fpu( I386_FLOATING_SAVE_AREA *fpu, const XSAVE_FORMAT *fpux );
@@ -284,7 +285,8 @@ extern void DECLSPEC_NORETURN abort_thread( int status );
 extern void DECLSPEC_NORETURN abort_process( int status );
 extern void DECLSPEC_NORETURN exit_process( int status );
 extern void wait_suspend( CONTEXT *context );
-extern NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_chance, BOOL exception );
+extern NTSTATUS send_debug_event( struct thread_data *data, EXCEPTION_RECORD *rec,
+                                  CONTEXT *context, BOOL first_chance, BOOL exception );
 extern NTSTATUS set_thread_context( HANDLE handle, const void *context, BOOL *self, USHORT machine );
 extern NTSTATUS get_thread_context( HANDLE handle, void *context, BOOL *self, USHORT machine );
 extern unsigned int alloc_object_attributes( const OBJECT_ATTRIBUTES *attr, struct object_attributes **ret,
@@ -342,9 +344,8 @@ extern BOOL get_thread_times( int unix_pid, int unix_tid, LARGE_INTEGER *kernel_
 extern NTSTATUS signal_alloc_thread( TEB *teb );
 extern void signal_free_thread( TEB *teb );
 extern void signal_disable_syscall_dispatch(void);
-extern void signal_init_process(void);
-extern void DECLSPEC_NORETURN signal_start_thread( PRTL_THREAD_START_ROUTINE entry, void *arg,
-                                                   BOOL suspend, TEB *teb );
+extern void signal_init_process( TEB *teb );
+extern void DECLSPEC_NORETURN signal_start_thread( PRTL_THREAD_START_ROUTINE entry, void *arg, TEB *teb );
 extern SYSTEM_SERVICE_TABLE KeServiceDescriptorTable[4];
 extern void __wine_syscall_dispatcher(void);
 extern void __wine_syscall_dispatcher_return(void);
@@ -413,8 +414,9 @@ extern void close_inproc_sync( HANDLE handle );
 
 extern NTSTATUS call_user_apc_dispatcher( CONTEXT *context_ptr, unsigned int flags, ULONG_PTR arg1, ULONG_PTR arg2,
                                           ULONG_PTR arg3, PNTAPCFUNC func, NTSTATUS status );
-extern NTSTATUS call_user_exception_dispatcher( EXCEPTION_RECORD *rec, CONTEXT *context );
-extern void call_raise_user_exception_dispatcher(void);
+extern NTSTATUS call_user_exception_dispatcher( struct thread_data *data, EXCEPTION_RECORD *rec,
+                                                CONTEXT *context );
+extern void call_raise_user_exception_dispatcher( struct thread_data *data );
 
 #define IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE 0x0010 /* Wine extension */
 
@@ -449,12 +451,12 @@ static inline void *get_kernel_stack( struct thread_data *data )
 
 static inline struct teb_data *get_teb_data( struct thread_data *data )
 {
-    return (struct teb_data *)&data->teb->GdiTebBatch;
+    return data->teb ? (struct teb_data *)&data->teb->GdiTebBatch : NULL;
 }
 
 static inline struct syscall_frame *get_syscall_frame( struct thread_data *data )
 {
-    return get_teb_data(data)->syscall_frame;
+    return data->teb ? get_teb_data(data)->syscall_frame : NULL;
 }
 
 static inline void alloc_syscall_frame( SIZE_T frame_size )
@@ -471,6 +473,7 @@ static inline BOOL is_inside_signal_stack( struct thread_data *data, void *ptr )
 
 static inline BOOL is_inside_syscall( struct thread_data *data, ULONG_PTR sp )
 {
+    if (!data->teb) return TRUE;
     return ((char *)sp >= (char *)get_kernel_stack( data ) &&
             (char *)sp <= (char *)get_syscall_frame( data ));
 }
