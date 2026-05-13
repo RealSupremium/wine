@@ -287,7 +287,7 @@ static void test_WinHttpQueryOption(void)
     info.ConnectionInfo.dwProtocol = 0xdeadbeef;
     info.ConnectionInfo.dwCipherStrength = 0xdeadbeef;
     ret = WinHttpQueryOption(request, WINHTTP_OPTION_SECURITY_INFO, &info, &size);
-    ok(ret, "got %lu\n", GetLastError());
+    ok(ret || broken(!ret && GetLastError() == ERROR_INVALID_PARAMETER) /* win10 <= 1909 */, "got %lu\n", GetLastError());
     if (ret)
     {
         ok(info.ConnectionInfo.dwProtocol == 0, "got %lu\n", info.ConnectionInfo.dwProtocol);
@@ -1225,7 +1225,7 @@ static void test_secure_connection(void)
 
     size = sizeof(secinfo);
     ret = WinHttpQueryOption(req, WINHTTP_OPTION_SECURITY_INFO, &secinfo, &size);
-    ok(ret, "got %lu\n", GetLastError());
+    ok(ret || broken(!ret && GetLastError() == ERROR_INVALID_PARAMETER) /* win10 <= 1909 */, "got %lu\n", GetLastError());
     if (ret)
     {
         ok(secinfo.ConnectionInfo.dwProtocol == SP_PROT_TLS1_2_CLIENT, "got %lu\n", secinfo.ConnectionInfo.dwProtocol);
@@ -5819,8 +5819,9 @@ static void test_WinHttpGetProxyForUrl(int port)
 static void test_chunked_read(void)
 {
     WCHAR header[32];
-    DWORD len, err;
+    DWORD len, err, bytes_read;
     HINTERNET ses, con = NULL, req = NULL;
+    char *buf;
     BOOL ret;
 
     trace( "starting chunked read test\n" );
@@ -5865,33 +5866,31 @@ static void test_chunked_read(void)
     ok( !ret, "unexpected CONTENT_LENGTH header %s\n", wine_dbgstr_w(header) );
     ok( GetLastError() == ERROR_WINHTTP_HEADER_NOT_FOUND, "wrong error %lu\n", GetLastError() );
 
-    trace( "entering query loop\n" );
-    for (;;)
-    {
-        len = 0xdeadbeef;
-        ret = WinHttpQueryDataAvailable( req, &len );
-        ok( ret, "WinHttpQueryDataAvailable failed with error %lu\n", GetLastError() );
-        if (ret) ok( len != 0xdeadbeef, "WinHttpQueryDataAvailable return wrong length\n" );
-        trace( "got %lu available\n", len );
-        if (len)
-        {
-            DWORD bytes_read;
-            char *buf = HeapAlloc( GetProcessHeap(), 0, len + 1 );
+    len = 0xdeadbeef;
+    ret = WinHttpQueryDataAvailable( req, &len );
+    ok( ret, "got %lu\n", GetLastError() );
+    ok( len == 70, "got %lu\n", len );
 
-            ret = WinHttpReadData( req, buf, len, &bytes_read );
-            ok(ret, "WinHttpReadData failed: %lu\n", GetLastError());
+    buf = HeapAlloc( GetProcessHeap(), 0, len + 1 );
+    ret = WinHttpReadData( req, buf, len, &bytes_read );
+    ok(ret, "got %lu\n", GetLastError());
+    buf[bytes_read] = 0;
+    ok( len == bytes_read, "only got %lu of %lu available\n", bytes_read, len );
+    ok( buf[bytes_read - 1] == '\n', "received partial line '%s'\n", buf );
+    HeapFree( GetProcessHeap(), 0, buf );
 
-            buf[bytes_read] = 0;
-            trace( "WinHttpReadData -> %d %lu\n", ret, bytes_read );
-            ok( len == bytes_read, "only got %lu of %lu available\n", bytes_read, len );
-            ok( buf[bytes_read - 1] == '\n', "received partial line '%s'\n", buf );
+    len = 0xdeadbeef;
+    ret = WinHttpQueryDataAvailable( req, &len );
+    ok( ret, "got %lu\n", GetLastError() );
+    ok( len == 5, "got %lu\n", len );
 
-            HeapFree( GetProcessHeap(), 0, buf );
-            if (!bytes_read) break;
-        }
-        if (!len) break;
-    }
-    trace( "done\n" );
+    buf = HeapAlloc( GetProcessHeap(), 0, len + 1 );
+    ret = WinHttpReadData( req, buf, len, &bytes_read );
+    ok(ret, "got %lu\n", GetLastError());
+    buf[bytes_read] = 0;
+    ok( len == bytes_read, "only got %lu of %lu available\n", bytes_read, len );
+    ok( buf[bytes_read - 1] == '\n', "received partial line '%s'\n", buf );
+    HeapFree( GetProcessHeap(), 0, buf );
 
 done:
     if (req) WinHttpCloseHandle( req );
@@ -6374,6 +6373,80 @@ static void test_decompression(void)
     WinHttpCloseHandle( ses );
 }
 
+static void CALLBACK status_callback( HINTERNET req, DWORD_PTR ctx, DWORD status, void *buf, DWORD buflen )
+{
+    HANDLE wait = (HANDLE)ctx;
+    DWORD size, code;
+    char data[32];
+    BOOL ret;
+
+    switch (status)
+    {
+    case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
+        ret = WinHttpWriteData( req, "data", 4, NULL );
+        ok( ret, "got %lu\n", GetLastError() );
+        break;
+
+    case WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE:
+        ret = WinHttpReceiveResponse( req, 0 );
+        ok( ret, "got %lu\n", GetLastError() );
+        break;
+
+    case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
+        code = 0xdeadbeef;
+        size = sizeof(code);
+        ret = WinHttpQueryHeaders( req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, NULL, &code, &size, NULL );
+        ok( ret, "got %lu\n", GetLastError() );
+        ok( code == HTTP_STATUS_OK, "got %lu\n", code );
+
+        ret = WinHttpQueryDataAvailable( req, NULL );
+        ok( ret, "got %lu\n", GetLastError() );
+        break;
+
+    case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
+        ret = WinHttpReadData( req, data, sizeof(data), NULL );
+        ok( ret, "got %lu\n", GetLastError() );
+        break;
+
+    case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
+        SetEvent( wait );
+        break;
+
+    default:
+        ok( 0, "unexpected status %08lx\n", status );
+        break;
+    }
+}
+
+static void test_recursive_async(void)
+{
+    HINTERNET ses, req, con;
+    HANDLE wait = CreateEventW( NULL, 0, 0, NULL );
+    DWORD err;
+    BOOL ret;
+
+    ses = WinHttpOpen( L"winetest", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, WINHTTP_FLAG_ASYNC );
+    ok( ses != NULL, "got %lu\n", GetLastError() );
+
+    con = WinHttpConnect( ses, L"test.winehq.org", 0, 0 );
+    ok( con != NULL, "got %lu\n", GetLastError() );
+
+    req = WinHttpOpenRequest( con, L"POST", L"tests/post.php", NULL, NULL, NULL, 0 );
+    ok( req != NULL, "got %lu\n", GetLastError() );
+
+    WinHttpSetStatusCallback( req, status_callback, WINHTTP_CALLBACK_FLAG_ALL_COMPLETIONS, 0 );
+
+    ret = WinHttpSendRequest( req, NULL, 0, NULL, 0, 4, (DWORD_PTR)wait );
+    ok( ret, "got %lu\n", GetLastError() );
+    err = WaitForSingleObject( wait, 10000 );
+    ok( err == WAIT_OBJECT_0, "got %08lx\n", err );
+
+    WinHttpCloseHandle( req );
+    WinHttpCloseHandle( con );
+    WinHttpCloseHandle( ses );
+    CloseHandle( wait );
+}
+
 START_TEST (winhttp)
 {
     struct server_info si;
@@ -6409,6 +6482,7 @@ START_TEST (winhttp)
     test_chunked_read();
     test_max_http_automatic_redirects();
     test_decompression();
+    test_recursive_async();
 
     si.event = CreateEventW(NULL, 0, 0, NULL);
     si.port = 7532;

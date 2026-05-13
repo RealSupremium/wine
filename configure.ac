@@ -160,11 +160,6 @@ then
     fi
 fi
 
-case $build_os in
-  cygwin*|mingw32*) AC_SUBST(toolsext,".exe") ;;
-  *) AC_SUBST(toolsext,"") ;;
-esac
-
 HOST_ARCH=unknown
 case "$host_cpu" in
   aarch64*)        HOST_ARCH=aarch64 ;;
@@ -175,13 +170,23 @@ esac
 m4_set_add_all([_AC_SUBST_VARS],[HOST_ARCH]m4_foreach([cpu],[aarch64,arm,arm64ec,i386,x86_64],
                                 [m4_foreach([var],[CC,CXX,CFLAGS,CXXFLAGS,EXTRACFLAGS,EXTRACXXFLAGS,LDFLAGS,DEBUG,TARGET,STRIP,DELAYLOADFLAG,DISABLED_SUBDIRS],[,cpu[_]var])]))
 
+dnl Some special cases for the Windows platform
+
+case $build_os in
+  cygwin*|mingw32*) AC_SUBST(toolsext,".exe") ;;
+  *) AC_SUBST(toolsext,"") ;;
+esac
+
 case $host_os in
-  darwin*)
-    with_fontconfig=${with_fontconfig:-no}
-    ;;
-  mingw32*|cygwin*)
+  mingw32*)
     enable_archs=${enable_archs:-$HOST_ARCH}
     AS_VAR_SET(${HOST_ARCH}_CC,$CC)
+    with_mingw=${with_mingw:-no}
+    ;;
+esac
+
+case $host_os in
+  mingw32*|cygwin*)
     dnl Disable modules that can't be used on Windows
     enable_loader=${enable_loader:-no}
     enable_server=${enable_server:-no}
@@ -190,7 +195,6 @@ case $host_os in
     dnl Disable dependencies that are not useful on Windows
     with_x=${with_x:-no}
     with_pthread=${with_pthread:-no}
-    with_mingw=${with_mingw:-no}
     ;;
 esac
 
@@ -695,8 +699,8 @@ CXXFLAGS=$saved_CXXFLAGS
 LDFLAGS=$saved_LDFLAGS
 
 case $HOST_ARCH-$host_os in
-  x86_64-darwin*|arm-*|aarch64-*)
-    test "x$PE_ARCHS" != x || AC_MSG_ERROR([PE cross-compilation is required for $host, please install clang/llvm-dlltool/lld, or llvm-mingw.])
+  x86_64-darwin*|arm-*|aarch64-*|*-cygwin*)
+    test "x$PE_ARCHS" != x || AC_MSG_ERROR([PE cross-compilation is required for $host, please install mingw-w64, clang/llvm-dlltool/lld, or llvm-mingw.])
     DLLEXT="" ;;
   *)
     AC_SUBST(DLLEXT,".so")
@@ -967,7 +971,6 @@ case $host_os in
   cygwin*|mingw32*)
     LIBEXT="dll"
     DLLEXT=""
-    WINE_TRY_CFLAGS([-Wl,-delayload,autoconftest.dll],[AC_SUBST(DELAYLOADFLAG,["-Wl,-delayload,"])])
     ;;
 
   darwin*)
@@ -975,6 +978,7 @@ case $host_os in
     DLLFLAGS="$DLLFLAGS -fPIC"
     LDDLLFLAGS="-fPIC"
     enable_winemac_drv=${enable_winemac_drv:-yes}
+    with_fontconfig=${with_fontconfig:-no}
     dnl declare needed frameworks
     AC_SUBST(CORETEXT_LIBS,"-framework CoreText")
     AC_SUBST(COREFOUNDATION_LIBS,"-framework CoreFoundation")
@@ -1195,37 +1199,6 @@ then
         WINE_NOTICE([libtiff ${notice_platform}MinGW development files not found; using bundled version.])
     fi
 
-    WINE_MINGW_PACKAGE_FLAGS(XML2,[libxml-2.0],[-lxml2],
-        [WINE_CHECK_MINGW_HEADER(libxml/parser.h)
-        WINE_CHECK_MINGW_HEADER(libxml/xmlsave.h)
-        WINE_CHECK_MINGW_HEADER(libxml/SAX2.h)
-        if test "$ac_cv_mingw_header_libxml_parser_h" = "yes" -a "$ac_cv_mingw_header_libxml_xmlsave_h" = "yes" -a "$ac_cv_mingw_header_libxml_SAX2_h" = "yes"
-        then
-            WINE_CHECK_MINGW_LIB(xml2,xmlFirstElementChild,[:],[XML2_PE_CFLAGS=""; XML2_PE_LIBS=""],[$XML2_PE_LIBS])
-        else
-            XML2_PE_CFLAGS=""
-            XML2_PE_LIBS=""
-        fi])
-    if test "x$XML2_PE_LIBS" = "x"
-    then
-        WINE_NOTICE([libxml2 ${notice_platform}MinGW development files not found (or too old); using bundled version.])
-    fi
-
-    WINE_MINGW_PACKAGE_FLAGS(XSLT,[libxslt],[-lxslt],
-        [WINE_CHECK_MINGW_HEADER(libxslt/pattern.h)
-        WINE_CHECK_MINGW_HEADER(libxslt/transform.h)
-        if test "$ac_cv_mingw_header_libxslt_pattern_h" = "yes" -a "$ac_cv_mingw_header_libxslt_transform_h" = "yes"
-        then
-            WINE_CHECK_MINGW_LIB(xslt,xsltCompilePattern,[:],[XSLT_PE_CFLAGS=""; XSLT_PE_LIBS=""],[$XSLT_PE_LIBS])
-        else
-            XSLT_PE_CFLAGS=""
-            XSLT_PE_LIBS=""
-        fi])
-    if test "x$XSLT_PE_LIBS" = "x"
-    then
-        WINE_NOTICE([libxslt ${notice_platform}MinGW development files not found; using bundled version.])
-    fi
-
     WINE_MINGW_PACKAGE_FLAGS(VKD3D,[libvkd3d-utils libvkd3d libvkd3d-shader],[-lvkd3d-utils -lvkd3d -lvkd3d-shader],
         [WINE_CHECK_MINGW_HEADER(vkd3d_utils.h)
         WINE_CHECK_MINGW_HEADER(vkd3d_shader.h)
@@ -1272,6 +1245,7 @@ WINE_EXTLIB_FLAGS(LDAP, ldap, ldap, "-I\$(top_srcdir)/libs/ldap/include")
 WINE_EXTLIB_FLAGS(MPG123, mpg123, mpg123, "-I\$(top_srcdir)/libs/mpg123/src/include")
 WINE_EXTLIB_FLAGS(MUSL, musl, musl)
 WINE_EXTLIB_FLAGS(PNG, png, "png \$(ZLIB_PE_LIBS)", "-I\$(top_srcdir)/libs/png")
+WINE_EXTLIB_FLAGS(SQLITE3, sqlite3, sqlite3)
 WINE_EXTLIB_FLAGS(TIFF, tiff, "tiff \$(ZLIB_PE_LIBS)", "-I\$(top_srcdir)/libs/tiff/libtiff")
 WINE_EXTLIB_FLAGS(TOMCRYPT, tomcrypt, tomcrypt, "-I\$(top_srcdir)/libs/tomcrypt/src/headers -DLTC_NO_PROTOTYPES -DLTC_SOURCE")
 WINE_EXTLIB_FLAGS(UNWIND, unwind, unwind, "-I\$(top_srcdir)/libs/unwind/include")
@@ -1464,6 +1438,13 @@ else
     X_LIBS=""
 fi
 
+if test "x$have_x$with_wayland" != "xnono"
+then
+    WINE_PACKAGE_FLAGS(XKBREGISTRY,[xkbregistry],,,,
+        [AC_CHECK_HEADER([xkbcommon/xkbregistry.h],
+                [WINE_CHECK_SONAME(xkbregistry,rxkb_context_new,[:],[XKBREGISTRY_LIBS=""],[$XKBREGISTRY_LIBS])])])
+fi
+
 if test "x$with_wayland" != "xno"
 then
     WINE_PACKAGE_FLAGS(WAYLAND_CLIENT,[wayland-client],,,,
@@ -1474,8 +1455,6 @@ then
               [WAYLAND_CLIENT_LIBS=""],[$WAYLAND_CLIENT_LIBS])])])
     WINE_PACKAGE_FLAGS(XKBCOMMON,[xkbcommon],,,,
         [AC_CHECK_LIB(xkbcommon,xkb_context_new,[:],[XKBCOMMON_LIBS=""],[$XKBCOMMON_LIBS])])
-    WINE_PACKAGE_FLAGS(XKBREGISTRY,[xkbregistry],,,,
-        [AC_CHECK_LIB(xkbregistry,rxkb_context_new,[:],[XKBREGISTRY_LIBS=""],[$XKBREGISTRY_LIBS])])
     if test "x$with_opengl" != "xno"
     then
         WINE_PACKAGE_FLAGS(WAYLAND_EGL,[wayland-egl],,,,
@@ -1786,7 +1765,7 @@ AC_SUBST(ALSA_LIBS,"")
 if test "x$with_alsa" != "xno"
 then
     WINE_PACKAGE_FLAGS(ALSA,[alsa],[-lasound],,,
-        [AC_CHECK_LIB(asound,snd_pcm_hw_params_get_access_mask,[:],[ALSA_LIBS=""])])
+        [AC_CHECK_LIB(asound,snd_pcm_hw_params_get_access_mask,[:],[ALSA_LIBS=""],[$ALSA_LIBS])])
 fi
 WINE_NOTICE_WITH(alsa,[test -z "$ALSA_LIBS"],
                  [libasound ${notice_platform}development files not found, Alsa won't be supported.],
@@ -3425,6 +3404,8 @@ WINE_CONFIG_MAKEFILE(dlls/winscard/tests)
 WINE_CONFIG_MAKEFILE(dlls/winsock.dll16)
 WINE_CONFIG_MAKEFILE(dlls/winspool.drv)
 WINE_CONFIG_MAKEFILE(dlls/winspool.drv/tests)
+WINE_CONFIG_MAKEFILE(dlls/winsqlite3)
+WINE_CONFIG_MAKEFILE(dlls/winsqlite3/tests)
 WINE_CONFIG_MAKEFILE(dlls/winsta)
 WINE_CONFIG_MAKEFILE(dlls/wintab.dll16)
 WINE_CONFIG_MAKEFILE(dlls/wintab32)
@@ -3552,6 +3533,7 @@ WINE_CONFIG_MAKEFILE(libs/mfuuid)
 WINE_CONFIG_MAKEFILE(libs/mpg123)
 WINE_CONFIG_MAKEFILE(libs/musl)
 WINE_CONFIG_MAKEFILE(libs/png)
+WINE_CONFIG_MAKEFILE(libs/sqlite3)
 WINE_CONFIG_MAKEFILE(libs/strmbase)
 WINE_CONFIG_MAKEFILE(libs/strmiids)
 WINE_CONFIG_MAKEFILE(libs/strsafe)

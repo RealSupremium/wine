@@ -676,7 +676,6 @@ enum wine_internal_message
 /* builtin IME driver calls */
 enum wine_ime_call
 {
-    WINE_IME_PROCESS_KEY,
     WINE_IME_TO_ASCII_EX,
     WINE_IME_POST_UPDATE,  /* for the user drivers */
 };
@@ -924,6 +923,7 @@ W32KAPI BOOL    WINAPI NtUserHiliteMenuItem( HWND hwnd, HMENU handle, UINT item,
 W32KAPI NTSTATUS WINAPI NtUserInitializeClientPfnArrays( const ntuser_client_func_ptr *client_procsA,
                                                          const ntuser_client_func_ptr *client_procsW,
                                                          const ntuser_client_func_ptr *client_workers, HINSTANCE user_module );
+W32KAPI BOOL    WINAPI NtUserInitializeTouchInjection( UINT max_count, UINT mode );
 W32KAPI HICON   WINAPI NtUserInternalGetWindowIcon( HWND hwnd, UINT type );
 W32KAPI INT     WINAPI NtUserInternalGetWindowText( HWND hwnd, WCHAR *text, INT count );
 W32KAPI BOOL    WINAPI NtUserIsChildWindowDpiMessageEnabled( HWND hwnd );

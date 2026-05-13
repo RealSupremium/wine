@@ -5507,6 +5507,12 @@ NTSYSAPI LONGLONG  WINAPI RtlLargeIntegerSubtract(LONGLONG,LONGLONG);
 NTSYSAPI NTSTATUS  WINAPI RtlLargeIntegerToChar(const ULONGLONG *,ULONG,ULONG,PCHAR);
 #endif
 
+#ifdef WINE_UNIX_LIB
+NTSYSAPI NTSTATUS  WINAPI PsCreateSystemThread(PHANDLE,ULONG,POBJECT_ATTRIBUTES,HANDLE,PCLIENT_ID,PRTL_THREAD_START_ROUTINE,PVOID);
+NTSYSAPI HANDLE    WINAPI PsGetCurrentProcessId(void);
+NTSYSAPI HANDLE    WINAPI PsGetCurrentThreadId(void);
+NTSYSAPI NTSTATUS  WINAPI PsTerminateSystemThread(NTSTATUS);
+#endif
 
 /***********************************************************************
  * Inline functions

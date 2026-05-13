@@ -204,6 +204,19 @@ static HRESULT push_instr_addr(compile_ctx_t *ctx, vbsop_t op, unsigned arg)
     return S_OK;
 }
 
+static HRESULT push_instr_addr_uint(compile_ctx_t *ctx, vbsop_t op, unsigned arg1, unsigned arg2)
+{
+    unsigned ret;
+
+    ret = push_instr(ctx, op);
+    if(!ret)
+        return E_OUTOFMEMORY;
+
+    instr_ptr(ctx, ret)->arg1.uint = arg1;
+    instr_ptr(ctx, ret)->arg2.uint = arg2;
+    return S_OK;
+}
+
 static HRESULT push_instr_str(compile_ctx_t *ctx, vbsop_t op, const WCHAR *arg)
 {
     unsigned instr;
@@ -432,6 +445,18 @@ static expression_t *lookup_const_decls(compile_ctx_t *ctx, const WCHAR *name, B
     return NULL;
 }
 
+static const_decl_t *find_const_decl(compile_ctx_t *ctx, const WCHAR *name)
+{
+    const_decl_t *decl;
+
+    for(decl = ctx->const_decls; decl; decl = decl->next) {
+        if(!vbs_wcsicmp(decl->name, name))
+            return decl;
+    }
+
+    return NULL;
+}
+
 static BOOL lookup_args_name(compile_ctx_t *ctx, const WCHAR *name)
 {
     unsigned i;
@@ -450,6 +475,18 @@ static BOOL lookup_dim_decls(compile_ctx_t *ctx, const WCHAR *name)
 
     for(dim_decl = ctx->dim_decls; dim_decl; dim_decl = dim_decl->next) {
         if(!vbs_wcsicmp(dim_decl->name, name))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOL lookup_func_decls(compile_ctx_t *ctx, const WCHAR *name)
+{
+    function_decl_t *func_decl;
+
+    for(func_decl = ctx->func_decls; func_decl; func_decl = func_decl->next) {
+        if(!vbs_wcsicmp(func_decl->name, name))
             return TRUE;
     }
 
@@ -506,9 +543,14 @@ static HRESULT compile_member_call_expression(compile_ctx_t *ctx, member_express
 static HRESULT compile_member_expression(compile_ctx_t *ctx, member_expression_t *expr)
 {
     expression_t *const_expr;
+    HRESULT hres;
 
-    if (expr->obj_expr) /* FIXME: we should probably have a dedicated opcode as well */
-        return compile_member_call_expression(ctx, expr, 0, TRUE);
+    if (expr->obj_expr) {
+        hres = compile_expression(ctx, expr->obj_expr);
+        if(FAILED(hres))
+            return hres;
+        return push_instr_bstr(ctx, OP_mget, expr->identifier);
+    }
 
     if (!lookup_dim_decls(ctx, expr->identifier) && !lookup_args_name(ctx, expr->identifier)) {
         const_expr = lookup_const_decls(ctx, expr->identifier, TRUE);
@@ -566,6 +608,28 @@ static HRESULT compile_unary_expression(compile_ctx_t *ctx, unary_expression_t *
     return push_instr(ctx, op) ? S_OK : E_OUTOFMEMORY;
 }
 
+/* Bare numeric literals at a comparison site take a different code path on
+ * native VBScript: BSTR vs literal numeric coerces to a number (error 13 on
+ * parse failure), while BSTR vs anything else (variable, arithmetic result,
+ * function return, Const, ...) uses string comparison. Detect "bare numeric
+ * literal" syntactically; parens are transparent, but a Const reference is an
+ * EXPR_MEMBER and thus correctly treated as non-literal even if its expansion
+ * is itself an EXPR_INT. */
+static BOOL is_literal_expr(expression_t *expr)
+{
+    while(expr->type == EXPR_BRACKETS)
+        expr = ((unary_expression_t*)expr)->subexpr;
+    return expr->type == EXPR_INT
+        || expr->type == EXPR_DOUBLE
+        || expr->type == EXPR_DATE;
+}
+
+static BOOL is_compare_op(vbsop_t op)
+{
+    return op == OP_equal || op == OP_nequal || op == OP_gt
+        || op == OP_gteq  || op == OP_lt     || op == OP_lteq;
+}
+
 static HRESULT compile_binary_expression(compile_ctx_t *ctx, binary_expression_t *expr, vbsop_t op)
 {
     HRESULT hres;
@@ -577,6 +641,12 @@ static HRESULT compile_binary_expression(compile_ctx_t *ctx, binary_expression_t
     hres = compile_expression(ctx, expr->right);
     if(FAILED(hres))
         return hres;
+
+    if(is_compare_op(op)) {
+        unsigned flags = (is_literal_expr(expr->left)  ? CMP_LEFT_LITERAL  : 0)
+                       | (is_literal_expr(expr->right) ? CMP_RIGHT_LITERAL : 0);
+        return push_instr_uint(ctx, op, flags);
+    }
 
     return push_instr(ctx, op) ? S_OK : E_OUTOFMEMORY;
 }
@@ -1036,7 +1106,10 @@ static HRESULT compile_select_statement(compile_ctx_t *ctx, select_statement_t *
     unsigned end_label, case_cnt = 0, *case_labels = NULL, i;
     case_clausule_t *case_iter;
     expression_t *expr_iter;
+    BOOL test_lit;
     HRESULT hres;
+
+    test_lit = is_literal_expr(stat->expr);
 
     hres = compile_expression(ctx, stat->expr);
     if(FAILED(hres))
@@ -1072,11 +1145,14 @@ static HRESULT compile_select_statement(compile_ctx_t *ctx, select_statement_t *
             break;
 
         for(expr_iter = case_iter->expr; expr_iter; expr_iter = expr_iter->next) {
+            unsigned flags = (test_lit ? CMP_LEFT_LITERAL : 0)
+                           | (is_literal_expr(expr_iter) ? CMP_RIGHT_LITERAL : 0);
+
             hres = compile_expression(ctx, expr_iter);
             if(FAILED(hres))
                 break;
 
-            hres = push_instr_addr(ctx, OP_case, case_labels[i]);
+            hres = push_instr_addr_uint(ctx, OP_case, case_labels[i], flags);
             if(FAILED(hres))
                 break;
 
@@ -1140,7 +1216,30 @@ static HRESULT compile_assignment(compile_ctx_t *ctx, expression_t *left, expres
         break;
     case EXPR_CALL:
         call_expr = (call_expression_t*)left;
-        assert(call_expr->call_expr->type == EXPR_MEMBER);
+        if(call_expr->call_expr->type != EXPR_MEMBER) {
+            /* Chained call assignment, e.g. aryOrder(0)(1) = 5:
+             * compile the inner expression as a read, then assign to the result. */
+            hres = compile_expression(ctx, call_expr->call_expr);
+            if(FAILED(hres))
+                return hres;
+
+            hres = compile_expression(ctx, value_expr);
+            if(FAILED(hres))
+                return hres;
+
+            hres = compile_args(ctx, call_expr->args, &args_cnt);
+            if(FAILED(hres))
+                return hres;
+
+            hres = push_instr_uint(ctx, is_set ? OP_set_call : OP_assign_call, args_cnt);
+            if(FAILED(hres))
+                return hres;
+
+            if(!emit_catch(ctx, 0))
+                return E_OUTOFMEMORY;
+
+            return S_OK;
+        }
         member_expr = (member_expression_t*)call_expr->call_expr;
         break;
     default:
@@ -1203,9 +1302,19 @@ static HRESULT compile_dim_statement(compile_ctx_t *ctx, dim_statement_t *stat)
 
     while(1) {
         if(lookup_dim_decls(ctx, dim_decl->name) || lookup_args_name(ctx, dim_decl->name)
-           || lookup_const_decls(ctx, dim_decl->name, FALSE)) {
+           || (ctx->func->type == FUNC_GLOBAL && lookup_func_decls(ctx, dim_decl->name))) {
             ctx->loc = dim_decl->loc;
+            WARN("dim %s name redefined\n", debugstr_w(dim_decl->name));
             return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
+        }
+
+        {
+            const_decl_t *const_decl = find_const_decl(ctx, dim_decl->name);
+            if(const_decl) {
+                ctx->loc = dim_decl->loc > const_decl->loc ? dim_decl->loc : const_decl->loc;
+                WARN("dim %s name redefined\n", debugstr_w(dim_decl->name));
+                return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
+            }
         }
 
         ctx->func->var_cnt++;
@@ -1282,8 +1391,16 @@ static HRESULT compile_const_statement(compile_ctx_t *ctx, const_statement_t *st
 
         if(!lookup_const_decls(ctx, decl->name, FALSE)) {
             if(lookup_args_name(ctx, decl->name) || lookup_dim_decls(ctx, decl->name)) {
+                ctx->loc = decl->loc;
+                WARN("%s redefined\n", debugstr_w(decl->name));
                 return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
             }
+        }
+
+        if(lookup_func_decls(ctx, decl->name)) {
+            ctx->loc = decl->loc;
+            WARN("%s redefined\n", debugstr_w(decl->name));
+            return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
         }
 
         if(ctx->func->type == FUNC_GLOBAL) {
@@ -1448,10 +1565,15 @@ static HRESULT collect_const_decls(compile_ctx_t *ctx, statement_t *stat)
             for(decl = const_stat->decls; decl; decl = decl->next) {
                 const_decl_t *new_decl;
 
-                if(lookup_const_decls(ctx, decl->name, FALSE))
-                    break; /* already collected */
+                if(lookup_const_decls(ctx, decl->name, FALSE)) {
+                    ctx->loc = decl->loc;
+                    WARN("%s: const redefined\n", debugstr_w(decl->name));
+                    return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
+                }
 
                 if(lookup_args_name(ctx, decl->name) || lookup_dim_decls(ctx, decl->name)) {
+                    ctx->loc = decl->loc;
+                    WARN("%s redefined\n", debugstr_w(decl->name));
                     return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
                 }
 
@@ -1459,6 +1581,7 @@ static HRESULT collect_const_decls(compile_ctx_t *ctx, statement_t *stat)
                 if(!new_decl)
                     return E_OUTOFMEMORY;
                 new_decl->name = decl->name;
+                new_decl->loc = decl->loc;
                 new_decl->value_expr = decl->value_expr;
                 new_decl->next = ctx->const_decls;
                 ctx->const_decls = new_decl;
@@ -1789,6 +1912,8 @@ static HRESULT create_function(compile_ctx_t *ctx, function_decl_t *decl, functi
     HRESULT hres;
 
     if(lookup_dim_decls(ctx, decl->name) || lookup_const_decls(ctx, decl->name, FALSE)) {
+        ctx->loc = decl->name_loc;
+        WARN("%s: redefinition\n", debugstr_w(decl->name));
         return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
     }
 
@@ -1911,6 +2036,8 @@ static HRESULT compile_class(compile_ctx_t *ctx, class_decl_t *class_decl)
 
     if(lookup_dim_decls(ctx, class_decl->name) || lookup_funcs_name(ctx, class_decl->name)
             || lookup_const_decls(ctx, class_decl->name, FALSE) || lookup_class_name(ctx, class_decl->name)) {
+        ctx->loc = class_decl->loc;
+        WARN("%s: redefinition\n", debugstr_w(class_decl->name));
         return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
     }
 
@@ -1958,12 +2085,20 @@ static HRESULT compile_class(compile_ctx_t *ctx, class_decl_t *class_decl)
                 FIXME("class initializer is not sub\n");
                 return E_FAIL;
             }
+            if(func_decl->args) {
+                ctx->loc = func_decl->loc;
+                return MAKE_VBSERROR(VBSE_CLASS_INIT_NO_ARGS);
+            }
 
             class_desc->class_initialize_id = i;
         }else  if(!vbs_wcsicmp(L"class_terminate", func_decl->name)) {
             if(func_decl->type != FUNC_SUB) {
                 FIXME("class terminator is not sub\n");
                 return E_FAIL;
+            }
+            if(func_decl->args) {
+                ctx->loc = func_decl->loc;
+                return MAKE_VBSERROR(VBSE_CLASS_INIT_NO_ARGS);
             }
 
             class_desc->class_terminate_id = i;
@@ -1983,6 +2118,14 @@ static HRESULT compile_class(compile_ctx_t *ctx, class_decl_t *class_decl)
 
     for(prop_decl = class_decl->props, i=0; prop_decl; prop_decl = prop_decl->next, i++) {
         if(lookup_class_funcs(class_desc, prop_decl->name)) {
+            function_decl_t *func_iter;
+            unsigned loc = prop_decl->loc;
+            for(func_iter = class_decl->funcs; func_iter; func_iter = func_iter->next) {
+                if(!vbs_wcsicmp(func_iter->name, prop_decl->name) && func_iter->name_loc > loc)
+                    loc = func_iter->name_loc;
+            }
+            WARN("%s: redefined\n", debugstr_w(prop_decl->name));
+            ctx->loc = loc;
             return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
         }
 
@@ -2029,10 +2172,8 @@ static BOOL lookup_script_identifier(compile_ctx_t *ctx, script_ctx_t *script, c
     for(c = 0; c < ARRAY_SIZE(contexts); c++) {
         if(!contexts[c]) continue;
 
-        for(i = 0; i < contexts[c]->global_vars_cnt; i++) {
-            if(!vbs_wcsicmp(contexts[c]->global_vars[i]->name, identifier))
-                return TRUE;
-        }
+        if(script_disp_find_var(contexts[c], identifier))
+            return TRUE;
 
         for(i = 0; i < contexts[c]->global_funcs_cnt; i++) {
             if(!vbs_wcsicmp(contexts[c]->global_funcs[i]->name, identifier))
@@ -2072,22 +2213,65 @@ static BOOL lookup_script_identifier(compile_ctx_t *ctx, script_ctx_t *script, c
     return FALSE;
 }
 
-static HRESULT check_script_collisions(compile_ctx_t *ctx, script_ctx_t *script)
+/* Returns TRUE if `name` matches a class declared in any prior parse
+ * still kept on this script. Used to enforce native semantics where
+ * Sub/Function/Const declarations cannot reuse an existing class name. */
+static BOOL lookup_existing_class(compile_ctx_t *ctx, script_ctx_t *script, const WCHAR *name)
 {
-    unsigned i, var_cnt = ctx->code->main_code.var_cnt;
-    var_desc_t *vars = ctx->code->main_code.vars;
+    ScriptDisp *contexts[] = {
+        ctx->code->named_item ? ctx->code->named_item->script_obj : NULL,
+        script->script_obj
+    };
     class_desc_t *class;
+    vbscode_t *code;
+    unsigned c;
 
-    for(i = 0; i < var_cnt; i++) {
-        if(lookup_script_identifier(ctx, script, vars[i].name)) {
-            return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
+    for(c = 0; c < ARRAY_SIZE(contexts); c++) {
+        if(!contexts[c]) continue;
+        for(class = contexts[c]->classes; class; class = class->next) {
+            if(!vbs_wcsicmp(class->name, name))
+                return TRUE;
         }
     }
 
-    for(class = ctx->code->classes; class; class = class->next) {
-        if(lookup_script_identifier(ctx, script, class->name)) {
-            return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
+    LIST_FOR_EACH_ENTRY(code, &script->code_list, vbscode_t, entry) {
+        if(!code->pending_exec || (code->named_item && code->named_item != ctx->code->named_item))
+            continue;
+        for(class = code->classes; class; class = class->next) {
+            if(!vbs_wcsicmp(class->name, name))
+                return TRUE;
         }
+    }
+    return FALSE;
+}
+
+static HRESULT check_script_collisions(compile_ctx_t *ctx, script_ctx_t *script)
+{
+    class_desc_t *class;
+    function_t *func;
+    const_decl_t *konst;
+
+    /* Native rule: top-level Dim is permissive and never errors when
+     * cross-parse re-declared, so we don't check vars here. Const is
+     * caught at runtime by interp_const, so we don't double-check.
+     *
+     * What this layer enforces: declaring a new Class, or a Sub /
+     * Function / Const, when the name is already used by a Class from
+     * a previous parse. */
+
+    for(class = ctx->code->classes; class; class = class->next) {
+        if(lookup_script_identifier(ctx, script, class->name))
+            return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
+    }
+
+    for(func = ctx->code->funcs; func; func = func->next) {
+        if(lookup_existing_class(ctx, script, func->name))
+            return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
+    }
+
+    for(konst = ctx->const_decls; konst; konst = konst->next) {
+        if(lookup_existing_class(ctx, script, konst->name))
+            return MAKE_VBSERROR(VBSE_NAME_REDEFINED);
     }
 
     return S_OK;

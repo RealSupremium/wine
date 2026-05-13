@@ -184,6 +184,11 @@ struct syscall_frame
 C_ASSERT( sizeof( struct syscall_frame ) == 0x330 );
 
 
+static DWORD64 make_esr( ULONG ec, ULONG info )
+{
+    return ((DWORD64)ec << 26) | (info & 0xffff);
+}
+
 /***********************************************************************
  *           context_init_empty_xstate
  *
@@ -313,7 +318,8 @@ static void restore_context( const CONTEXT *context, ucontext_t *sigcontext )
  */
 NTSTATUS signal_set_full_context( CONTEXT *context )
 {
-    struct syscall_frame *frame = get_syscall_frame();
+    struct thread_data *data = get_thread_data();
+    struct syscall_frame *frame = get_syscall_frame( data );
     NTSTATUS status = NtSetContextThread( GetCurrentThread(), context );
 
     if (!status && (context->ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER)
@@ -356,11 +362,13 @@ void *get_wow_context( CONTEXT *context )
  */
 NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
 {
-    struct syscall_frame *frame = get_syscall_frame();
+    struct thread_data *data = get_thread_data();
+    struct syscall_frame *frame = get_syscall_frame( data );
     NTSTATUS ret = STATUS_SUCCESS;
     BOOL self = (handle == GetCurrentThread());
     DWORD flags = context->ContextFlags & ~CONTEXT_ARM64;
 
+    if (self && !frame) return STATUS_ACCESS_DENIED;
     if (self && (flags & CONTEXT_DEBUG_REGISTERS)) self = FALSE;
 
     if (!self)
@@ -405,7 +413,8 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
  */
 NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
 {
-    struct syscall_frame *frame = get_syscall_frame();
+    struct thread_data *data = get_thread_data();
+    struct syscall_frame *frame = get_syscall_frame( data );
     DWORD needed_flags = context->ContextFlags & ~CONTEXT_ARM64;
     BOOL self = (handle == GetCurrentThread());
 
@@ -414,6 +423,7 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
         NTSTATUS ret = get_thread_context( handle, context, &self, IMAGE_FILE_MACHINE_ARM64 );
         if (ret || !self) return ret;
     }
+    else if (!frame) return STATUS_ACCESS_DENIED;
 
     if (needed_flags & CONTEXT_INTEGER)
     {
@@ -697,13 +707,14 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
 /***********************************************************************
  *           setup_raise_exception
  */
-static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec, CONTEXT *context )
+static void setup_raise_exception( struct thread_data *data, ucontext_t *sigcontext,
+                                   EXCEPTION_RECORD *rec, CONTEXT *context )
 {
     struct exc_stack_layout *stack;
     void *stack_ptr = (void *)(SP_sig(sigcontext) & ~15);
     NTSTATUS status;
 
-    status = send_debug_event( rec, context, TRUE, TRUE );
+    status = send_debug_event( data, rec, context, TRUE, TRUE );
     if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
     {
         restore_context( context, sigcontext );
@@ -713,29 +724,14 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     /* fix up instruction pointer in context for EXCEPTION_BREAKPOINT */
     if (rec->ExceptionCode == EXCEPTION_BREAKPOINT) context->Pc -= 4;
 
-    stack = virtual_setup_exception( stack_ptr, sizeof(*stack), rec );
+    stack = virtual_setup_exception( data, stack_ptr, sizeof(*stack), rec );
     stack->rec = *rec;
     stack->context = *context;
     context_init_empty_xstate( &stack->context, stack->redzone );
 
     SP_sig(sigcontext) = (ULONG_PTR)stack;
     PC_sig(sigcontext) = (ULONG_PTR)pKiUserExceptionDispatcher;
-    REGn_sig(18, sigcontext) = (ULONG_PTR)NtCurrentTeb();
-}
-
-
-/***********************************************************************
- *           setup_exception
- *
- * Modify the signal context to call the exception raise function.
- */
-static void setup_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec )
-{
-    CONTEXT context;
-
-    rec->ExceptionAddress = (void *)PC_sig(sigcontext);
-    save_context( &context, sigcontext );
-    setup_raise_exception( sigcontext, rec, &context );
+    REGn_sig(18, sigcontext) = (ULONG_PTR)data->teb;
 }
 
 
@@ -745,7 +741,8 @@ static void setup_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec )
 NTSTATUS call_user_apc_dispatcher( CONTEXT *context, unsigned int flags, ULONG_PTR arg1, ULONG_PTR arg2, ULONG_PTR arg3,
                                    PNTAPCFUNC func, NTSTATUS status )
 {
-    struct syscall_frame *frame = get_syscall_frame();
+    struct thread_data *data = get_thread_data();
+    struct syscall_frame *frame = get_syscall_frame( data );
     ULONG64 sp = context ? context->Sp : frame->sp;
     struct apc_stack_layout *stack;
 
@@ -781,18 +778,18 @@ NTSTATUS call_user_apc_dispatcher( CONTEXT *context, unsigned int flags, ULONG_P
 /***********************************************************************
  *           call_raise_user_exception_dispatcher
  */
-void call_raise_user_exception_dispatcher(void)
+void call_raise_user_exception_dispatcher( struct thread_data *data )
 {
-    get_syscall_frame()->pc = (UINT64)pKiRaiseUserExceptionDispatcher;
+    get_syscall_frame(data)->pc = (UINT64)pKiRaiseUserExceptionDispatcher;
 }
 
 
 /***********************************************************************
  *           call_user_exception_dispatcher
  */
-NTSTATUS call_user_exception_dispatcher( EXCEPTION_RECORD *rec, CONTEXT *context )
+NTSTATUS call_user_exception_dispatcher( struct thread_data *data, EXCEPTION_RECORD *rec, CONTEXT *context )
 {
-    struct syscall_frame *frame = get_syscall_frame();
+    struct syscall_frame *frame = get_syscall_frame( data );
     struct exc_stack_layout *stack;
     NTSTATUS status = NtSetContextThread( GetCurrentThread(), context );
 
@@ -964,12 +961,12 @@ __ASM_GLOBAL_FUNC( user_mode_abort_thread,
  */
 NTSTATUS KeUserModeCallback( ULONG id, const void *args, ULONG len, void **ret_ptr, ULONG *ret_len )
 {
-    struct syscall_frame *frame = get_syscall_frame();
+    struct thread_data *data = get_thread_data();
+    struct syscall_frame *frame = get_syscall_frame( data );
     ULONG64 sp = (frame->sp - offsetof( struct callback_stack_layout, args_data[len] ) - 16) & ~15;
     struct callback_stack_layout *stack = (struct callback_stack_layout *)sp;
 
-    if ((char *)ntdll_get_thread_data()->kernel_stack + min_kernel_stack > (char *)&frame)
-        return STATUS_STACK_OVERFLOW;
+    if ((char *)get_kernel_stack( data ) + min_kernel_stack > (char *)&frame) return STATUS_STACK_OVERFLOW;
 
     stack->args = stack->args_data;
     stack->len  = len;
@@ -978,7 +975,7 @@ NTSTATUS KeUserModeCallback( ULONG id, const void *args, ULONG len, void **ret_p
     stack->sp   = frame->sp;
     stack->pc   = frame->pc;
     memcpy( stack->args_data, args, len );
-    return call_user_mode_callback( sp, ret_ptr, ret_len, pKiUserCallbackDispatcher, NtCurrentTeb() );
+    return call_user_mode_callback( sp, ret_ptr, ret_len, pKiUserCallbackDispatcher, data->teb );
 }
 
 
@@ -987,8 +984,11 @@ NTSTATUS KeUserModeCallback( ULONG id, const void *args, ULONG len, void **ret_p
  */
 NTSTATUS WINAPI NtCallbackReturn( void *ret_ptr, ULONG ret_len, NTSTATUS status )
 {
-    if (!get_syscall_frame()->prev_frame) return STATUS_NO_CALLBACK_ACTIVE;
-    user_mode_callback_return( ret_ptr, ret_len, status, NtCurrentTeb() );
+    struct thread_data *data = get_thread_data();
+    struct syscall_frame *frame = get_syscall_frame( data );
+
+    if (!frame->prev_frame) return STATUS_NO_CALLBACK_ACTIVE;
+    user_mode_callback_return( ret_ptr, ret_len, status, data->teb );
 }
 
 
@@ -997,16 +997,15 @@ NTSTATUS WINAPI NtCallbackReturn( void *ret_ptr, ULONG ret_len, NTSTATUS status 
  *
  * Handle a page fault happening during a system call.
  */
-static BOOL handle_syscall_fault( ucontext_t *context, EXCEPTION_RECORD *rec )
+static BOOL handle_syscall_fault( struct thread_data *data, ucontext_t *context, EXCEPTION_RECORD *rec )
 {
-    struct syscall_frame *frame = get_syscall_frame();
+    struct syscall_frame *frame;
     DWORD i;
 
-    if (!is_inside_syscall( SP_sig(context) )) return FALSE;
+    if (!is_inside_syscall( data, SP_sig(context) )) return FALSE;
 
-    TRACE( "code=%x flags=%x addr=%p pc=%p tid=%04x\n",
-           rec->ExceptionCode, rec->ExceptionFlags, rec->ExceptionAddress,
-           (void *)PC_sig(context), GetCurrentThreadId() );
+    TRACE( "code=%x flags=%x addr=%p pc=%p\n",
+           rec->ExceptionCode, rec->ExceptionFlags, rec->ExceptionAddress, (void *)PC_sig(context) );
     for (i = 0; i < rec->NumberParameters; i++)
         TRACE( " info[%d]=%016lx\n", i, rec->ExceptionInformation[i] );
 
@@ -1035,23 +1034,25 @@ static BOOL handle_syscall_fault( ucontext_t *context, EXCEPTION_RECORD *rec )
           (DWORD64)REGn_sig(28, context), (DWORD64)FP_sig(context),
           (DWORD64)LR_sig(context), (DWORD64)SP_sig(context) );
 
-    if (ntdll_get_thread_data()->jmp_buf)
+    if (data->jmp_buf)
     {
         TRACE( "returning to handler\n" );
-        REGn_sig(0, context) = (ULONG_PTR)ntdll_get_thread_data()->jmp_buf;
+        REGn_sig(0, context) = (ULONG_PTR)data->jmp_buf;
         REGn_sig(1, context) = 1;
         PC_sig(context)      = (ULONG_PTR)longjmp;
-        ntdll_get_thread_data()->jmp_buf = NULL;
+        data->jmp_buf = NULL;
+        return TRUE;
     }
-    else
+    if ((frame = get_syscall_frame( data )))
     {
         TRACE( "returning to user mode ip=%p ret=%08x\n", (void *)frame->pc, rec->ExceptionCode );
         REGn_sig(0, context)  = rec->ExceptionCode;
-        REGn_sig(18, context) = (ULONG_PTR)NtCurrentTeb();
+        REGn_sig(18, context) = (ULONG_PTR)data->teb;
         SP_sig(context)       = (ULONG_PTR)frame;
         PC_sig(context)       = (ULONG_PTR)__wine_syscall_dispatcher_return;
+        return TRUE;
     }
-    return TRUE;
+    return FALSE;
 }
 
 
@@ -1060,20 +1061,25 @@ static BOOL handle_syscall_fault( ucontext_t *context, EXCEPTION_RECORD *rec )
  *
  * Handler for SIGSEGV.
  */
-static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void segv_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    EXCEPTION_RECORD rec = { 0 };
-    ucontext_t *context = sigcontext;
-    DWORD64 esr = get_fault_esr( context );
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
+    CONTEXT context;
+    EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)PC_sig(sigcontext) };
+    DWORD64 esr = get_fault_esr( sigcontext );
 
     rec.NumberParameters = 2;
     if ((esr & 0xf0000000) == 0x80000000) rec.ExceptionInformation[0] = EXCEPTION_EXECUTE_FAULT;
     else if (esr & 0x40) rec.ExceptionInformation[0] = EXCEPTION_WRITE_FAULT;
     else rec.ExceptionInformation[0] = EXCEPTION_READ_FAULT;
     rec.ExceptionInformation[1] = (ULONG_PTR)siginfo->si_addr;
-    if (!virtual_handle_fault( &rec, (void *)SP_sig(context) )) return;
-    if (handle_syscall_fault( context, &rec )) return;
-    setup_exception( context, &rec );
+
+    if (!virtual_handle_fault( data, &rec, (void *)SP_sig(sigcontext) )) return;
+    if (handle_syscall_fault( data, sigcontext, &rec )) return;
+
+    save_context( &context, sigcontext );
+    setup_raise_exception( data, sigcontext, &rec, &context );
 }
 
 
@@ -1082,26 +1088,30 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGILL.
  */
-static void ill_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void ill_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    EXCEPTION_RECORD rec = { EXCEPTION_ILLEGAL_INSTRUCTION };
-    ucontext_t *context = sigcontext;
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
+    CONTEXT context;
+    EXCEPTION_RECORD rec = { .ExceptionCode = EXCEPTION_ILLEGAL_INSTRUCTION,
+                             .ExceptionAddress = (void *)PC_sig(sigcontext) };
 
-    if (!(PSTATE_sig( context ) & 0x10) && /* AArch64 (not WoW) */
-        !(PC_sig( context ) & 3))
+    if (!(PSTATE_sig( sigcontext ) & 0x10) && /* AArch64 (not WoW) */
+        !(PC_sig( sigcontext ) & 3))
     {
-        ULONG instr = *(ULONG *)PC_sig( context );
+        ULONG instr = *(ULONG *)PC_sig( sigcontext );
         /* emulate mrs xN, CurrentEL */
         if ((instr & ~0x1f) == 0xd5384240) {
             ULONG reg = instr & 0x1f;
             /* ignore writes to xzr */
-            if (reg != 31) REGn_sig(reg, context) = 0;
-            PC_sig(context) += 4;
+            if (reg != 31) REGn_sig(reg, sigcontext) = 0;
+            PC_sig(sigcontext) += 4;
             return;
         }
     }
 
-    setup_exception( sigcontext, &rec );
+    save_context( &context, sigcontext );
+    setup_raise_exception( data, sigcontext, &rec, &context );
 }
 
 
@@ -1110,11 +1120,16 @@ static void ill_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGBUS.
  */
-static void bus_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void bus_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    EXCEPTION_RECORD rec = { EXCEPTION_DATATYPE_MISALIGNMENT };
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
+    CONTEXT context;
+    EXCEPTION_RECORD rec = { .ExceptionCode = EXCEPTION_DATATYPE_MISALIGNMENT,
+                             .ExceptionAddress = (void *)PC_sig(sigcontext) };
 
-    setup_exception( sigcontext, &rec );
+    save_context( &context, sigcontext );
+    setup_raise_exception( data, sigcontext, &rec, &context );
 }
 
 
@@ -1123,58 +1138,65 @@ static void bus_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGTRAP.
  */
-static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void trap_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    EXCEPTION_RECORD rec = { 0 };
-    ucontext_t *context = sigcontext;
-    CONTEXT ctx;
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
+    CONTEXT context;
+    EXCEPTION_RECORD rec = { .ExceptionCode = EXCEPTION_ILLEGAL_INSTRUCTION,
+                             .ExceptionAddress = (void *)PC_sig(sigcontext) };
+    DWORD64 esr = 0;
 
-    rec.ExceptionAddress = (void *)PC_sig(context);
-    save_context( &ctx, sigcontext );
+    save_context( &context, sigcontext );
 
+#ifdef linux
+    /* Only SIGSEGV/SIGBUS expose ESR, synthesize it instead. */
     switch (siginfo->si_code)
     {
     case TRAP_TRACE:
-        rec.ExceptionCode = EXCEPTION_SINGLE_STEP;
+        esr = make_esr( 0x33, 0 );
         break;
     case TRAP_BRKPT:
-        /* debug exceptions do not update ESR on Linux, so we fetch the instruction directly. */
-        if (!(PSTATE_sig( context ) & 0x10) && /* AArch64 (not WoW) */
-            !(PC_sig( context ) & 3))
-        {
-            ULONG imm = (*(ULONG *)PC_sig( context ) >> 5) & 0xffff;
-            switch (imm)
-            {
-            case 0xf000:
-                ctx.Pc += 4;  /* skip the brk instruction */
-                rec.ExceptionCode = EXCEPTION_BREAKPOINT;
-                rec.NumberParameters = 1;
-                break;
-            case 0xf001:
-                rec.ExceptionCode = STATUS_ASSERTION_FAILURE;
-                break;
-            case 0xf003:
-                rec.ExceptionCode = STATUS_STACK_BUFFER_OVERRUN;
-                rec.ExceptionFlags = EXCEPTION_NONCONTINUABLE;
-                rec.NumberParameters = 1;
-                rec.ExceptionInformation[0] = ctx.X[0];
-                NtRaiseException( &rec, &ctx, FALSE );
-                break;
-            case 0xf004:
-                rec.ExceptionCode = EXCEPTION_INT_DIVIDE_BY_ZERO;
-                break;
-            default:
-                rec.ExceptionCode = EXCEPTION_ILLEGAL_INSTRUCTION;
-                break;
-            }
-        }
+        if (!(PSTATE_sig( sigcontext ) & 0x10) && /* AArch64 (not WoW) */
+            !(PC_sig( sigcontext ) & 3))
+            esr = make_esr( 0x3c, *(ULONG *)PC_sig( sigcontext ) >> 5 );
         break;
-    default:
-        rec.ExceptionCode = EXCEPTION_ILLEGAL_INSTRUCTION;
+    }
+#else
+    esr = get_fault_esr( sigcontext );
+#endif
+
+    switch ((esr >> 26) & 0x3c)
+    {
+    case 0x30: /* software step */
+        rec.ExceptionCode = EXCEPTION_SINGLE_STEP;
+        break;
+    case 0x3c: /* bkpt */
+        switch (esr & 0xffff)
+        {
+        case 0xf000:
+            context.Pc += 4;  /* skip the brk instruction */
+            rec.ExceptionCode = EXCEPTION_BREAKPOINT;
+            rec.NumberParameters = 1;
+            break;
+        case 0xf001:
+            rec.ExceptionCode = STATUS_ASSERTION_FAILURE;
+            break;
+        case 0xf003:
+            rec.ExceptionCode = STATUS_STACK_BUFFER_OVERRUN;
+            rec.ExceptionFlags = EXCEPTION_NONCONTINUABLE;
+            rec.NumberParameters = 1;
+            rec.ExceptionInformation[0] = context.X[0];
+            NtRaiseException( &rec, &context, FALSE );
+            break;
+        case 0xf004:
+            rec.ExceptionCode = EXCEPTION_INT_DIVIDE_BY_ZERO;
+            break;
+        }
         break;
     }
 
-    setup_raise_exception( sigcontext, &rec, &ctx );
+    setup_raise_exception( data, sigcontext, &rec, &context );
 }
 
 /**********************************************************************
@@ -1182,9 +1204,12 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGFPE.
  */
-static void fpe_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void fpe_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    EXCEPTION_RECORD rec = { 0 };
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
+    CONTEXT context;
+    EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)PC_sig(sigcontext) };
 
     switch (siginfo->si_code & 0xffff )
     {
@@ -1230,7 +1255,8 @@ static void fpe_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         rec.ExceptionCode = EXCEPTION_FLT_INVALID_OPERATION;
         break;
     }
-    setup_exception( sigcontext, &rec );
+    save_context( &context, sigcontext );
+    setup_raise_exception( data, sigcontext, &rec, &context );
 }
 
 
@@ -1239,7 +1265,7 @@ static void fpe_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGINT.
  */
-static void int_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void int_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
     HANDLE handle;
 
@@ -1255,11 +1281,17 @@ static void int_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGABRT.
  */
-static void abrt_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void abrt_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    EXCEPTION_RECORD rec = { EXCEPTION_WINE_ASSERTION, EXCEPTION_NONCONTINUABLE };
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
+    CONTEXT context;
+    EXCEPTION_RECORD rec = { .ExceptionCode = EXCEPTION_WINE_ASSERTION,
+                             .ExceptionFlags = EXCEPTION_NONCONTINUABLE,
+                             .ExceptionAddress = (void *)PC_sig(sigcontext) };
 
-    setup_exception( sigcontext, &rec );
+    save_context( &context, sigcontext );
+    setup_raise_exception( data, sigcontext, &rec, &context );
 }
 
 
@@ -1268,12 +1300,13 @@ static void abrt_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGQUIT.
  */
-static void quit_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void quit_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    ucontext_t *context = sigcontext;
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
 
-    if (!is_inside_syscall( SP_sig(context) )) user_mode_abort_thread( 0, get_syscall_frame() );
-    abort_thread(0);
+    if (is_inside_syscall( data, SP_sig(sigcontext) )) abort_thread(0);
+    user_mode_abort_thread( 0, get_syscall_frame( data ));
 }
 
 
@@ -1282,12 +1315,17 @@ static void quit_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGUSR1, used to signal a thread that it got suspended.
  */
-static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void usr1_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    ucontext_t *ucontext = sigcontext;
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
     CONTEXT context;
 
-    if (is_inside_syscall( SP_sig(ucontext) ))
+    if (!data->teb)
+    {
+        server_select( NULL, 0, SELECT_INTERRUPTIBLE, 0, NULL, NULL );
+    }
+    else if (is_inside_syscall( data, SP_sig(sigcontext) ))
     {
         context.ContextFlags = CONTEXT_FULL | CONTEXT_EXCEPTION_REQUEST;
         NtGetContextThread( GetCurrentThread(), &context );
@@ -1296,10 +1334,10 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     }
     else
     {
-        save_context( &context, ucontext );
+        save_context( &context, sigcontext );
         context.ContextFlags |= CONTEXT_EXCEPTION_REPORTING;
         wait_suspend( &context );
-        restore_context( &context, ucontext );
+        restore_context( &context, sigcontext );
     }
 }
 
@@ -1309,20 +1347,22 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGUSR2, used to set a thread context.
  */
-static void usr2_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+static void usr2_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
 {
-    struct syscall_frame *frame = get_syscall_frame();
-    ucontext_t *context = sigcontext;
+    ucontext_t *sigcontext = _sigcontext;
+    struct thread_data *data = get_thread_data();
+    struct syscall_frame *frame = get_syscall_frame( data );
     DWORD i;
 
-    if (!is_inside_syscall( SP_sig(context) )) return;
+    if (!is_inside_syscall( data, SP_sig(sigcontext) )) return;
+    if (!frame) return;
 
-    FP_sig(context)     = frame->fp;
-    LR_sig(context)     = frame->lr;
-    SP_sig(context)     = frame->sp;
-    PC_sig(context)     = frame->pc;
-    PSTATE_sig(context) = frame->cpsr;
-    for (i = 0; i <= 28; i++) REGn_sig( i, context ) = frame->x[i];
+    FP_sig(sigcontext)     = frame->fp;
+    LR_sig(sigcontext)     = frame->lr;
+    SP_sig(sigcontext)     = frame->sp;
+    PC_sig(sigcontext)     = frame->pc;
+    PSTATE_sig(sigcontext) = frame->cpsr;
+    for (i = 0; i <= 28; i++) REGn_sig( i, sigcontext ) = frame->x[i];
 
 #ifdef linux
     {
@@ -1335,9 +1375,9 @@ static void usr2_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         }
     }
 #elif defined(__APPLE__)
-    context->uc_mcontext->__ns.__fpcr = frame->fpcr;
-    context->uc_mcontext->__ns.__fpsr = frame->fpsr;
-    memcpy( context->uc_mcontext->__ns.__v, frame->v, sizeof(frame->v) );
+    sigcontext->uc_mcontext->__ns.__fpcr = frame->fpcr;
+    sigcontext->uc_mcontext->__ns.__fpsr = frame->fpsr;
+    memcpy( sigcontext->uc_mcontext->__ns.__v, frame->v, sizeof(frame->v) );
 #endif
 }
 
@@ -1348,14 +1388,6 @@ static void usr2_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATION *info, ULONG len )
 {
     return STATUS_NOT_IMPLEMENTED;
-}
-
-
-/**********************************************************************
- *             signal_init_threading
- */
-void signal_init_threading(void)
-{
 }
 
 
@@ -1379,15 +1411,12 @@ void signal_free_thread( TEB *teb )
 /**********************************************************************
  *		signal_init_process
  */
-void signal_init_process(void)
+void signal_init_process( TEB *teb )
 {
     struct sigaction sig_act;
-    struct ntdll_thread_data *thread_data = ntdll_get_thread_data();
-    void *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
 
-    thread_data->syscall_frame = (struct syscall_frame *)kernel_stack - 1;
-
-    signal_alloc_thread( NtCurrentTeb() );
+    alloc_syscall_frame( sizeof(struct syscall_frame) );
+    signal_alloc_thread( teb );
 
     sig_act.sa_mask = server_block_set;
     sig_act.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
@@ -1431,9 +1460,10 @@ void syscall_dispatcher_return_slowpath(void)
 /***********************************************************************
  *           init_syscall_frame
  */
-void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, TEB *teb )
+void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, TEB *teb )
 {
-    struct syscall_frame *frame = ((struct ntdll_thread_data *)&teb->GdiTebBatch)->syscall_frame;
+    struct thread_data *data = get_thread_data();
+    struct syscall_frame *frame = get_syscall_frame( data );
     CONTEXT *ctx, context = { CONTEXT_ALL };
     I386_CONTEXT *i386_context;
     ARM_CONTEXT *arm_context;
@@ -1473,7 +1503,7 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
         if (arm_context->Pc & 1) arm_context->Cpsr |= 0x20; /* thumb mode */
     }
 
-    if (suspend)
+    if (data->suspend)
     {
         context.ContextFlags |= CONTEXT_EXCEPTION_REPORTING | CONTEXT_EXCEPTION_ACTIVE;
         wait_suspend( &context );
@@ -1521,10 +1551,10 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
                    __ASM_CFI(".cfi_rel_offset 28,0x58\n\t")
                    "add x5, x29, #0xc0\n\t"     /* syscall_cfa */
                    /* set syscall frame */
-                   "ldr x4, [x3, #0x378]\n\t"   /* thread_data->syscall_frame */
+                   "ldr x4, [x2, #0x378]\n\t"   /* thread_data->syscall_frame */
                    "cbnz x4, 1f\n\t"
                    "sub x4, sp, #0x330\n\t"     /* sizeof(struct syscall_frame) */
-                   "str x4, [x3, #0x378]\n\t"   /* thread_data->syscall_frame */
+                   "str x4, [x2, #0x378]\n\t"   /* thread_data->syscall_frame */
                    "1:\tstr wzr, [x4, #0x10c]\n\t" /* frame->restore_flags */
                    "stp xzr, x5, [x4, #0x110]\n\t" /* frame->prev_frame,syscall_cfa */
                    /* switch to kernel stack */

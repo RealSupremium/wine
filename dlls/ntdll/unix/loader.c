@@ -1301,7 +1301,7 @@ NTSTATUS load_builtin( struct pe_mapping_info *pe_mapping, USHORT machine,
  */
 NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret )
 {
-    unsigned int i, pos, namepos, maxlen = 0;
+    unsigned int i, pos, maxlen = 0;
     unsigned int len = nt_name->Length / sizeof(WCHAR);
     const char *so_dir = get_so_dir( current_machine );
     char *ptr = NULL, *file, *ext = NULL;
@@ -1309,8 +1309,7 @@ NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret 
 
     if (!len) return STATUS_DLL_NOT_FOUND;
 
-    for (i = namepos = 0; i < len; i++)
-        if (nt_name->Buffer[i] == '/' || nt_name->Buffer[i] == '\\') break;
+    for (i = 0; i < len; i++) if (nt_name->Buffer[i] == '/' || nt_name->Buffer[i] == '\\') break;
 
     if (i < len)  /* explicit path */
     {
@@ -1330,17 +1329,17 @@ NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret 
     if (!(file = malloc( maxlen ))) return STATUS_NO_MEMORY;
 
     pos = maxlen - len - 4;
+    ext = file + pos + len;
     /* we don't want to depend on the current codepage here */
     for (i = 0; i < len; i++)
     {
-        if (nt_name->Buffer[namepos + i] > 127) goto done;
-        file[pos + i] = (char)nt_name->Buffer[namepos + i];
+        if (nt_name->Buffer[i] > 127) goto done;
+        file[pos + i] = (char)nt_name->Buffer[i];
         if (file[pos + i] >= 'A' && file[pos + i] <= 'Z') file[pos + i] += 'a' - 'A';
         else if (file[pos + i] == '.') ext = file + pos + i;
     }
     file[pos + len] = 0;
     file[--pos] = '/';
-    if (!ext) ext = file + pos + len;
 
     if (build_dir)
     {
@@ -1859,7 +1858,6 @@ static void start_main_thread(void)
 {
     TEB *teb = virtual_alloc_first_teb();
 
-    signal_init_threading();
     dbg_init();
     startup_info_size = server_init_process();
     virtual_map_user_shared_data();
@@ -1887,12 +1885,13 @@ DECLSPEC_EXPORT jobject java_object = 0;
 DECLSPEC_EXPORT unsigned short java_gdt_sel = 0;
 
 /* main Wine initialisation */
-static jstring wine_init_jni( JNIEnv *env, jobject obj, jobjectArray cmdline, jobjectArray environment )
+static jstring wine_init_jni( JNIEnv *env, jobject obj, jobjectArray cmdline )
 {
     char **argv;
     char *str;
-    char error[1024];
+    char error[1024], *winedebuglog = NULL;
     int i, argc, length;
+    void (*update_func)( const char * );
 
     /* get the command line array */
 
@@ -1919,39 +1918,19 @@ static jstring wine_init_jni( JNIEnv *env, jobject obj, jobjectArray cmdline, jo
 
     /* set the environment variables */
 
-    if (environment)
+    // Activity always modifies LD_LIBRARY_PATH in order to load libraries
+    // from custom location in JVM process.
+    update_func = dlsym( RTLD_DEFAULT, "android_update_LD_LIBRARY_PATH" );
+    if (update_func) update_func( getenv("LD_LIBRARY_PATH") );
+
+    winedebuglog = getenv("WINEDEBUGLOG");
+    if (winedebuglog)
     {
-        int count = (*env)->GetArrayLength( env, environment );
-        for (i = 0; i < count - 1; i += 2)
+        int fd = open( winedebuglog, O_WRONLY | O_CREAT | O_APPEND, 0666 );
+        if (fd != -1)
         {
-            jobject var_obj = (*env)->GetObjectArrayElement( env, environment, i );
-            jobject val_obj = (*env)->GetObjectArrayElement( env, environment, i + 1 );
-            const char *var = (*env)->GetStringUTFChars( env, var_obj, NULL );
-
-            if (val_obj)
-            {
-                const char *val = (*env)->GetStringUTFChars( env, val_obj, NULL );
-                setenv( var, val, 1 );
-                if (!strcmp( var, "LD_LIBRARY_PATH" ))
-                {
-                    void (*update_func)( const char * ) = dlsym( RTLD_DEFAULT,
-                                                                 "android_update_LD_LIBRARY_PATH" );
-                    if (update_func) update_func( val );
-                }
-                else if (!strcmp( var, "WINEDEBUGLOG" ))
-                {
-                    int fd = open( val, O_WRONLY | O_CREAT | O_APPEND, 0666 );
-                    if (fd != -1)
-                    {
-                        dup2( fd, 2 );
-                        close( fd );
-                    }
-                }
-                (*env)->ReleaseStringUTFChars( env, val_obj, val );
-            }
-            else unsetenv( var );
-
-            (*env)->ReleaseStringUTFChars( env, var_obj, var );
+            dup2( fd, 2 );
+            close( fd );
         }
     }
 
@@ -1982,7 +1961,7 @@ jint JNI_OnLoad( JavaVM *vm, void *reserved )
 {
     static const JNINativeMethod method =
     {
-        "wine_init", "([Ljava/lang/String;[Ljava/lang/String;)Ljava/lang/String;", wine_init_jni
+        "wine_init", "([Ljava/lang/String;)Ljava/lang/String;", wine_init_jni
     };
 
     JNIEnv *env;

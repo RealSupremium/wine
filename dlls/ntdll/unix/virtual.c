@@ -167,6 +167,7 @@ static const BYTE VIRTUAL_Win32Flags[16] =
 
 static struct wine_rb_tree views_tree;
 static pthread_mutex_t virtual_mutex;
+pthread_key_t thread_data_key = 0;
 
 static const UINT page_shift = 12;
 static const UINT_PTR page_mask = 0xfff;
@@ -3732,6 +3733,16 @@ ULONG_PTR get_system_affinity_mask(void)
     return ((ULONG_PTR)1 << num_cpus) - 1;
 }
 
+
+/***********************************************************************
+ *           get_host_page_size
+ */
+UINT_PTR get_host_page_size(void)
+{
+    return host_page_size;
+}
+
+
 /***********************************************************************
  *           virtual_get_system_info
  */
@@ -3979,7 +3990,6 @@ NTSTATUS virtual_relocate_module( void *module )
 /* set some initial values in a new TEB */
 static TEB *init_teb( void *ptr, BOOL is_wow )
 {
-    struct ntdll_thread_data *thread_data;
     TEB *teb;
     TEB64 *teb64 = ptr;
     TEB32 *teb32 = (TEB32 *)((char *)ptr + teb_offset);
@@ -4024,13 +4034,6 @@ static TEB *init_teb( void *ptr, BOOL is_wow )
     InitializeListHead( &teb->ActivationContextStack.FrameListCache );
     teb->StaticUnicodeString.Buffer = teb->StaticUnicodeBuffer;
     teb->StaticUnicodeString.MaximumLength = sizeof(teb->StaticUnicodeBuffer);
-    thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
-    thread_data->request_fd = -1;
-    thread_data->reply_fd   = -1;
-    thread_data->wait_fd[0] = -1;
-    thread_data->wait_fd[1] = -1;
-    thread_data->alert_fd   = -1;
-    list_add_head( &teb_list, &thread_data->entry );
     return teb;
 }
 
@@ -4044,8 +4047,9 @@ TEB *virtual_alloc_first_teb(void)
     TEB *teb;
     unsigned int status;
     SIZE_T data_size = page_size;
-    SIZE_T block_size = signal_stack_mask + 1;
+    SIZE_T block_size = 4 * page_size;
     SIZE_T total = 32 * block_size;
+    struct thread_data *thread_data;
 
     /* reserve space for shared user data */
     status = NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&user_shared_data, 0, &data_size,
@@ -4064,8 +4068,12 @@ TEB *virtual_alloc_first_teb(void)
     NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&ptr, 0, &data_size, MEM_COMMIT, PAGE_READWRITE );
     peb = (PEB *)((char *)teb_block + 31 * block_size + (is_win64 ? 0 : page_size));
     teb = init_teb( ptr, FALSE );
-    pthread_key_create( &teb_key, NULL );
-    pthread_setspecific( teb_key, teb );
+
+    thread_data = virtual_alloc_thread_data();
+    thread_data->teb = teb;
+    list_add_head( &teb_list, &thread_data->entry );
+    pthread_key_create( &thread_data_key, NULL );
+    pthread_setspecific( thread_data_key, thread_data );
     return teb;
 }
 
@@ -4073,20 +4081,19 @@ TEB *virtual_alloc_first_teb(void)
 /***********************************************************************
  *           virtual_alloc_teb
  */
-NTSTATUS virtual_alloc_teb( TEB **ret_teb )
+NTSTATUS virtual_alloc_teb( struct thread_data *data )
 {
     sigset_t sigset;
-    TEB *teb;
     void *ptr = NULL;
     NTSTATUS status = STATUS_SUCCESS;
-    SIZE_T block_size = signal_stack_mask + 1;
+    SIZE_T block_size = 4 * page_size;
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
     if (next_free_teb)
     {
         ptr = next_free_teb;
         next_free_teb = *(void **)ptr;
-        memset( ptr, 0, teb_size );
+        memset( ptr, 0, block_size );
     }
     else
     {
@@ -4107,9 +4114,10 @@ NTSTATUS virtual_alloc_teb( TEB **ret_teb )
         NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&ptr, 0, &block_size,
                                  MEM_COMMIT, PAGE_READWRITE );
     }
-    *ret_teb = teb = init_teb( ptr, is_wow64() );
+    data->teb = init_teb( ptr, is_wow64() );
+    list_add_head( &teb_list, &data->entry );
 
-    if ((status = signal_alloc_thread( teb )))
+    if ((status = signal_alloc_thread( data->teb )))
     {
         *(void **)ptr = next_free_teb;
         next_free_teb = ptr;
@@ -4120,15 +4128,48 @@ NTSTATUS virtual_alloc_teb( TEB **ret_teb )
 
 
 /***********************************************************************
- *           virtual_free_teb
+ *           virtual_alloc_thread_data
  */
-void virtual_free_teb( TEB *teb )
+struct thread_data *virtual_alloc_thread_data(void)
 {
-    struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
+    NTSTATUS status;
+    sigset_t sigset;
+    struct file_view *view;
+    struct thread_data *data = NULL;
+    SIZE_T size = signal_stack_mask + 1 + kernel_stack_size;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    status = map_view( &view, NULL, size, 0, VPROT_READ | VPROT_WRITE | VPROT_COMMITTED, limit_4g, 0, 0 );
+    if (!status)
+    {
+        data = view->base;
+        data->request_fd = -1;
+        data->reply_fd   = -1;
+        data->wait_fd[0] = -1;
+        data->wait_fd[1] = -1;
+        data->alert_fd   = -1;
+#ifdef VALGRIND_STACK_REGISTER
+        VALGRIND_STACK_REGISTER( (char *)data + signal_stack_mask + 1, (char *)data + view->size );
+#endif
+        VIRTUAL_DEBUG_DUMP_VIEW( view );
+    }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return data;
+}
+
+
+/***********************************************************************
+ *           virtual_free_thread_data
+ */
+void virtual_free_thread_data( struct thread_data *data )
+{
+    TEB *teb;
     void *ptr;
     SIZE_T size;
     sigset_t sigset;
-    WOW_TEB *wow_teb = get_wow_teb( teb );
+    WOW_TEB *wow_teb;
+
+    if (!(teb = data->teb)) goto done;
 
     if (teb->DeallocationStack)
     {
@@ -4142,12 +4183,7 @@ void virtual_free_teb( TEB *teb )
         NtFreeVirtualMemory( GetCurrentProcess(), (void **)&teb->ChpeV2CpuAreaInfo, &size, MEM_RELEASE );
     }
 #endif
-    if (thread_data->kernel_stack)
-    {
-        size = 0;
-        NtFreeVirtualMemory( GetCurrentProcess(), &thread_data->kernel_stack, &size, MEM_RELEASE );
-    }
-    if (wow_teb && (ptr = ULongToPtr( wow_teb->DeallocationStack )))
+    if ((wow_teb = get_wow_teb( teb )) && (ptr = ULongToPtr( wow_teb->DeallocationStack )))
     {
         size = 0;
         NtFreeVirtualMemory( GetCurrentProcess(), &ptr, &size, MEM_RELEASE );
@@ -4155,12 +4191,17 @@ void virtual_free_teb( TEB *teb )
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
     signal_free_thread( teb );
-    list_remove( &thread_data->entry );
+    list_remove( &data->entry );
     ptr = teb;
     if (!is_win64) ptr = (char *)ptr - teb_offset;
     *(void **)ptr = next_free_teb;
     next_free_teb = ptr;
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+
+ done:
+    size = 0;
+    ptr = data;
+    NtFreeVirtualMemory( GetCurrentProcess(), &ptr, &size, MEM_RELEASE );
 }
 
 
@@ -4218,7 +4259,7 @@ NTSTATUS ldt_get_entry( WORD sel, CLIENT_ID client_id, LDT_ENTRY *entry )
     struct ldt_bits bits = { 0 };
     unsigned int idx = sel >> 3;
 
-    if (client_id.UniqueProcess == NtCurrentTeb()->ClientId.UniqueProcess)
+    if (HandleToULong(client_id.UniqueProcess) == pid)
     {
         if (ldt_copy)
         {
@@ -4306,15 +4347,15 @@ NTSTATUS WINAPI NtSetLdtEntries( ULONG sel1, ULONG entry1_low, ULONG entry1_high
  */
 NTSTATUS virtual_clear_tls_index( ULONG index )
 {
-    struct ntdll_thread_data *thread_data;
+    struct thread_data *data;
     sigset_t sigset;
 
     if (index < TLS_MINIMUM_AVAILABLE)
     {
         server_enter_uninterrupted_section( &virtual_mutex, &sigset );
-        LIST_FOR_EACH_ENTRY( thread_data, &teb_list, struct ntdll_thread_data, entry )
+        LIST_FOR_EACH_ENTRY( data, &teb_list, struct thread_data, entry )
         {
-            TEB *teb = CONTAINING_RECORD( thread_data, TEB, GdiTebBatch );
+            TEB *teb = data->teb;
 #ifdef _WIN64
             WOW_TEB *wow_teb = get_wow_teb( teb );
             if (wow_teb) wow_teb->TlsSlots[index] = 0;
@@ -4330,9 +4371,9 @@ NTSTATUS virtual_clear_tls_index( ULONG index )
         if (index >= 8 * sizeof(peb->TlsExpansionBitmapBits)) return STATUS_INVALID_PARAMETER;
 
         server_enter_uninterrupted_section( &virtual_mutex, &sigset );
-        LIST_FOR_EACH_ENTRY( thread_data, &teb_list, struct ntdll_thread_data, entry )
+        LIST_FOR_EACH_ENTRY( data, &teb_list, struct thread_data, entry )
         {
-            TEB *teb = CONTAINING_RECORD( thread_data, TEB, GdiTebBatch );
+            TEB *teb = data->teb;
 #ifdef _WIN64
             WOW_TEB *wow_teb = get_wow_teb( teb );
             if (wow_teb)
@@ -4494,12 +4535,13 @@ struct thread_stack_info
 /***********************************************************************
  *           is_inside_thread_stack
  */
-static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
+static BOOL is_inside_thread_stack( struct thread_data *data, void *ptr, struct thread_stack_info *stack )
 {
-    TEB *teb = NtCurrentTeb();
-    WOW_TEB *wow_teb = get_wow_teb( teb );
+    TEB *teb;
+    WOW_TEB *wow_teb;
     size_t min_guaranteed = max( page_size * (is_win64 ? 2 : 1), host_page_size );
 
+    if (!(teb = data->teb)) return FALSE;
     stack->start = teb->DeallocationStack;
     stack->limit = teb->Tib.StackLimit;
     stack->end   = teb->Tib.StackBase;
@@ -4507,7 +4549,7 @@ static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
     stack->is_wow = FALSE;
     if ((char *)ptr > stack->start && (char *)ptr <= stack->end) return TRUE;
 
-    if (!wow_teb) return FALSE;
+    if (!(wow_teb = get_wow_teb( teb ))) return FALSE;
     stack->start = ULongToPtr( wow_teb->DeallocationStack );
     stack->limit = ULongToPtr( wow_teb->Tib.StackLimit );
     stack->end   = ULongToPtr( wow_teb->Tib.StackBase );
@@ -4520,7 +4562,7 @@ static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
 /***********************************************************************
  *           grow_thread_stack
  */
-static NTSTATUS grow_thread_stack( char *page, struct thread_stack_info *stack_info )
+static NTSTATUS grow_thread_stack( struct thread_data *data, char *page, struct thread_stack_info *stack_info )
 {
     NTSTATUS ret = 0;
 
@@ -4540,10 +4582,10 @@ static NTSTATUS grow_thread_stack( char *page, struct thread_stack_info *stack_i
     }
     if (stack_info->is_wow)
     {
-        WOW_TEB *wow_teb = get_wow_teb( NtCurrentTeb() );
+        WOW_TEB *wow_teb = get_wow_teb( data->teb );
         wow_teb->Tib.StackLimit = PtrToUlong( page );
     }
-    else NtCurrentTeb()->Tib.StackLimit = page;
+    else data->teb->Tib.StackLimit = page;
     return ret;
 }
 
@@ -4551,7 +4593,7 @@ static NTSTATUS grow_thread_stack( char *page, struct thread_stack_info *stack_i
 /***********************************************************************
  *           virtual_handle_fault
  */
-NTSTATUS virtual_handle_fault( EXCEPTION_RECORD *rec, void *stack )
+NTSTATUS virtual_handle_fault( struct thread_data *data, EXCEPTION_RECORD *rec, void *stack )
 {
     NTSTATUS ret = STATUS_ACCESS_VIOLATION;
     ULONG_PTR err = rec->ExceptionInformation[0];
@@ -4571,22 +4613,22 @@ NTSTATUS virtual_handle_fault( EXCEPTION_RECORD *rec, void *stack )
     }
 #endif
 
-    if (!is_inside_signal_stack( stack ) && (vprot & VPROT_GUARD))
+    if (!is_inside_signal_stack( data, stack ) && (vprot & VPROT_GUARD))
     {
         struct thread_stack_info stack_info;
-        if (!is_inside_thread_stack( page, &stack_info ))
+        if (!is_inside_thread_stack( data, page, &stack_info ))
         {
             set_page_vprot_bits( page, host_page_size, 0, VPROT_GUARD );
             mprotect_range( page, host_page_size, 0, 0 );
             ret = STATUS_GUARD_PAGE_VIOLATION;
         }
-        else ret = grow_thread_stack( page, &stack_info );
+        else ret = grow_thread_stack( data, page, &stack_info );
     }
     else if (err == EXCEPTION_WRITE_FAULT)
     {
         if (vprot & VPROT_WRITEWATCH)
         {
-            if (enable_write_exceptions && is_vprot_exec_write( vprot ) && !ntdll_get_thread_data()->allow_writes)
+            if (enable_write_exceptions && is_vprot_exec_write( vprot ) && !data->allow_writes)
             {
                 rec->NumberParameters = 3;
                 rec->ExceptionInformation[2] = STATUS_EXECUTABLE_MEMORY_WRITE;
@@ -4614,21 +4656,21 @@ NTSTATUS virtual_handle_fault( EXCEPTION_RECORD *rec, void *stack )
 /***********************************************************************
  *           virtual_setup_exception
  */
-void *virtual_setup_exception( void *stack_ptr, size_t size, EXCEPTION_RECORD *rec )
+void *virtual_setup_exception( struct thread_data *data, void *stack_ptr, size_t size, EXCEPTION_RECORD *rec )
 {
     char *stack = stack_ptr;
     struct thread_stack_info stack_info;
 
-    if (!is_inside_thread_stack( stack, &stack_info ))
+    if (!is_inside_thread_stack( data, stack, &stack_info ))
     {
-        if (is_inside_signal_stack( stack ))
+        if (is_inside_signal_stack( data, stack ))
         {
             ERR( "nested exception on signal stack addr %p stack %p\n", rec->ExceptionAddress, stack );
             abort_thread(1);
         }
         WARN( "exception outside of stack limits addr %p stack %p (%p-%p-%p)\n",
-              rec->ExceptionAddress, stack, NtCurrentTeb()->DeallocationStack,
-              NtCurrentTeb()->Tib.StackLimit, NtCurrentTeb()->Tib.StackBase );
+              rec->ExceptionAddress, stack, data->teb->DeallocationStack,
+              data->teb->Tib.StackLimit, data->teb->Tib.StackBase );
         return stack - size;
     }
 
@@ -4646,7 +4688,7 @@ void *virtual_setup_exception( void *stack_ptr, size_t size, EXCEPTION_RECORD *r
     {
         char *page = ROUND_ADDR( stack, host_page_mask );
         mutex_lock( &virtual_mutex );  /* no need for signal masking inside signal handler */
-        if ((get_host_page_vprot( page ) & VPROT_GUARD) && grow_thread_stack( page, &stack_info ))
+        if ((get_host_page_vprot( page ) & VPROT_GUARD) && grow_thread_stack( data, page, &stack_info ))
         {
             rec->ExceptionCode = STATUS_STACK_OVERFLOW;
             rec->NumberParameters = 0;

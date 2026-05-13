@@ -32,6 +32,7 @@
 #include "vbscript_defs.h"
 
 #include "wine/list.h"
+#include "wine/rbtree.h"
 
 typedef struct {
     void **blocks;
@@ -118,6 +119,8 @@ typedef struct _dynamic_var_t {
     const WCHAR *name;
     BOOL is_const;
     SAFEARRAY *array;
+    struct rb_entry entry;
+    size_t index;
 } dynamic_var_t;
 
 typedef struct {
@@ -127,10 +130,12 @@ typedef struct {
     dynamic_var_t **global_vars;
     size_t global_vars_cnt;
     size_t global_vars_size;
+    struct rb_tree var_tree;
 
     function_t **global_funcs;
     size_t global_funcs_cnt;
     size_t global_funcs_size;
+    struct rb_tree func_tree;
 
     class_desc_t *classes;
 
@@ -139,6 +144,8 @@ typedef struct {
 
     unsigned int rnd;
 } ScriptDisp;
+
+dynamic_var_t *script_disp_find_var(ScriptDisp *disp, const WCHAR *name);
 
 typedef struct _builtin_prop_t builtin_prop_t;
 
@@ -162,15 +169,18 @@ typedef struct named_item_t {
 
 HRESULT create_vbdisp(const class_desc_t*,vbdisp_t**);
 HRESULT disp_get_id(IDispatch*,BSTR,vbdisp_invoke_type_t,BOOL,DISPID*);
+const WCHAR *vbdisp_class_name(IDispatch*);
 HRESULT vbdisp_get_id(vbdisp_t*,BSTR,vbdisp_invoke_type_t,BOOL,DISPID*);
-HRESULT disp_call(script_ctx_t*,IDispatch*,DISPID,DISPPARAMS*,VARIANT*);
+HRESULT disp_call(script_ctx_t*,IDispatch*,DISPID,BOOL,DISPPARAMS*,VARIANT*);
 HRESULT disp_propput(script_ctx_t*,IDispatch*,DISPID,WORD,DISPPARAMS*);
 HRESULT get_disp_value(script_ctx_t*,IDispatch*,VARIANT*);
 void collect_objects(script_ctx_t*);
 HRESULT create_script_disp(script_ctx_t*,ScriptDisp**);
 HRESULT create_func_ref(script_ctx_t*,function_t*,IDispatch**);
+function_t *script_disp_find_func(ScriptDisp*,const WCHAR*);
 
 HRESULT to_int(VARIANT*,int*);
+HRESULT to_double(VARIANT*,double*);
 
 static inline unsigned arg_cnt(const DISPPARAMS *dp)
 {
@@ -195,7 +205,8 @@ struct vbcaller {
 
 struct _script_ctx_t {
     IActiveScriptSite *site;
-    LCID lcid;
+    LCID lcid;      /* current, mutable via SetLocale */
+    LCID host_lcid; /* embedder-supplied baseline (IActiveScriptSite::GetLCID) */
     UINT codepage;
 
     IInternetHostSecurityManager *secmgr;
@@ -211,6 +222,7 @@ struct _script_ctx_t {
 
     exec_ctx_t *current_exec;
     exec_ctx_t *caller_exec;
+    unsigned call_depth;
 
     EXCEPINFO ei;
     vbscode_t *error_loc_code;
@@ -237,14 +249,21 @@ typedef enum {
     ARG_DATE
 } instr_arg_type_t;
 
+/* Flags for the ARG_UINT operand of comparison opcodes (equal, nequal, gt,
+ * gteq, lt, lteq, case): each bit is set when the corresponding source-AST
+ * operand is a bare numeric literal. */
+#define CMP_LEFT_LITERAL  0x1
+#define CMP_RIGHT_LITERAL 0x2
+
 #define OP_LIST                                   \
     X(add,            1, 0,           0)          \
     X(and,            1, 0,           0)          \
     X(assign_ident,   1, ARG_BSTR,    ARG_UINT)   \
     X(assign_member,  1, ARG_BSTR,    ARG_UINT)   \
+    X(assign_call,    1, ARG_UINT,    0)          \
     X(bool,           1, ARG_INT,     0)          \
     X(catch,          1, ARG_ADDR,    ARG_UINT)   \
-    X(case,           0, ARG_ADDR,    0)          \
+    X(case,           0, ARG_ADDR,    ARG_UINT)   \
     X(concat,         1, 0,           0)          \
     X(const,          1, ARG_BSTR,    0)          \
     X(date,           1, ARG_DATE,    0)          \
@@ -254,14 +273,14 @@ typedef enum {
     X(double,         1, ARG_DOUBLE,  0)          \
     X(empty,          1, 0,           0)          \
     X(enumnext,       0, ARG_ADDR,    ARG_BSTR)   \
-    X(equal,          1, 0,           0)          \
+    X(equal,          1, ARG_UINT,    0)          \
     X(hres,           1, ARG_UINT,    0)          \
     X(errmode,        1, ARG_INT,     0)          \
     X(eqv,            1, 0,           0)          \
     X(erase,          1, ARG_BSTR,    0)          \
     X(exp,            1, 0,           0)          \
-    X(gt,             1, 0,           0)          \
-    X(gteq,           1, 0,           0)          \
+    X(gt,             1, ARG_UINT,    0)          \
+    X(gteq,           1, ARG_UINT,    0)          \
     X(icall,          1, ARG_BSTR,    ARG_UINT)   \
     X(icallv,         1, ARG_BSTR,    ARG_UINT)   \
     X(ident,          1, ARG_BSTR,    0)          \
@@ -273,15 +292,16 @@ typedef enum {
     X(jmp,            0, ARG_ADDR,    0)          \
     X(jmp_false,      0, ARG_ADDR,    0)          \
     X(jmp_true,       0, ARG_ADDR,    0)          \
-    X(lt,             1, 0,           0)          \
-    X(lteq,           1, 0,           0)          \
+    X(lt,             1, ARG_UINT,    0)          \
+    X(lteq,           1, ARG_UINT,    0)          \
     X(mcall,          1, ARG_BSTR,    ARG_UINT)   \
     X(mcallv,         1, ARG_BSTR,    ARG_UINT)   \
+    X(mget,           1, ARG_BSTR,    0)          \
     X(me,             1, 0,           0)          \
     X(mod,            1, 0,           0)          \
     X(mul,            1, 0,           0)          \
     X(neg,            1, 0,           0)          \
-    X(nequal,         1, 0,           0)          \
+    X(nequal,         1, ARG_UINT,    0)          \
     X(new,            1, ARG_STR,     0)          \
     X(newenum,        1, 0,           0)          \
     X(not,            1, 0,           0)          \
@@ -296,6 +316,7 @@ typedef enum {
     X(retval,         1, 0,           0)          \
     X(set_ident,      1, ARG_BSTR,    ARG_UINT)   \
     X(set_member,     1, ARG_BSTR,    ARG_UINT)   \
+    X(set_call,       1, ARG_UINT,    0)          \
     X(stack,          1, ARG_UINT,    0)          \
     X(step,           0, ARG_ADDR,    ARG_BSTR)   \
     X(stop,           1, 0,           0)          \
@@ -361,6 +382,8 @@ struct _function_t {
     unsigned code_off;
     vbscode_t *code_ctx;
     function_t *next;
+    struct rb_entry entry;
+    size_t index;
 };
 
 struct _vbscode_t {

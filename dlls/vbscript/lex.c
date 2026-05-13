@@ -28,6 +28,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(vbscript);
 
+#define MAX_IDENTIFIER_LENGTH 255
+
 static int lex_error(parser_ctx_t *ctx, HRESULT hres)
 {
     ctx->hres = hres;
@@ -166,6 +168,9 @@ static int parse_identifier(parser_ctx_t *ctx, const WCHAR **ret)
     while(ctx->ptr < ctx->end && is_identifier_char(*ctx->ptr))
         ctx->ptr++;
     len = ctx->ptr-ptr;
+
+    if(len > MAX_IDENTIFIER_LENGTH)
+        return lex_error(ctx, MAKE_VBSERROR(VBSE_IDENTIFIER_TOO_LONG));
 
     str = parser_alloc(ctx, (len+1)*sizeof(WCHAR));
     if(!str)
@@ -405,6 +410,34 @@ static int comment_line(parser_ctx_t *ctx)
     return tNL;
 }
 
+static int parse_bracket_identifier(parser_ctx_t *ctx, const WCHAR **ret)
+{
+    const WCHAR *start = ++ctx->ptr;
+    WCHAR *str;
+    int len;
+
+    while(ctx->ptr < ctx->end && *ctx->ptr != ']' && *ctx->ptr != '\n' && *ctx->ptr != '\r')
+        ctx->ptr++;
+
+    if(ctx->ptr >= ctx->end || *ctx->ptr != ']')
+        return lex_error(ctx, MAKE_VBSERROR(VBSE_EXPECTED_RBRACKET));
+
+    len = ctx->ptr - start;
+    ctx->ptr++; /* skip ']' */
+
+    if(len > MAX_IDENTIFIER_LENGTH)
+        return lex_error(ctx, MAKE_VBSERROR(VBSE_IDENTIFIER_TOO_LONG));
+
+    str = parser_alloc(ctx, (len+1)*sizeof(WCHAR));
+    if(!str)
+        return 0;
+
+    memcpy(str, start, len*sizeof(WCHAR));
+    str[len] = 0;
+    *ret = str;
+    return tIdentifier;
+}
+
 static int parse_next_token(void *lval, unsigned *loc, parser_ctx_t *ctx)
 {
     WCHAR c;
@@ -491,9 +524,12 @@ static int parse_next_token(void *lval, unsigned *loc, parser_ctx_t *ctx)
          * Parser can't predict if bracket is part of argument expression or an argument
          * in call expression. We predict it here instead.
          */
-        if(ctx->last_token == tIdentifier || ctx->last_token == ')' || ctx->last_token == tME)
+        if(ctx->last_token == tIdentifier || ctx->last_token == ')' || ctx->last_token == tME
+                || ctx->last_token == tEMPTYBRACKETS)
             return '(';
         return tEXPRLBRACKET;
+    case '[':
+        return parse_bracket_identifier(ctx, lval);
     case '"':
         return parse_string_literal(ctx, lval);
     case '#':

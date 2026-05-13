@@ -3378,12 +3378,26 @@ static struct call_entry xml_us_ascii_seq[] =
     { CH_ENDTEST }
 };
 
+static struct call_entry xml_shift_jis_seq[] =
+{
+    { CH_PUTDOCUMENTLOCATOR, 0, 0, S_OK },
+    { CH_STARTDOCUMENT, 0, 0, S_OK },
+    { CH_STARTELEMENT, 1, 47, S_OK, L"", L"a", L"a" },
+    { CH_CHARACTERS, 1, 47, S_OK, L"\u30e9" },
+    { CH_ENDELEMENT, 1, 50, S_OK, L"", L"a", L"a" },
+    { CH_ENDDOCUMENT, 0, 0, S_OK },
+    { CH_ENDTEST }
+};
+
 static void test_saxreader_encoding(void)
 {
     static const DWORD ucs4_le_test[] =
     {
         '<','a','>','t','e','x','t','<','/','a','>',
     };
+
+    static const char xml_win936_test[] =
+        "<?xml version=\"1.0\" encoding=\"windows-936\" ?><a>text</a>";
 
     static const char xml_win1252_test[] =
         "<?xml version=\"1.0\" encoding=\"windows-1252\" ?><a>" "\xc1" "\x80" "</a>";
@@ -3396,6 +3410,12 @@ static void test_saxreader_encoding(void)
 
     static const char xml_iso_8859_1_test[] =
         "<?xml version=\"1.0\" encoding=\"iso-8859-1\" ?><a>" "\x80" "</a>";
+
+    static const char xml_shift_jis_test[] =
+        "<?xml version=\"1.0\" encoding=\"shift_jis\" ?><a>" "\x83\x89" "</a>";
+
+    static const char xml_shift_jis_test2[] =
+        "<?xml version=\"1.0\" encoding=\"shift-jis\" ?><a>" "\x83\x89" "</a>";
 
     const struct enc_test_entry_t *entry = encoding_test_data;
     static const CHAR testXmlA[] = "test.xml";
@@ -3456,6 +3476,12 @@ static void test_saxreader_encoding(void)
     hr = ISAXXMLReader_putContentHandler(reader, &contentHandler);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
+    create_test_file(testXmlA, xml_win936_test, sizeof(xml_win936_test) - 1);
+    hr = ISAXXMLReader_parseURL(reader, L"test.xml");
+    ok(FAILED(hr), "Unexpected hr %#lx.\n", hr);
+    flush_sequence(sequences, CONTENT_HANDLER_INDEX);
+    DeleteFileA(testXmlA);
+
     create_test_file(testXmlA, xml_win1252_test, sizeof(xml_win1252_test) - 1);
     set_expected_seq(xml_win1252_seq);
     hr = ISAXXMLReader_parseURL(reader, L"test.xml");
@@ -3482,6 +3508,20 @@ static void test_saxreader_encoding(void)
     hr = ISAXXMLReader_parseURL(reader, L"test.xml");
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok_sequence(sequences, CONTENT_HANDLER_INDEX, xml_iso_8859_1_seq, "Content test with iso-8859-1", FALSE);
+    DeleteFileA(testXmlA);
+
+    create_test_file(testXmlA, xml_shift_jis_test, sizeof(xml_shift_jis_test) - 1);
+    set_expected_seq(xml_shift_jis_seq);
+    hr = ISAXXMLReader_parseURL(reader, L"test.xml");
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok_sequence(sequences, CONTENT_HANDLER_INDEX, xml_shift_jis_seq, "Content test with shift_jis", FALSE);
+    DeleteFileA(testXmlA);
+
+    create_test_file(testXmlA, xml_shift_jis_test2, sizeof(xml_shift_jis_test2) - 1);
+    set_expected_seq(xml_shift_jis_seq);
+    hr = ISAXXMLReader_parseURL(reader, L"test.xml");
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok_sequence(sequences, CONTENT_HANDLER_INDEX, xml_shift_jis_seq, "Content test with shift-jis", FALSE);
     DeleteFileA(testXmlA);
 
     ISAXXMLReader_Release(reader);
@@ -5316,6 +5356,26 @@ static void test_mxwriter_comment(void)
     ok(!lstrcmpW(L"<!---->\r\n<!--comment-->\r\n", V_BSTR(&dest)), "got wrong content %s\n", wine_dbgstr_w(V_BSTR(&dest)));
     VariantClear(&dest);
 
+    /* As an element child */
+    V_VT(&dest) = VT_EMPTY;
+    hr = IMXWriter_put_output(writer, dest);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = ISAXContentHandler_startElement(content, L"", 0, L"", 0, _bstr_("a"), -1, NULL);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = ISAXLexicalHandler_comment(lexical, L"comment", 7);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = ISAXContentHandler_endElement(content, L"", 0, L"", 0, _bstr_("a"), -1);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&dest) = VT_EMPTY;
+    hr = IMXWriter_get_output(writer, &dest);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(V_VT(&dest) == VT_BSTR, "Unexpected type %d.\n", V_VT(&dest));
+    todo_wine
+    ok(!lstrcmpW(L"<a><!--comment--></a>", V_BSTR(&dest)), "Unexpected content %s.\n", wine_dbgstr_w(V_BSTR(&dest)));
+    VariantClear(&dest);
+
     ISAXContentHandler_Release(content);
     ISAXLexicalHandler_Release(lexical);
     IVBSAXLexicalHandler_Release(vblexical);
@@ -6396,7 +6456,94 @@ static void test_saxreader_dtd(void)
     hr = ISAXXMLReader_parse(reader, var);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
+    V_VT(&var) = VT_BSTR;
+    V_BSTR(&var) = SysAllocString(L"<?xml version=\"1.0\" encoding=\"value\" standalone=\"yes\"?><a>text</a>");
+
+    hr = ISAXXMLReader_parse(reader, var);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
     VariantClear(&var);
+
+    ISAXXMLReader_Release(reader);
+}
+
+static void test_saxreader_parse_input(void)
+{
+    ISAXXMLReader *reader;
+    VARIANT var;
+    HRESULT hr;
+
+    hr = CoCreateInstance(&CLSID_SAXXMLReader, NULL, CLSCTX_INPROC_SERVER, &IID_ISAXXMLReader, (void **)&reader);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&var) = VT_BSTR;
+    V_BSTR(&var) = SysAllocStringByteLen("<a>text</a>", 11);
+
+    hr = ISAXXMLReader_parse(reader, var);
+    ok(FAILED(hr), "Unexpected hr %#lx.\n", hr);
+
+    VariantClear(&var);
+
+    ISAXXMLReader_Release(reader);
+}
+
+static void test_saxreader_max_element_depth(void)
+{
+    ISAXXMLReader *reader;
+    HRESULT hr;
+    VARIANT v;
+
+    hr = CoCreateInstance(&CLSID_SAXXMLReader30, NULL, CLSCTX_INPROC_SERVER, &IID_ISAXXMLReader, (void **)&reader);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    memset(&v, 0, sizeof(v));
+    hr = ISAXXMLReader_getProperty(reader, _bstr_("max-element-depth"), &v);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(V_VT(&v) == VT_I4, "Unexpected type %d.\n", V_VT(&v));
+    ok(V_I4(&v) == 5000, "Unexpected value %ld.\n", V_I4(&v));
+
+    V_UI4(&v) = 2147483648;
+    hr = ISAXXMLReader_putProperty(reader, _bstr_("max-element-depth"), v);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#lx.\n", hr);
+
+    V_I4(&v) = 2147483647;
+    hr = ISAXXMLReader_putProperty(reader, _bstr_("max-element-depth"), v);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = ISAXXMLReader_getProperty(reader, _bstr_("max-element-depth"), &v);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(V_VT(&v) == VT_I4, "Unexpected type %d.\n", V_VT(&v));
+    ok(V_I4(&v) == 2147483647, "Unexpected value %ld.\n", V_I4(&v));
+
+    V_I4(&v) = 0;
+    hr = ISAXXMLReader_putProperty(reader, _bstr_("max-element-depth"), v);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = ISAXXMLReader_getProperty(reader, _bstr_("max-element-depth"), &v);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(V_I4(&v) == 0, "Unexpected value %ld.\n", V_I4(&v));
+
+    V_I4(&v) = 1;
+    hr = ISAXXMLReader_putProperty(reader, _bstr_("max-element-depth"), v);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    V_VT(&v) = VT_BSTR;
+    V_BSTR(&v) = SysAllocString(L"<a>text</a>");
+    hr = ISAXXMLReader_parse(reader, v);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    VariantClear(&v);
+
+    V_VT(&v) = VT_BSTR;
+    V_BSTR(&v) = SysAllocString(L"<a>text<!-- comment --></a>");
+    hr = ISAXXMLReader_parse(reader, v);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    VariantClear(&v);
+
+    V_VT(&v) = VT_BSTR;
+    V_BSTR(&v) = SysAllocString(L"<a>text<!-- comment --><b/></a>");
+    hr = ISAXXMLReader_parse(reader, v);
+    ok(hr == E_ABORT, "Unexpected hr %#lx.\n", hr);
+    VariantClear(&v);
 
     ISAXXMLReader_Release(reader);
 }
@@ -6437,6 +6584,8 @@ START_TEST(saxreader)
     test_saxreader_pi();
     test_saxreader_characters();
     test_saxreader_dtd();
+    test_saxreader_parse_input();
+    test_saxreader_max_element_depth();
 
     /* MXXMLWriter tests */
     get_class_support_data(mxwriter_support_data, &IID_IMXWriter);

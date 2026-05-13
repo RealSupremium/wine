@@ -63,6 +63,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(environ);
 
+DWORD pid = 0;
 PEB *peb = NULL;
 WOW_PEB *wow_peb = NULL;
 USHORT *uctable = NULL, *lctable = NULL;
@@ -153,7 +154,7 @@ static NTSTATUS open_nls_data_file( const char *path, const WCHAR *sysdir, HANDL
     OBJECT_ATTRIBUTES attr;
     UNICODE_STRING valueW;
     WCHAR buffer[64];
-    char *p;
+    const char *p;
 
     wcscpy( buffer, system_dir );
     p = strrchr( path, '/' ) + 1;
@@ -483,7 +484,7 @@ const WCHAR *ntdll_get_data_dir(void)
  */
 static void set_process_name( const char *name )
 {
-    char *p;
+    const char *p;
 
 #ifdef HAVE_SETPROCTITLE
     setproctitle("-%s", name );
@@ -838,7 +839,7 @@ void init_environment(void)
 /* check if a WINE_HOST_ prefixed variable already exists in the environment */
 static BOOL host_var_exists( const char *name )
 {
-    char *end = strchr( name, '=' );
+    const char *end = strchr( name, '=' );
 
     if (!end) return FALSE;
     for (char **e = environ; *e; e++)
@@ -1838,10 +1839,11 @@ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module )
 #ifdef _WIN64
     if (!is_machine_64bit( main_image_info.Machine ))
     {
-        NtCurrentTeb()->WowTebOffset = teb_offset;
-        NtCurrentTeb()->Tib.ExceptionList = (void *)((char *)NtCurrentTeb() + teb_offset);
+        struct thread_data *data = get_thread_data();
+        data->teb->WowTebOffset = teb_offset;
+        data->teb->Tib.ExceptionList = (void *)((char *)data->teb + teb_offset);
         wow_peb = (PEB32 *)((char *)peb + page_size);
-        set_thread_id( NtCurrentTeb(), GetCurrentProcessId(), GetCurrentThreadId() );
+        set_thread_id( data );
     }
 #endif
 
@@ -1968,7 +1970,7 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
     params->Size            = size;
     params->Flags           = PROCESS_PARAMS_FLAG_NORMALIZED;
     params->wShowWindow     = 1; /* SW_SHOWNORMAL */
-    params->ProcessGroupId  = GetCurrentProcessId();
+    params->ProcessGroupId  = pid;
 
     params->CurrentDirectory.DosPath.Buffer = (WCHAR *)(params + 1);
     wcscpy( params->CurrentDirectory.DosPath.Buffer, get_dos_path( curdir ));
@@ -2401,8 +2403,9 @@ void WINAPI RtlInitUnicodeString( UNICODE_STRING *str, const WCHAR *data )
  */
 ULONG WINAPI RtlNtStatusToDosError( NTSTATUS status )
 {
-    NtCurrentTeb()->LastStatusValue = status;
+    TEB *teb = NtCurrentTeb();
 
+    if (teb) teb->LastStatusValue = status;
     if (!status || (status & 0x20000000)) return status;
     if ((status & 0xf0000000) == 0xd0000000) status &= ~0x10000000;
 
@@ -2419,11 +2422,16 @@ ULONG WINAPI RtlNtStatusToDosError( NTSTATUS status )
 DWORD WINAPI RtlGetLastWin32Error(void)
 {
     TEB *teb = NtCurrentTeb();
+
+    if (teb)
+    {
 #ifdef _WIN64
-    WOW_TEB *wow_teb = get_wow_teb( teb );
-    if (wow_teb) return wow_teb->LastErrorValue;
+        WOW_TEB *wow_teb = get_wow_teb( teb );
+        if (wow_teb) return wow_teb->LastErrorValue;
 #endif
-    return teb->LastErrorValue;
+        return teb->LastErrorValue;
+    }
+    else return 0;
 }
 
 /**********************************************************************
@@ -2432,9 +2440,37 @@ DWORD WINAPI RtlGetLastWin32Error(void)
 void WINAPI RtlSetLastWin32Error( DWORD err )
 {
     TEB *teb = NtCurrentTeb();
+
+    if (teb)
+    {
 #ifdef _WIN64
-    WOW_TEB *wow_teb = get_wow_teb( teb );
-    if (wow_teb) wow_teb->LastErrorValue = err;
+        WOW_TEB *wow_teb = get_wow_teb( teb );
+        if (wow_teb) wow_teb->LastErrorValue = err;
 #endif
-    teb->LastErrorValue = err;
+        teb->LastErrorValue = err;
+    }
+}
+
+/**********************************************************************
+ *      RtlGetCurrentPeb  (ntdll.so)
+ */
+PEB * WINAPI RtlGetCurrentPeb(void)
+{
+    return peb;
+}
+
+/**********************************************************************
+ *      PsGetCurrentProcessId  (ntdll.so)
+ */
+HANDLE WINAPI PsGetCurrentProcessId(void)
+{
+    return ULongToHandle( pid );
+}
+
+/**********************************************************************
+ *      PsGetCurrentThreadId  (ntdll.so)
+ */
+HANDLE WINAPI PsGetCurrentThreadId(void)
+{
+    return ULongToHandle( get_thread_data()->tid );
 }
