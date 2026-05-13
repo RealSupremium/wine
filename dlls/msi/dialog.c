@@ -2453,10 +2453,9 @@ static LRESULT WINAPI MSISelectionTree_WndProc(HWND hWnd, UINT msg, WPARAM wPara
 
 static void seltree_add_child_features( MSIPACKAGE *package, HWND hwnd, const WCHAR *parent, HTREEITEM hParent )
 {
-    struct msi_selection_tree_info *info = GetPropW( hwnd, L"MSIDATA" );
     MSIFEATURE *feature;
     TVINSERTSTRUCTW tvis;
-    HTREEITEM hitem, hfirst = NULL;
+    HTREEITEM hitem;
 
     LIST_FOR_EACH_ENTRY( feature, &package->features, MSIFEATURE, entry )
     {
@@ -2484,9 +2483,6 @@ static void seltree_add_child_features( MSIPACKAGE *package, HWND hwnd, const WC
         if (!hitem)
             continue;
 
-        if (!hfirst)
-            hfirst = hitem;
-
         seltree_sync_item_state( hwnd, feature, hitem );
         seltree_add_child_features( package, hwnd,
                                         feature->Feature, hitem );
@@ -2495,10 +2491,6 @@ static void seltree_add_child_features( MSIPACKAGE *package, HWND hwnd, const WC
         if ( feature->Display % 2 != 0 )
             SendMessageW( hwnd, TVM_EXPAND, TVE_EXPAND, (LPARAM) hitem );
     }
-
-    /* select the first item */
-    SendMessageW( hwnd, TVM_SELECTITEM, TVGN_CARET | TVGN_DROPHILITE, (LPARAM) hfirst );
-    info->selected = hfirst;
 }
 
 static void seltree_create_imagelist( HWND hwnd )
@@ -3534,6 +3526,20 @@ static UINT dialog_create_controls( MSIRECORD *rec, void *param )
     return ERROR_SUCCESS;
 }
 
+static void select_first_feature( msi_dialog *dialog )
+{
+    struct control *control;
+
+    LIST_FOR_EACH_ENTRY( control, &dialog->controls, struct control, entry )
+    {
+        if (!wcscmp(control->type, L"SelectionTree"))
+        {
+            HTREEITEM first_feature = (HTREEITEM)SendMessageW( control->hwnd, TVM_GETNEXTITEM, (WPARAM)TVGN_ROOT, 0 );
+            SendMessageW( control->hwnd, TVM_SELECTITEM, TVGN_CARET | TVGN_DROPHILITE, (LPARAM) first_feature );
+        }
+    }
+}
+
 static UINT dialog_fill_controls( msi_dialog *dialog )
 {
     UINT r;
@@ -3552,6 +3558,8 @@ static UINT dialog_fill_controls( msi_dialog *dialog )
 
     r = MSI_IterateRecords( view, 0, dialog_create_controls, dialog );
     msiobj_release( &view->hdr );
+
+    select_first_feature(dialog);
     return r;
 }
 
