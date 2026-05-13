@@ -1231,7 +1231,14 @@ void manage_desktop( WCHAR *arg )
             *p++ = 0;
             if ((driver = wcschr( p, ',' ))) *driver++ = 0;
         }
-        if (!p || !parse_size( p, &width, &height ))
+        if (p && !wcscmp( p, L"fullscreen" ))
+        {
+            RECT screen_rect;
+            SystemParametersInfoW( SPI_GETWORKAREA, 0, &screen_rect, 0 );
+            width = (unsigned int)(screen_rect.right - screen_rect.left);
+            height = (unsigned int)(screen_rect.bottom - screen_rect.top);
+        }
+        else if (!p || !parse_size( p, &width, &height ))
             get_default_desktop_size( name, &width, &height );
     }
     else if ((name = get_default_desktop_name()))
