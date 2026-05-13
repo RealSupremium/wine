@@ -203,10 +203,6 @@ static ULONG DirectSoundDevice_Release(DirectSoundDevice * device)
         if (device->mta_cookie)
             CoDecrementMTAUsage(device->mta_cookie);
 
-        EnterCriticalSection(&DSOUND_renderers_lock);
-        list_remove(&device->entry);
-        LeaveCriticalSection(&DSOUND_renderers_lock);
-
         /* It is allowed to release this object even when buffers are playing */
         if (device->buffers) {
             WARN("%d secondary buffers not released\n", device->nrofbuffers);
@@ -272,13 +268,10 @@ static HRESULT DirectSoundDevice_Initialize(DirectSoundDevice ** ppDevice, LPCGU
     if(FAILED(hr))
         return hr;
 
-    EnterCriticalSection(&DSOUND_renderers_lock);
-
     hr = DirectSoundDevice_Create(&device);
     if(FAILED(hr)){
         WARN("DirectSoundDevice_Create failed\n");
         IMMDevice_Release(mmdevice);
-        LeaveCriticalSection(&DSOUND_renderers_lock);
         return hr;
     }
 
@@ -291,7 +284,6 @@ static HRESULT DirectSoundDevice_Initialize(DirectSoundDevice ** ppDevice, LPCGU
     if (FAILED(hr))
     {
         free(device);
-        LeaveCriticalSection(&DSOUND_renderers_lock);
         IMMDevice_Release(mmdevice);
         WARN("DSOUND_ReopenDevice failed: %08lx\n", hr);
         return hr;
@@ -328,9 +320,6 @@ static HRESULT DirectSoundDevice_Initialize(DirectSoundDevice ** ppDevice, LPCGU
     SetThreadPriority(device->thread, THREAD_PRIORITY_TIME_CRITICAL);
 
     *ppDevice = device;
-    list_add_tail(&DSOUND_renderers, &device->entry);
-
-    LeaveCriticalSection(&DSOUND_renderers_lock);
 
     return hr;
 }
