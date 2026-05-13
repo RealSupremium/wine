@@ -6071,6 +6071,98 @@ static void test_event_dispatch(void)
     ok(!ref, "Got outstanding refcount %ld.\n", ref);
 }
 
+static void test_stopped_current_position(void)
+{
+    IEnumFilters *enum_filters;
+    LONG_PTR lparam1, lparam2;
+    IMediaEvent *media_event;
+    IMediaSeeking *seeking;
+    REFERENCE_TIME current;
+    IMediaControl *control;
+    IFilterGraph2 *graph;
+    IBaseFilter *filter;
+    unsigned int i = 0;
+    WCHAR *filename;
+    ULONG fetched;
+    long ev_code;
+    HANDLE event;
+    HRESULT hr;
+    LONG code;
+
+    filename = load_resource(L"test.avi");
+
+    graph = create_graph();
+
+    hr = IFilterGraph2_RenderFile(graph, filename, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = IFilterGraph2_QueryInterface(graph, &IID_IMediaControl, (void **)&control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IFilterGraph2_QueryInterface(graph, &IID_IMediaEvent, (void **)&media_event);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = IMediaEvent_GetEventHandle(media_event, (OAEVENT *)&event);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    /* Flush existing events. */
+    while ((hr = IMediaEvent_GetEvent(media_event, &code, &lparam1, &lparam2, 0)) == S_OK);
+
+    hr = IMediaControl_Run(control);
+    ok(SUCCEEDED(hr), "Got hr %#lx.\n", hr);
+
+    ok(WaitForSingleObject(event, 1000) == 0, "Event should be signaled.\n");
+
+    /* Wait 2.5 seconds of playback time. Source video is 1 fps. */
+    IMediaEvent_WaitForCompletion(media_event, 2500, &ev_code);
+
+    hr = IMediaControl_Stop(control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = IFilterGraph2_QueryInterface(graph, &IID_IMediaSeeking, (void **)&seeking);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = IMediaSeeking_GetCurrentPosition(seeking, &current);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    todo_wine
+    ok(compare_time(current, 2500 * 10000, 100 * 10000), "Expected about 2500ms, got %I64d.\n", current);
+
+    IMediaSeeking_Release(seeking);
+
+    hr = IFilterGraph2_EnumFilters(graph, &enum_filters);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    while ((hr = IEnumFilters_Next(enum_filters, 1, &filter, &fetched)) == S_OK)
+    {
+        winetest_push_context("Filter %u:", i++);
+
+        ok(fetched, "Filter not fetched.\n");
+
+        if (FAILED(hr = IBaseFilter_QueryInterface(filter, &IID_IMediaSeeking, (void **)&seeking)))
+        {
+            ok(hr == E_NOINTERFACE, "Got hr %#lx.\n", hr);
+        }
+        else
+        {
+            hr = IMediaSeeking_GetCurrentPosition(seeking, &current);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+            todo_wine
+            ok(current == 20000000, "Got current %I64d.\n", current);
+
+            IMediaSeeking_Release(seeking);
+        }
+
+        IBaseFilter_Release(filter);
+        winetest_pop_context();
+    }
+    ok(hr == S_FALSE, "Got hr %#lx.\n", hr);
+
+    IEnumFilters_Release(enum_filters);
+    IMediaEvent_Release(media_event);
+    IMediaControl_Release(control);
+    IFilterGraph2_Release(graph);
+    DeleteFileW(filename);
+}
+
 START_TEST(filtergraph)
 {
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
@@ -6100,6 +6192,7 @@ START_TEST(filtergraph)
     test_set_notify_flags();
     test_events();
     test_event_dispatch();
+    test_stopped_current_position();
 
     CoUninitialize();
     test_render_with_multithread();
