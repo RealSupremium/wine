@@ -5954,7 +5954,13 @@ static HRESULT ITypeInfoImpl_GetInternalDispatchFuncDesc( ITypeInfo *iface,
     else
         *hrefoffset = DISPATCH_HREF_OFFSET;
 
-    if(This->impltypes)
+    /* Only walk impltypes when the stored cbSizeVft has room for inherited
+     * slots beyond our own funcs. Typelibs built via ICreateTypeLib2 store
+     * cbSizeVft = own_count * ptr_size and expose only own funcs through
+     * GetFuncDesc; MIDL-built typelibs store cbSizeVft = (own+inh)*ptr_size
+     * and rely on impltypes traversal to surface inherited slots. */
+    if(This->impltypes
+       && This->typeattr.cbSizeVft > This->typeattr.cFuncs * This->pTypeLib->ptr_size)
     {
         ITypeInfo *pSubTypeInfo;
         UINT sub_funcs;
@@ -11192,6 +11198,15 @@ static HRESULT WINAPI ICreateTypeInfo2_fnLayOut(ICreateTypeInfo2 *iface)
 
     if (user_vft > This->typeattr.cbSizeVft)
         This->typeattr.cbSizeVft = user_vft + This->pTypeLib->ptr_size;
+
+    /* For TKIND_DISPATCH, the IDispatch vtbl slots are not part of the
+     * stored cbSizeVft on native ICreateTypeLib2 typelibs - GetTypeAttr
+     * later overrides cbSizeVft to sizeof(IDispatchVtbl) for the public
+     * API regardless. Subtract the prefix here so that GetTypeAttr's
+     * `cFuncs = cbSizeVft / ptr_size` derivation yields the own-func
+     * count (matching native), without changing oVft assignments. */
+    if (This->typeattr.typekind == TKIND_DISPATCH)
+        This->typeattr.cbSizeVft -= 7 * This->pTypeLib->ptr_size;
 
     for(i = 0; i < This->typeattr.cVars; ++i){
         TLBVarDesc *var_desc = &This->vardescs[i];
