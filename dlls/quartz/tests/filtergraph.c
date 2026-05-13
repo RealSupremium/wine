@@ -6123,7 +6123,6 @@ static void test_stopped_current_position(void)
 
     hr = IMediaSeeking_GetCurrentPosition(seeking, &current);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    todo_wine
     ok(compare_time(current, 2500 * 10000, 100 * 10000), "Expected about 2500ms, got %I64d.\n", current);
 
     IMediaSeeking_Release(seeking);
