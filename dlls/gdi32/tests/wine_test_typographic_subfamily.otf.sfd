@@ -1,0 +1,122 @@
+SplineFontDB: 3.2
+FontName: WineTestTypographicSubfamily
+FullName: WineTestTypographicSubfamily
+FamilyName: WineTestTypographicSubfamily
+Weight: Regular
+Copyright: Copyright (c) 2026, Ivan Lyugaev
+Version: 001.000
+ItalicAngle: 0
+UnderlinePosition: -100
+UnderlineWidth: 50
+Ascent: 800
+Descent: 200
+InvalidEm: 0
+sfntRevision: 0x00010000
+LayerCount: 2
+Layer: 0 0 "+BBcEMAQ0BD0EOAQ5 +BD8EOwQwBD0A" 1
+Layer: 1 0 "+BB8ENQRABDUENAQ9BDgEOQAA +BD8EOwQwBD0A" 0
+XUID: [1021 477 449912397 9628]
+StyleMap: 0x0040
+FSType: 0
+OS2Version: 4
+OS2_WeightWidthSlopeOnly: 0
+OS2_UseTypoMetrics: 1
+CreationTime: 1776083902
+ModificationTime: 1776084288
+PfmFamily: 17
+TTFWeight: 400
+TTFWidth: 5
+LineGap: 90
+VLineGap: 0
+Panose: 2 0 5 9 0 0 0 0 0 0
+OS2TypoAscent: 800
+OS2TypoAOffset: 0
+OS2TypoDescent: -200
+OS2TypoDOffset: 0
+OS2TypoLinegap: 90
+OS2WinAscent: 642
+OS2WinAOffset: 0
+OS2WinDescent: -86
+OS2WinDOffset: 0
+HheadAscent: 642
+HheadAOffset: 0
+HheadDescent: 86
+HheadDOffset: 0
+OS2SubXSize: 650
+OS2SubYSize: 700
+OS2SubXOff: 0
+OS2SubYOff: 140
+OS2SupXSize: 650
+OS2SupYSize: 700
+OS2SupXOff: 0
+OS2SupYOff: 480
+OS2StrikeYSize: 49
+OS2StrikeYPos: 258
+OS2Vendor: 'PfEd'
+OS2CodePages: 00000001.00000000
+OS2UnicodeRanges: 00000001.00000000.00000000.00000000
+DEI: 91125
+LangName: 1033 "" "WineTestTypographicSubfamilyOTF" "" "FontForge 2.0 : WineTestTypographicSubfamily : 13-4-2026" "WineTestTypographicSubfamilyOTF" "Version 001.000" "" "" "" "" "" "" "" "" "" "" "" "Base"
+Encoding: UnicodeBmp
+UnicodeInterp: none
+NameList: AGL For New Fonts
+DisplaySize: -48
+AntiAlias: 1
+FitToEm: 0
+WinInfo: 0 38 15
+BeginPrivate: 5
+BlueShift 1 0
+StdHW 4 [68]
+StdVW 5 [128]
+StemSnapH 4 [68]
+StemSnapV 8 [64 128]
+EndPrivate
+BeginChars: 65537 2
+
+StartChar: .notdef
+Encoding: 65536 -1 0
+Width: 1000
+GlyphClass: 1
+Flags: MW
+HStem: 0 50<100 900 100 950> 483 50<100 900 100 100>
+VStem: 50 50<50 50 50 483> 900 50<50 483 483 483>
+LayerCount: 2
+Fore
+SplineSet
+50 0 m 1
+ 50 533 l 1
+ 950 533 l 1
+ 950 0 l 1
+ 50 0 l 1
+100 50 m 1
+ 900 50 l 1
+ 900 483 l 1
+ 100 483 l 1
+ 100 50 l 1
+EndSplineSet
+EndChar
+
+StartChar: exclam
+Encoding: 33 33 1
+Width: 1000
+GlyphClass: 1
+Flags: MW
+HStem: 86 68<458 476>
+VStem: 403 128<348.5 475.5> 435 64<110.5 129.5>
+LayerCount: 2
+Fore
+SplineSet
+435 120 m 0xa0
+ 435 139 449 154 467 154 c 0
+ 485 154 499 139 499 120 c 0
+ 499 101 485 86 467 86 c 0
+ 449 86 435 101 435 120 c 0xa0
+403 412 m 0xc0
+ 403 539 432 642 467 642 c 0
+ 502 642 531 539 531 412 c 0
+ 531 285 502 182 467 182 c 0
+ 432 182 403 285 403 412 c 0xc0
+EndSplineSet
+EndChar
+EndChars
+EndSplineFont

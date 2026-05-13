@@ -368,6 +368,8 @@ extern BOOL opentype_get_tt_name_v0( const void *data, size_t size, const struct
 typedef BOOL ( *opentype_enum_names_cb )( LANGID langid, struct opentype_name *name, void *user );
 extern BOOL opentype_enum_family_names( const struct tt_name_v0 *tt_name_v0,
                                         opentype_enum_names_cb callback, void *user );
+extern BOOL opentype_enum_typographic_style_names( const struct tt_name_v0 *tt_name_v0,
+                                                   opentype_enum_names_cb callback, void *user );
 extern BOOL opentype_enum_style_names( const struct tt_name_v0 *tt_name_v0,
                                        opentype_enum_names_cb callback, void *user );
 extern BOOL opentype_enum_full_names( const struct tt_name_v0 *tt_name_v0,
