@@ -2802,6 +2802,7 @@ INT WINAPI WSAIoctl(SOCKET s, DWORD code, LPVOID in_buff, DWORD in_size, LPVOID 
         return ret ? -1 : 0;
     }
 
+    case SIO_BSP_HANDLE_SELECT:
     case SIO_BASE_HANDLE:
     {
         NTSTATUS status;
