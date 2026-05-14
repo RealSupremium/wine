@@ -4015,6 +4015,63 @@ ExecuteGlobal "ReDim egDynArr(1) : egDynArr(0) = ""a"" : egDynArr(1) = ""b"""
 Call ok(egDynArr(0) = "a", "ExecuteGlobal ReDim egDynArr(0) = " & egDynArr(0))
 Call ok(egDynArr(1) = "b", "ExecuteGlobal ReDim egDynArr(1) = " & egDynArr(1))
 
+' Class declaration inline after a Dim/Sub statement separated by ':'
+Sub TestClassInlineAfterDim
+    on error resume next
+    Err.Clear
+    ExecuteGlobal "Dim egInlineA : Class EGInlineClassA : End Class"
+    todo_wine_ok Err.Number = 0, "ExecuteGlobal Dim:Class err=" & Err.Number
+
+    Err.Clear
+    ExecuteGlobal "Sub EGInlineSub() : End Sub : Class EGInlineClassB : End Class"
+    todo_wine_ok Err.Number = 0, "ExecuteGlobal Sub:Class err=" & Err.Number
+
+    Err.Clear
+    ExecuteGlobal "Dim EGInlineCollision : Class EGInlineCollision : End Class"
+    todo_wine_ok Err.Number = 1041, "ExecuteGlobal Dim x : Class x err=" & Err.Number
+End Sub
+Call TestClassInlineAfterDim
+
+' Class declarations are only valid at script global scope. Native rejects any
+' inner scope (If/For/Do/While/Sub/Function/nested Class/single-line If) with
+' err 1002.
+Sub TestClassRejectedInInnerScope
+    on error resume next
+
+    Err.Clear
+    ExecuteGlobal "If True Then" & vbCrLf & "Class EGInIf" & vbCrLf & "End Class" & vbCrLf & "End If"
+    call ok(Err.Number = 1002, "ExecuteGlobal If/Then class err=" & Err.Number)
+
+    Err.Clear
+    ExecuteGlobal "Dim i : For i = 1 To 1" & vbCrLf & "Class EGInFor" & vbCrLf & "End Class" & vbCrLf & "Next"
+    call ok(Err.Number = 1002, "ExecuteGlobal For class err=" & Err.Number)
+
+    Err.Clear
+    ExecuteGlobal "Do" & vbCrLf & "Class EGInDo" & vbCrLf & "End Class" & vbCrLf & "Loop Until True"
+    call ok(Err.Number = 1002, "ExecuteGlobal Do/Loop class err=" & Err.Number)
+
+    Err.Clear
+    ExecuteGlobal "Dim d : d = False : While Not d" & vbCrLf & "Class EGInWhile" & vbCrLf & "End Class" & vbCrLf & "d = True" & vbCrLf & "Wend"
+    call ok(Err.Number = 1002, "ExecuteGlobal While/Wend class err=" & Err.Number)
+
+    Err.Clear
+    ExecuteGlobal "Sub EGSubClass" & vbCrLf & "Class EGInSub" & vbCrLf & "End Class" & vbCrLf & "End Sub"
+    call ok(Err.Number = 1002, "ExecuteGlobal Sub-local class err=" & Err.Number)
+
+    Err.Clear
+    ExecuteGlobal "Function EGFuncClass" & vbCrLf & "Class EGInFunc" & vbCrLf & "End Class" & vbCrLf & "End Function"
+    call ok(Err.Number = 1002, "ExecuteGlobal Function-local class err=" & Err.Number)
+
+    Err.Clear
+    ExecuteGlobal "Class EGOuter" & vbCrLf & "Class EGInner" & vbCrLf & "End Class" & vbCrLf & "End Class"
+    call ok(Err.Number = 1002, "ExecuteGlobal nested class err=" & Err.Number)
+
+    Err.Clear
+    ExecuteGlobal "If True Then Class EGSingleLine : End Class"
+    call ok(Err.Number = 1002, "ExecuteGlobal single-line If Then class err=" & Err.Number)
+End Sub
+Call TestClassRejectedInInnerScope
+
 ' Execute tests
 x = 0
 Execute "x = 99"
