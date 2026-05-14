@@ -346,7 +346,13 @@ static int parse_numeric_literal(parser_ctx_t *ctx, void **ret)
         return tInt;
     }
 
-    r = exp>=0 ? d*pow(10, exp) : d/pow(10, -exp);
+    if(exp >= -308) {
+        r = exp>=0 ? d*pow(10, exp) : d/pow(10, -exp);
+    }else {
+        /* Subnormal range: pow(10, -exp) would overflow, so split into two
+         * multiplications that each stay within the representable range. */
+        r = (d * pow(10, -308)) * pow(10, exp + 308);
+    }
     if(isinf(r)) {
         return lex_error(ctx, MAKE_VBSERROR(VBSE_INVALID_NUMBER));
     }
