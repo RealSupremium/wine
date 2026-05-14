@@ -4822,6 +4822,28 @@ static void test_getitemrect(void)
     expect(34, rect.right);
 
     DestroyWindow(hwnd);
+
+    hwnd = create_listview_control(LVS_ICON);
+    ok(hwnd != NULL, "failed to create icon view listview\n");
+
+    memset(&item, 0, sizeof(item));
+    item.mask = LVIF_TEXT;
+    item.iItem = 0;
+    item.pszText = (LPSTR)"";  
+    r = SendMessageA(hwnd, LVM_INSERTITEMA, 0, (LPARAM)&item);
+    expect(0, r);
+
+    SetRect(&rect, LVIR_LABEL, -1, -1, -1);
+    r = SendMessageA(hwnd, LVM_GETITEMRECT, 0, (LPARAM)&rect);
+    expect(TRUE, r);
+    ok(rect.right > rect.left,"got left %ld, right %ld\n", rect.left, rect.right);
+
+    SetRect(&rect, LVIR_SELECTBOUNDS, -1, -1, -1);
+    r = SendMessageA(hwnd, LVM_GETITEMRECT, 0, (LPARAM)&rect);
+    expect(TRUE, r);
+    ok(rect.right > rect.left,"got left %ld, right %ld\n", rect.left, rect.right);
+
+    DestroyWindow(hwnd);
 }
 
 static void test_editbox(void)
