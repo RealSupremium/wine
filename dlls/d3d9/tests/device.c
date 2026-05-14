@@ -13224,53 +13224,87 @@ static void test_swapchain_multisample_reset(void)
     IDirect3DDevice9 *device;
     DWORD quality_levels;
     IDirect3D9 *d3d;
+    unsigned int i;
     ULONG refcount;
     HWND window;
     HRESULT hr;
+
+    static const struct
+    {
+        const char *name;
+        D3DFORMAT format;
+    }
+    formats[] =
+    {
+        {"D3DFMT_R5G6B5",      D3DFMT_R5G6B5},
+        {"D3DFMT_X1R5G5B5",    D3DFMT_X1R5G5B5},
+        {"D3DFMT_A1R5G5B5",    D3DFMT_A1R5G5B5},
+        {"D3DFMT_X8R8G8B8",    D3DFMT_X8R8G8B8},
+        {"D3DFMT_A8R8G8B8",    D3DFMT_A8R8G8B8},
+        {"D3DFMT_A2R10G10B10", D3DFMT_A2R10G10B10},
+    };
 
     window = create_window();
     ok(!!window, "Failed to create a window.\n");
     d3d = Direct3DCreate9(D3D_SDK_VERSION);
     ok(!!d3d, "Failed to create a D3D object.\n");
 
-    if (IDirect3D9_CheckDeviceMultiSampleType(d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
-            D3DFMT_A8R8G8B8, TRUE, D3DMULTISAMPLE_2_SAMPLES, &quality_levels) == D3DERR_NOTAVAILABLE)
+    for (i = 0; i < ARRAY_SIZE(formats); ++i)
     {
-        skip("Multisampling not supported for D3DFMT_A8R8G8B8.\n");
-        IDirect3D9_Release(d3d);
-        DestroyWindow(window);
-        return;
+        winetest_push_context("Test %u, format %s", i, formats[i].name);
+
+        if (FAILED(hr = IDirect3D9_CheckDeviceMultiSampleType(d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+                formats[i].format, TRUE, D3DMULTISAMPLE_2_SAMPLES, &quality_levels)))
+        {
+            ok(hr == D3DERR_NOTAVAILABLE, "Unexpected hr %#lx.\n", hr);
+            skip("Multisampling not supported.\n");
+            winetest_pop_context();
+            continue;
+        }
+
+        if (!(device = create_device(d3d, window, NULL)))
+        {
+            skip("Failed to create a 3D device.\n");
+            winetest_pop_context();
+            goto done;
+        }
+
+        hr = IDirect3DDevice9_Clear(device, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xffffffff, 1.0f, 0);
+        ok(hr == D3D_OK, "Failed to clear, hr %#lx.\n", hr);
+
+        hr = IDirect3DDevice9_GetSwapChain(device, 0, &swapchain);
+        ok(hr == D3D_OK, "Failed to get the implicit swapchain, hr %#lx.\n", hr);
+        hr = IDirect3DSwapChain9_GetPresentParameters(swapchain, &d3dpp);
+        ok(hr == D3D_OK, "Failed to get present parameters, hr %#lx.\n", hr);
+        ok(d3dpp.MultiSampleType == D3DMULTISAMPLE_NONE,
+                "Got unexpected multisample type %#x.\n", d3dpp.MultiSampleType);
+        IDirect3DSwapChain9_Release(swapchain);
+
+        d3dpp.BackBufferFormat = formats[i].format;
+        d3dpp.MultiSampleType = D3DMULTISAMPLE_2_SAMPLES;
+        d3dpp.MultiSampleQuality = quality_levels - 1;
+        hr = IDirect3DDevice9_Reset(device, &d3dpp);
+        ok(hr == D3D_OK, "Unexpected hr %#lx.\n", hr);
+
+        hr = IDirect3DDevice9_Clear(device, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xffffffff, 1.0f, 0);
+        ok(hr == D3D_OK, "Failed to clear, hr %#lx.\n", hr);
+
+        /* Lockable back buffer flag is not allowed. */
+        d3dpp.Flags = D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
+        hr = IDirect3DDevice9_Reset(device, &d3dpp);
+        todo_wine
+        ok(hr == D3DERR_INVALIDCALL, "Unexpected hr %#lx.\n", hr);
+        hr = IDirect3DDevice9_TestCooperativeLevel(device);
+        todo_wine
+        ok(hr == D3DERR_DEVICENOTRESET, "TestCooperativeLevel returned hr %#lx.\n", hr);
+
+        refcount = IDirect3DDevice9_Release(device);
+        ok(!refcount, "Device has %lu references left.\n", refcount);
+
+        winetest_pop_context();
     }
 
-    if (!(device = create_device(d3d, window, NULL)))
-    {
-        skip("Failed to create a 3D device.\n");
-        IDirect3D9_Release(d3d);
-        DestroyWindow(window);
-        return;
-    }
-
-    hr = IDirect3DDevice9_Clear(device, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xffffffff, 1.0f, 0);
-    ok(hr == D3D_OK, "Failed to clear, hr %#lx.\n", hr);
-
-    hr = IDirect3DDevice9_GetSwapChain(device, 0, &swapchain);
-    ok(hr == D3D_OK, "Failed to get the implicit swapchain, hr %#lx.\n", hr);
-    hr = IDirect3DSwapChain9_GetPresentParameters(swapchain, &d3dpp);
-    ok(hr == D3D_OK, "Failed to get present parameters, hr %#lx.\n", hr);
-    ok(d3dpp.MultiSampleType == D3DMULTISAMPLE_NONE,
-            "Got unexpected multisample type %#x.\n", d3dpp.MultiSampleType);
-    IDirect3DSwapChain9_Release(swapchain);
-
-    d3dpp.MultiSampleType = D3DMULTISAMPLE_2_SAMPLES;
-    d3dpp.MultiSampleQuality = quality_levels - 1;
-    hr = IDirect3DDevice9_Reset(device, &d3dpp);
-    ok(hr == D3D_OK, "Failed to reset device, hr %#lx.\n", hr);
-
-    hr = IDirect3DDevice9_Clear(device, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xffffffff, 1.0f, 0);
-    ok(hr == D3D_OK, "Failed to clear, hr %#lx.\n", hr);
-
-    refcount = IDirect3DDevice9_Release(device);
-    ok(!refcount, "Device has %lu references left.\n", refcount);
+done:
     IDirect3D9_Release(d3d);
     DestroyWindow(window);
 }
