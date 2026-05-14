@@ -13292,10 +13292,8 @@ static void test_swapchain_multisample_reset(void)
         /* Lockable back buffer flag is not allowed. */
         d3dpp.Flags = D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
         hr = IDirect3DDevice9_Reset(device, &d3dpp);
-        todo_wine
         ok(hr == D3DERR_INVALIDCALL, "Unexpected hr %#lx.\n", hr);
         hr = IDirect3DDevice9_TestCooperativeLevel(device);
-        todo_wine
         ok(hr == D3DERR_DEVICENOTRESET, "TestCooperativeLevel returned hr %#lx.\n", hr);
 
         refcount = IDirect3DDevice9_Release(device);

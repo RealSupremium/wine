@@ -9592,7 +9592,6 @@ static void test_swapchain_multisample_reset(void)
 
         /* But locking is not allowed. */
         hr = IDirect3DSurface8_LockRect(surface, &lr, NULL, 0);
-        todo_wine
         ok(hr == D3DERR_INVALIDCALL, "Unexpected hr %#lx.\n", hr);
 
         IDirect3DSurface8_Release(surface);
