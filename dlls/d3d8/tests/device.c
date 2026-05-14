@@ -9569,7 +9569,6 @@ static void test_swapchain_multisample_reset(void)
         present_parameters.Windowed = TRUE;
         present_parameters.MultiSampleType = D3DMULTISAMPLE_2_SAMPLES;
         hr = IDirect3DDevice8_Reset(device, &present_parameters);
-        todo_wine_if(formats[i].expected_hr == D3DERR_INVALIDCALL)
         ok(hr == formats[i].expected_hr, "Unexpected hr %#lx.\n", hr);
 
         if (FAILED(hr))
