@@ -68,7 +68,7 @@ static HRESULT shape_run( ME_Context *c, ME_Run *run )
 
     if (!run->glyphs)
     {
-        run->max_glyphs = 1.5 * run->len + 16; /* This is suggested in the uniscribe documentation */
+        run->max_glyphs = 2 * run->len + 16;
         run->max_glyphs = (run->max_glyphs + 7) & ~7; /* Keep alignment simple */
         get_run_glyph_buffers( run );
     }
