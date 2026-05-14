@@ -803,7 +803,7 @@ static void test_itemchanging(void)
     expect(TRUE, r);
     r = SendMessageA(hTree, TVM_GETITEMSTATE, (WPARAM)hChild, TVIS_SELECTED) & TVIS_SELECTED;
     if (g_v6)
-        todo_wine expect(0, r);
+        expect(0, r);
     else
         expect(TVIS_SELECTED, r);
 
@@ -814,7 +814,7 @@ static void test_itemchanging(void)
     expect(TRUE, r);
     r = SendMessageA(hTree, TVM_GETITEMSTATE, (WPARAM)hChild, TVIS_SELECTED) & TVIS_SELECTED;
     if (g_v6)
-        todo_wine expect(0, r);
+        expect(0, r);
     else
         expect(TVIS_SELECTED, r);
     r = SendMessageA(hTree, TVM_GETITEMSTATE, (WPARAM)hRoot, TVIS_SELECTED) & TVIS_SELECTED;
@@ -828,7 +828,7 @@ static void test_itemchanging(void)
     bSelectPreviousItem = FALSE;
 
     if (g_v6)
-        ok_sequence(sequences, PARENT_SEQ_INDEX, select_previous_item_v6, "select previous item seq", TRUE);
+        ok_sequence(sequences, PARENT_SEQ_INDEX, select_previous_item_v6, "select previous item seq", FALSE);
     else
         ok_sequence(sequences, PARENT_SEQ_INDEX, select_previous_item, "select previous item seq", FALSE);
 
