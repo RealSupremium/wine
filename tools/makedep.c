@@ -1548,6 +1548,7 @@ static struct file *open_include_file( const struct makefile *make, struct incl_
     /* check for generated files */
     if ((file = open_local_generated_file( make, source, ".tab.h", ".y" ))) return file;
     if ((file = open_local_generated_file( make, source, ".h", ".idl" ))) return file;
+    if (fontforge && (file = open_local_generated_file( make, source, ".otf", ".otf.sfd" ))) return file;
     if (fontforge && (file = open_local_generated_file( make, source, ".ttf", ".sfd" ))) return file;
     if (convert && rsvg && icotool)
     {
@@ -3282,21 +3283,33 @@ static void output_source_x( struct makefile *make, struct incl_file *source, co
  */
 static void output_source_sfd( struct makefile *make, struct incl_file *source, const char *obj )
 {
-    char *ttf_obj = strmake( "%s.ttf", obj );
-    char *ttf_file = src_dir_path( make, ttf_obj );
+    char *font_file, *font_obj;
+    const char *script = "fonts/genttf.ff";
+
+    if (strendswith( obj, ".otf" ))
+    {
+        font_obj = xstrdup( obj );
+        script = "fonts/genotf.ff";
+    }
+    else if (strendswith( obj, ".ttf" ))
+        font_obj = xstrdup( obj );
+    else
+        font_obj = strmake( "%s.ttf", obj );
+
+    font_file = src_dir_path( make, font_obj );
 
     if (fontforge && !make->src_dir)
     {
-        output( "%s: %s\n", ttf_file, source->filename );
+        output( "%s: %s\n", font_file, source->filename );
         output( "\t%s%s -script %s %s $@\n", cmd_prefix( "GEN" ),
-                fontforge, root_src_dir_path( "fonts/genttf.ff" ), source->filename );
-        if (!(source->file->flags & FLAG_SFD_FONTS)) strarray_add( &make->font_files, ttf_obj );
-        strarray_add( &make->maintainerclean_files, ttf_obj );
+                fontforge, root_src_dir_path( script ), source->filename );
+        if (!(source->file->flags & FLAG_SFD_FONTS)) strarray_add( &make->font_files, font_obj );
+        strarray_add( &make->maintainerclean_files, font_obj );
     }
     if (source->file->flags & FLAG_INSTALL)
     {
-        install_data_file_src( make, source->name, ttf_obj, "$(datadir)/wine/fonts" );
-        output_srcdir_symlink( make, ttf_obj );
+        install_data_file_src( make, source->name, font_obj, "$(datadir)/wine/fonts" );
+        output_srcdir_symlink( make, font_obj );
     }
 
     if (source->file->flags & FLAG_SFD_FONTS)
@@ -3308,8 +3321,8 @@ static void output_source_sfd( struct makefile *make, struct incl_file *source, 
             char *args = strtok( NULL, "" );
 
             strarray_add( &make->all_targets[0], xstrdup( font ));
-            output( "%s: %s %s\n", obj_dir_path( make, font ), sfnt2fon, ttf_file );
-            output( "\t%s%s -q -o $@ %s %s\n", cmd_prefix( "GEN" ), sfnt2fon, ttf_file, args );
+            output( "%s: %s %s\n", obj_dir_path( make, font ), sfnt2fon, font_file );
+            output( "\t%s%s -q -o $@ %s %s\n", cmd_prefix( "GEN" ), sfnt2fon, font_file, args );
             install_data_file( make, source->name, font, "$(datadir)/wine/fonts", NULL );
         }
     }
