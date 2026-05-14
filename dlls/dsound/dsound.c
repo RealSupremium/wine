@@ -134,7 +134,6 @@ static HRESULT DirectSoundDevice_Create(DirectSoundDevice ** ppDevice)
         return DSERR_OUTOFMEMORY;
     }
 
-    device->ref            = 1;
     device->priolevel      = DSSCL_NORMAL;
     device->stopped        = 1;
     device->speaker_config = DSSPEAKER_COMBINED(DSSPEAKER_STEREO, DSSPEAKER_GEOMETRY_WIDE);
@@ -187,15 +186,14 @@ static HRESULT DirectSoundDevice_Create(DirectSoundDevice ** ppDevice)
     return DS_OK;
 }
 
-static ULONG DirectSoundDevice_Release(DirectSoundDevice * device)
+static void DirectSoundDevice_Release(DirectSoundDevice * device)
 {
     HRESULT hr;
-    ULONG ref = InterlockedDecrement(&(device->ref));
-    TRACE("(%p) ref %ld\n", device, ref);
-    if (!ref) {
         int i;
 
-        SetEvent(device->sleepev);
+        TRACE("(%p)\n", device);
+
+        SetEvent(device->stopev);
         if (device->thread) {
             WaitForSingleObject(device->thread, INFINITE);
             CloseHandle(device->thread);
@@ -229,6 +227,7 @@ static ULONG DirectSoundDevice_Release(DirectSoundDevice * device)
         if(device->mmdevice)
             IMMDevice_Release(device->mmdevice);
         CloseHandle(device->sleepev);
+        CloseHandle(device->stopev);
         free(device->tmp_buffer);
         free(device->cp_buffer);
         free(device->buffer);
@@ -236,8 +235,6 @@ static ULONG DirectSoundDevice_Release(DirectSoundDevice * device)
         DeleteCriticalSection(&device->mixlock);
         TRACE("(%p) released\n", device);
         free(device);
-    }
-    return ref;
 }
 
 static HRESULT DirectSoundDevice_Initialize(DirectSoundDevice ** ppDevice, LPCGUID lpcGUID)
@@ -285,6 +282,7 @@ static HRESULT DirectSoundDevice_Initialize(DirectSoundDevice ** ppDevice, LPCGU
     device->mmdevice = mmdevice;
     device->guid = devGUID;
     device->sleepev = CreateEventW(0, 0, 0, 0);
+    device->stopev = CreateEventW(0, 0, 0, 0);
     device->buflen = ds_hel_buflen;
 
     hr = DSOUND_ReopenDevice(device, FALSE);
