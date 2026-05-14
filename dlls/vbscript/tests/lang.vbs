@@ -4020,15 +4020,15 @@ Sub TestClassInlineAfterDim
     on error resume next
     Err.Clear
     ExecuteGlobal "Dim egInlineA : Class EGInlineClassA : End Class"
-    todo_wine_ok Err.Number = 0, "ExecuteGlobal Dim:Class err=" & Err.Number
+    call ok(Err.Number = 0, "ExecuteGlobal Dim:Class err=" & Err.Number)
 
     Err.Clear
     ExecuteGlobal "Sub EGInlineSub() : End Sub : Class EGInlineClassB : End Class"
-    todo_wine_ok Err.Number = 0, "ExecuteGlobal Sub:Class err=" & Err.Number
+    call ok(Err.Number = 0, "ExecuteGlobal Sub:Class err=" & Err.Number)
 
     Err.Clear
     ExecuteGlobal "Dim EGInlineCollision : Class EGInlineCollision : End Class"
-    todo_wine_ok Err.Number = 1041, "ExecuteGlobal Dim x : Class x err=" & Err.Number
+    call ok(Err.Number = 1041, "ExecuteGlobal Dim x : Class x err=" & Err.Number)
 End Sub
 Call TestClassInlineAfterDim
 

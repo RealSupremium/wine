@@ -112,6 +112,7 @@ typedef struct {
 typedef enum {
     STAT_ASSIGN,
     STAT_CALL,
+    STAT_CLASS,
     STAT_CONST,
     STAT_DIM,
     STAT_DOUNTIL,
@@ -222,6 +223,11 @@ typedef struct _class_decl_t {
     dim_decl_t *props;
     struct _class_decl_t *next;
 } class_decl_t;
+
+typedef struct {
+    statement_t stat;
+    class_decl_t *class_decl;
+} class_statement_t;
 
 typedef struct _elseif_decl_t {
     expression_t *expr;
