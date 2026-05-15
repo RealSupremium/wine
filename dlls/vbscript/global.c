@@ -783,6 +783,14 @@ static HRESULT Global_CDate(BuiltinDisp *This, VARIANT *arg, unsigned args_cnt, 
     return S_OK;
 }
 
+static HRESULT Global_CDec(BuiltinDisp *This, VARIANT *arg, unsigned args_cnt, VARIANT *res)
+{
+    TRACE("%s\n", debugstr_variant(arg));
+    assert(args_cnt == 1);
+    /* Native cscript stubs CDec: every input returns type mismatch. */
+    return MAKE_VBSERROR(VBSE_TYPE_MISMATCH);
+}
+
 static HRESULT Global_CDbl(BuiltinDisp *This, VARIANT *arg, unsigned args_cnt, VARIANT *res)
 {
     VARIANT v;
@@ -4735,6 +4743,7 @@ static const builtin_prop_t global_props[] = {
     {L"CCur",                      Global_CCur, 0, 1},
     {L"CDate",                     Global_CDate, 0, 1},
     {L"CDbl",                      Global_CDbl, 0, 1},
+    {L"CDec",                      Global_CDec, 0, 1},
     {L"Chr",                       Global_Chr, 0, 1},
     {L"ChrB",                      Global_ChrB, 0, 1},
     {L"ChrW",                      Global_ChrW, 0, 1},
