@@ -2236,6 +2236,56 @@ static void test_pnp_devices(void)
         ok(!wcscmp(buffer_w, expect_device_location_w), "Got device location info %s.\n", debugstr_w(buffer_w));
     }
 
+    /* DEVPKEY_Device_Parent — should be set by ntoskrnl during bus enumeration. */
+    prop_type = DEVPROP_TYPE_EMPTY;
+    size = 0;
+    memset(buffer_w, 0, sizeof(buffer_w));
+    ret = SetupDiGetDevicePropertyW(set, &device, &DEVPKEY_Device_Parent, &prop_type, (BYTE *)buffer_w,
+                                    sizeof(buffer_w), &size, 0);
+    ok(ret, "Got error %#lx.\n", GetLastError());
+    ok(prop_type == DEVPROP_TYPE_STRING, "got type %#lx\n", prop_type);
+    ok(size == sizeof(L"ROOT\\WINETEST\\0"), "got size %lu\n", size);
+    ok(!wcscmp(buffer_w, L"ROOT\\WINETEST\\0"), "got parent ID %s\n", debugstr_w(buffer_w));
+
+    /* DEVPKEY_Device_Children — must be set on the bus PDO after child
+     * enumeration. Open the bus device by its instance ID directly; the
+     * bus_class interface has been disabled earlier in this function, so
+     * a DIGCF_DEVICEINTERFACE-scoped enumeration would not find it. */
+    {
+        SP_DEVINFO_DATA bus_dev = { sizeof(bus_dev) };
+        HDEVINFO bus_set;
+        WCHAR *entry;
+        BOOL found_child;
+
+        bus_set = SetupDiCreateDeviceInfoList(NULL, NULL);
+        ok(bus_set != INVALID_HANDLE_VALUE, "failed to create bus device list, error %#lx\n",
+           GetLastError());
+        ret = SetupDiOpenDeviceInfoA(bus_set, "ROOT\\WINETEST\\0", NULL, 0, &bus_dev);
+        ok(ret, "failed to open bus device, error %#lx\n", GetLastError());
+
+        prop_type = DEVPROP_TYPE_EMPTY;
+        size = 0;
+        memset(buffer_w, 0, sizeof(buffer_w));
+        ret = SetupDiGetDevicePropertyW(bus_set, &bus_dev, &DEVPKEY_Device_Children,
+                                        &prop_type, (BYTE *)buffer_w, sizeof(buffer_w), &size, 0);
+        ok(ret, "DEVPKEY_Device_Children missing, error %#lx\n", GetLastError());
+        ok(prop_type == DEVPROP_TYPE_STRING_LIST, "got type %#lx\n", prop_type);
+
+        found_child = FALSE;
+        for (entry = buffer_w; *entry; entry += wcslen(entry) + 1)
+        {
+            /* PnP instance IDs are case-insensitive; the driver reports
+             * "Wine\\Test" while other SetupAPI paths uppercase-normalise. */
+            if (!wcsicmp(entry, L"Wine\\Test\\1"))
+            {
+                found_child = TRUE;
+                break;
+            }
+        }
+        ok(found_child, "expected Wine\\Test\\1 in DEVPKEY_Device_Children\n");
+        SetupDiDestroyDeviceInfoList(bus_set);
+    }
+
     ret = SetupDiEnumDeviceInterfaces(set, NULL, &child_class, 0, &iface);
     ok(ret, "failed to get interface, error %#lx\n", GetLastError());
     ok(IsEqualGUID(&iface.InterfaceClassGuid, &child_class),

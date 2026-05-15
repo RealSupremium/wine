@@ -2037,7 +2037,11 @@ static void SETUPDI_EnumerateMatchingInterfaces(HDEVINFO DeviceInfoSet,
                                 UuidFromStringW(&deviceClassStr[1],
                                         &deviceClass);
                                 if ((device = create_device(set, &deviceClass, deviceInst, FALSE)))
+                                {
                                     SETUPDI_AddDeviceInterfaces(device, subKey, guid, flags);
+                                    if (list_empty(&device->interfaces))
+                                        delete_device(device);
+                                }
                             }
                             RegCloseKey(deviceKey);
                         }
