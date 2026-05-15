@@ -4248,6 +4248,17 @@ Dim nullResult
 nullResult = CLng(Null)
 todo_wine_ok Err.Number = 94, "CLng(Null): err.number = " & Err.Number
 
+' CDec is a recognised builtin but native always raises type mismatch.
+Sub testCDecStub
+    on error resume next
+    Err.Clear : call CDec(0)        : call ok(Err.Number = 13, "CDec(0) err=" & Err.Number)
+    Err.Clear : call CDec(1.5)      : call ok(Err.Number = 13, "CDec(1.5) err=" & Err.Number)
+    Err.Clear : call CDec("1.5")    : call ok(Err.Number = 13, "CDec(""1.5"") err=" & Err.Number)
+    Err.Clear : call CDec(Null)     : call ok(Err.Number = 13, "CDec(Null) err=" & Err.Number)
+    Err.Clear : call CDec(Empty)    : call ok(Err.Number = 13, "CDec(Empty) err=" & Err.Number)
+End Sub
+Call testCDecStub
+
 ' Error 429: ActiveX component can't create object
 Err.Clear
 Dim badObj
