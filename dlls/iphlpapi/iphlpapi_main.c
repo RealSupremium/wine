@@ -4038,15 +4038,118 @@ DWORD WINAPI NotifyUnicastIpAddressChange(ADDRESS_FAMILY family, PUNICAST_IPADDR
  * RETURNS
  *  Success: NO_ERROR
  *  Failure: error code from winerror.h
- *
- * FIXME
- *  Stub, returns ERROR_NOT_SUPPORTED.
  */
 DWORD WINAPI SendARP(IPAddr DestIP, IPAddr SrcIP, PULONG pMacAddr, PULONG PhyAddrLen)
 {
-  FIXME("(DestIP 0x%08lx, SrcIP 0x%08lx, pMacAddr %p, PhyAddrLen %p): stub\n",
-   DestIP, SrcIP, pMacAddr, PhyAddrLen);
-  return ERROR_NOT_SUPPORTED;
+    int i=3, time_out=420;
+    ULONG size=16000;
+    struct sockaddr_in dst, src;
+    struct WSAData wd;
+    SOCKET s;
+    MIB_IPNETTABLE *table = NULL;
+    PIP_ADAPTER_UNICAST_ADDRESS pUnicast = NULL;
+    PIP_ADAPTER_ADDRESSES pInterfaces = NULL, pCurrInterface = NULL;
+
+    if( DestIP == 0 )
+        return ERROR_INVALID_PARAMETER;
+    if( pMacAddr == NULL || PhyAddrLen == NULL )
+        return ERROR_INVALID_USER_BUFFER;
+    if( (*PhyAddrLen) < 6 )
+        return ERROR_BUFFER_OVERFLOW;
+
+    /* copy DestIP to MAC, in case MAC cant be found */
+    (*PhyAddrLen) = 6;
+    memcpy(pMacAddr, &DestIP, 4); 
+    memcpy(pMacAddr+1, &DestIP, 2);
+
+
+    /* first, check if DestIP is a local adapter */
+    do
+    {
+        pInterfaces = (IP_ADAPTER_ADDRESSES *) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
+        if (pInterfaces == NULL)
+        {
+            ERR("Memory allocation failed for IP_ADAPTER_ADDRESSES struct");
+            return ERROR_BUFFER_OVERFLOW;
+        }
+
+        i = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST + GAA_FLAG_SKIP_MULTICAST 
+                + GAA_FLAG_SKIP_DNS_SERVER + GAA_FLAG_SKIP_FRIENDLY_NAME, NULL, pInterfaces, &size);
+                
+        if (i == NO_ERROR )
+        {
+            pCurrInterface = pInterfaces;
+            while ( pCurrInterface )
+            {
+
+                pUnicast = pCurrInterface->FirstUnicastAddress;
+                while ( pUnicast )
+                {
+                    if ( DestIP == ((struct sockaddr_in *) 
+                        pUnicast->Address.lpSockaddr)->sin_addr.s_addr )
+                    {
+                        memcpy(pMacAddr, pCurrInterface->PhysicalAddress, 6);
+                        HeapFree(GetProcessHeap(), 0, pInterfaces);
+                        return NO_ERROR;
+                    }
+                    pUnicast = pUnicast->Next;
+                } 
+                pCurrInterface = pCurrInterface->Next;
+            }
+        }
+        HeapFree(GetProcessHeap(), 0, pInterfaces);
+        
+    } while ( i == ERROR_BUFFER_OVERFLOW && i-- > 0 );
+
+
+    /* prepare config, to send an UDP packed instead of privileged ARP */
+    src.sin_family = AF_INET;
+    src.sin_addr.s_addr = SrcIP;
+    src.sin_port = 10123;
+    dst.sin_family = AF_INET;
+    dst.sin_addr.s_addr = DestIP;
+    dst.sin_port = 10123;
+
+    /* send UDP */
+    if( WSAStartup( MAKEWORD( 2, 2 ), &wd ) != 0 )
+        return ERROR_NOT_SUPPORTED;
+    s = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+    bind( s, (SOCKADDR *) &src, sizeof(src) );
+    i = sendto( s, (const char *) &time_out, 4, 0, (SOCKADDR *) &dst, sizeof(dst) );
+    closesocket(s);
+    WSACleanup();
+    if( i == SOCKET_ERROR )
+        return ERROR_GEN_FAILURE;
+
+
+    /* search cached arp table */
+    size = 16000;
+    while( time_out-- > 0 )
+    {
+        table = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
+        if( table == NULL )
+        {
+            ERR("Memory allocation failed for IpNetTable struct");
+            return ERROR_BUFFER_OVERFLOW;
+        }
+        
+        if( GetIpNetTable( table, &size, 0 ) == NO_ERROR )
+        {
+            for (i = 0; i < table->dwNumEntries; ++i)
+            {
+                if( table->table[i].dwAddr == DestIP )
+                {
+                    memcpy(pMacAddr, table->table[i].bPhysAddr, 6);
+                    HeapFree(GetProcessHeap(), 0, table);
+                    return NO_ERROR;
+                }
+            }
+        }
+        Sleep(1);
+        HeapFree(GetProcessHeap(), 0, table);
+    }
+    
+    return ERROR_NOT_FOUND;
 }
 
 

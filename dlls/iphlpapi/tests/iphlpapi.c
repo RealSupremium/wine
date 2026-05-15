@@ -2020,6 +2020,36 @@ static void testWin2KFunctions(void)
     testNotifyAddrChange();
 }
 
+static void test_SendARP(void)
+{
+    DWORD apiReturn;
+    ULONG dwSize = 0;
+    ULONG MacAddr[2]={0,0};
+
+    apiReturn = SendARP( 0, 0, MacAddr, &dwSize);
+    if (apiReturn == ERROR_NOT_SUPPORTED) {
+        skip("SendARP is not supported\n");
+        return;
+    }
+    ok(apiReturn == ERROR_INVALID_PARAMETER,
+       "SendARP(inet_addr('255.255.255.255'), 0, MacAddr, &dwSize) returned %ld, expected ERROR_INVALID_PARAMETER\n",
+       apiReturn);
+
+    apiReturn = SendARP( inet_addr("255.255.255.255"), 0, MacAddr, &dwSize);
+    ok(apiReturn == ERROR_BUFFER_OVERFLOW,
+       "SendARP(inet_addr('255.255.255.255'), 0, MacAddr, &dwSize=0) returned %ld, expected ERROR_BUFFER_OVERFLOW\n",
+       apiReturn);
+    
+    dwSize = 6;
+    apiReturn = SendARP( inet_addr("255.255.255.255"), 0, MacAddr, &dwSize);
+    if (apiReturn == ERROR_NOT_FOUND) {
+        trace( "SendARP(inet_addr('255.255.255.255'), 0, MacAddr, &dwSize) did not found a mac address\n" );
+    } else {
+        trace( "SendARP(inet_addr('255.255.255.255'), 0, MacAddr, &dwSize) returned '%lu' backwarded mac: %lx%lX\n",
+               apiReturn, MacAddr[1], MacAddr[0] );
+    }
+}
+
 static void test_GetAdaptersAddresses(void)
 {
     BOOL dns_eligible_found = FALSE;
@@ -4153,6 +4183,7 @@ done:
     FreeMibTable( table );
 }
 
+
 START_TEST(iphlpapi)
 {
   WSADATA wsa_data;
@@ -4171,6 +4202,7 @@ START_TEST(iphlpapi)
     WaitForSingleObject(thread, INFINITE);
 
     testWin2KFunctions();
+    test_SendARP();
     test_GetAdaptersAddresses();
     test_GetExtendedTcpTable();
     test_GetExtendedTcpTable_owner(AF_INET);
