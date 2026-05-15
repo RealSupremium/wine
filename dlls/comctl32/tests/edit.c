@@ -3937,6 +3937,83 @@ static void test_PASSWORDCHAR(void)
     DestroyWindow (hwEdit);
 }
 
+static BOOL capture_changed = FALSE;
+
+static LRESULT CALLBACK CaptureEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    WNDPROC origEditProc = (WNDPROC)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
+    if (msg == WM_CAPTURECHANGED)
+        capture_changed = TRUE;
+    return CallWindowProcA(origEditProc, hwnd, msg, wp, lp);
+}
+
+static int CheckCapture(void)
+{
+    if (capture_changed)
+    {
+        capture_changed = FALSE;
+        return 1;
+    }
+    return 0;
+}
+
+static void test_WM_LBUTTONDOWN(void)
+{
+    HWND hwEdit;
+    WNDPROC origEditProc;
+
+    hwEdit = CreateWindowExA(0, "EDIT", "Test", ES_LEFT,
+              0, 0, 100, 100, NULL, NULL, NULL, NULL);
+    origEditProc = (WNDPROC)SetWindowLongPtrA(hwEdit, GWLP_WNDPROC, (LONG_PTR)CaptureEditProc);
+    SetWindowLongPtrA(hwEdit, GWLP_USERDATA, (LONG_PTR)origEditProc);
+
+    /* test single SetCapture() processing */
+    ok(!CheckCapture(), "Unexpected WM_CAPTURECHANGED recieved\n");
+    SetCapture(hwEdit);
+    ok(!CheckCapture(), "Unexpected WM_CAPTURECHANGED recieved\n");
+    ok(GetCapture() == hwEdit, "Capture is not on Edit Control, instead on %p\n", GetCapture());
+
+    ok(ReleaseCapture(), "Can not release capture\n");
+    ok(CheckCapture(), "Expected WM_CAPTURECHANGED was not recieved after ReleaseCapture\n");
+    ok(GetCapture() != hwEdit, "Capture is on Edit Control %p, expected to be released\n", GetCapture());
+
+    /* Test double SetCapture() processing */
+    ok(!CheckCapture(), "Unexpected WM_CAPTURECHANGED recieved\n");
+    SetCapture(hwEdit);
+    ok(!CheckCapture(), "Unexpected WM_CAPTURECHANGED recieved after 1/2 SetCapture()\n");
+    SetCapture(hwEdit);
+    ok(CheckCapture(), "Expected WM_CAPTURECHANGED was not recieved after 2/2 SetCapture()\n");
+    ok(GetCapture() == hwEdit, "Capture is not on Edit Control, instead on %p\n", GetCapture());
+
+    ok(ReleaseCapture(), "Can not release capture\n");
+    ok(CheckCapture(), "Expected WM_CAPTURECHANGED was not recieved after ReleaseCapture\n");
+    ok(GetCapture() != hwEdit, "Capture is on Edit Control %p, expected to be released\n", GetCapture());
+
+    /* test single WM_LBUTTONDOWN processing */
+    ok(!CheckCapture(), "Unexpected WM_CAPTURECHANGED recieved\n");
+    SendMessageA(hwEdit, WM_LBUTTONDOWN, 1, 0);
+    ok(!CheckCapture(), "Unexpected WM_CAPTURECHANGED recieved after WM_LBUTTONDOWN\n");
+    ok(GetCapture() == hwEdit, "Capture is not on Edit Control, instead on %p\n", GetCapture());
+
+    SendMessageA(hwEdit, WM_LBUTTONUP, 0, 0);
+    ok(CheckCapture(), "Expected WM_CAPTURECHANGED was not recieved after WM_LBUTTONUP\n");
+    ok(GetCapture() != hwEdit, "Capture is on Edit Control %p, expected to be released\n", GetCapture());
+
+    /* Test double WM_LBUTTONDOWN processing */
+    ok(!CheckCapture(), "Unexpected WM_CAPTURECHANGED recieved\n");
+    SendMessageA(hwEdit, WM_LBUTTONDOWN, 1, 0);
+    ok(!CheckCapture(), "Unexpected WM_CAPTURECHANGED recieved after 1/2 WM_LBUTTONDOWN\n");
+    SendMessageA(hwEdit, WM_LBUTTONDOWN, 1, 0);
+    ok(CheckCapture(), "Expected WM_CAPTURECHANGED was not recieved after 2/2 WM_LBUTTONDOWN\n");
+    ok(GetCapture() == hwEdit,"Capture is not on Edit Control, instead on %p\n", GetCapture());
+
+    SendMessageA(hwEdit, WM_LBUTTONUP, 0, 0);
+    ok(CheckCapture(), "Expected WM_CAPTURECHANGED was not recieved after WM_LBUTTONUP\n");
+    ok(GetCapture() != hwEdit, "Capture is on Edit Control %p, expected to be released\n", GetCapture());
+
+    DestroyWindow(hwEdit);
+}
+
 START_TEST(edit)
 {
     ULONG_PTR ctx_cookie;
@@ -3988,6 +4065,7 @@ START_TEST(edit)
     test_ime();
     test_format_rect();
     test_PASSWORDCHAR();
+    test_WM_LBUTTONDOWN();
 
     UnregisterWindowClasses();
 
