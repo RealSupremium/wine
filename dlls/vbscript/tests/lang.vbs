@@ -439,6 +439,12 @@ Call ok(getVT(# 1/1/2011 #) = "VT_DATE", "getVT(# 1/1/2011 #) is not VT_DATE")
 Call ok(getVT(1e2) = "VT_R8", "getVT(1e2) is not VT_R8")
 Call ok(getVT(1e0) = "VT_R8", "getVT(1e0) is not VT_R8")
 Call ok(getVT(0.1e2) = "VT_R8", "getVT(0.1e2) is not VT_R8")
+' Subnormal doubles: literals smaller than DBL_MIN (~1e-308) parse as positive
+' subnormals down to ~5e-324; anything smaller rounds to zero.
+Call ok(1e-309 > 0, "1e-309 should be subnormal positive, got " & 1e-309)
+Call ok(1e-320 > 0, "1e-320 should be subnormal positive, got " & 1e-320)
+Call ok(5e-324 > 0, "5e-324 should be subnormal positive, got " & 5e-324)
+Call ok(1e-400 = 0, "1e-400 should round to 0, got " & 1e-400)
 Call ok(getVT(1 & 100000) = "VT_BSTR", "getVT(1 & 100000) is not VT_BSTR")
 Call ok(getVT(-empty) = "VT_I2", "getVT(-empty) = " & getVT(-empty))
 Call ok(getVT(-null) = "VT_NULL", "getVT(-null) = " & getVT(-null))
