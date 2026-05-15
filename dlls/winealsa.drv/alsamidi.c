@@ -53,6 +53,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(midi);
 struct midi_dest
 {
     BOOL                bEnabled;
+    BOOL                bHardware;
     MIDIOPENDESC        midiDesc;
     BYTE                runningStatus;
     WORD                wFlags;
@@ -255,6 +256,29 @@ static void seq_close(void)
     seq_unlock();
 }
 
+static void midi_out_longmsg_throttle(UINT bytes)
+{
+    /* Real Windows appears to block roughly in proportion to MIDI wire time
+     * for midiOutLongMsg() on hardware devices. ALSA sequencer output returns
+     * immediately, which can allow applications to outrun physical MIDI output.
+     *
+     * Approximate MIDI wire time as 320 us per byte (31.25 kbit/s, 10 bits per
+     * byte on the wire), plus a small fixed overhead to better match observed
+     * Windows behaviour.
+     */
+    unsigned int delay_us = bytes * 320u + 3000u;
+    struct timespec ts = {
+        .tv_sec = delay_us / 1000000u,
+        .tv_nsec = (delay_us % 1000000u) * 1000u
+    };
+    nanosleep(&ts, NULL);
+}
+
+static BOOL alsa_is_hardware(unsigned int type)
+{
+    return (type & SND_SEQ_PORT_TYPE_HARDWARE) ? TRUE : FALSE;
+}
+
 static int alsa_to_win_device_type(unsigned int type)
 {
     /* MOD_MIDIPORT     output port
@@ -352,6 +376,7 @@ static void port_add(snd_seq_client_info_t* cinfo, snd_seq_port_info_t* pinfo, u
             dest->caps.wNotes     = 16;
         }
         dest->bEnabled            = TRUE;
+        dest->bHardware           = alsa_is_hardware(type);
         dest->port_out            = -1;
 
         TRACE("MidiOut[%d]\tname='%s' techn=%d voices=%d notes=%d chnMsk=%04x support=%d\n"
@@ -864,6 +889,8 @@ static UINT midi_out_long_data(WORD dev_id, MIDIHDR *hdr, UINT hdr_size, struct 
         snd_seq_ev_set_sysex(&event, hdr->dwBufferLength + len_add, new_data ? new_data : data);
         seq_lock();
         snd_seq_event_output_direct(dest->seq, &event);
+        if (dest->bHardware)
+            midi_out_longmsg_throttle(hdr->dwBufferLength + len_add);
         seq_unlock();
         free(new_data);
         break;
