@@ -58,6 +58,17 @@ typedef struct _font_fingerprint {
     WORD result[10];
 } font_fingerprint;
 
+typedef struct _indic_test {
+    CHAR font[25];
+    INT range;
+    WCHAR string[25];
+    INT strlen;
+    INT item_count;
+    INT glyph_count;
+    INT glyphs[25];
+    INT logClust[25];
+} indic_test;
+
 static inline void _test_items_ok(LPCWSTR string, DWORD cchString,
                          SCRIPT_CONTROL *Control, SCRIPT_STATE *State,
                          DWORD nItems, const itemTest* items, BOOL nItemsToDo,
@@ -4187,6 +4198,84 @@ static void test_script_cache_reuse(void)
     DestroyWindow(hwnd2);
 }
 
+#define incomplete_indic(a,b) (winetest_set_location(__FILE__,__LINE__), 0) ? 0 : _incomplete_indic(a,b)
+
+static void _incomplete_indic(HDC hdc, const indic_test *test)
+{
+    HRESULT hr;
+    SCRIPT_CACHE sc = NULL;
+    WORD glyphs[10], logclust[10];
+    SCRIPT_VISATTR attrs[10];
+    SCRIPT_ITEM items[10];
+    int nb, i;
+    HFONT font, oldfont = NULL;
+
+    find_font_for_range(hdc, test->font, test->range, test->string[0], &font, &oldfont, NULL);
+    if (font != NULL) {
+        memset(items, 0, sizeof(items));
+        nb = 0;
+        hr = ScriptItemize(test->string, test->strlen, test->strlen, NULL, NULL, items, &nb);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(items[0].a.eScript > 0, "Expected script id.\n");
+        ok(nb == test->item_count, "Unexpected number of items.\n");
+
+        memset(glyphs, 0xff, sizeof(glyphs));
+        nb = 0;
+        hr = ScriptShape(hdc, &sc, test->string, test->strlen, ARRAY_SIZE(glyphs),
+                &items[0].a, glyphs, logclust, attrs, &nb);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(nb == test->glyph_count, "Unexpected glyph count %u\n", nb);
+
+        for (i = 0; i < nb; i++) {
+            ok(glyphs[i] == test->glyphs[i], "Unexpected glyph at %i:  %x != %x\n",i, glyphs[i], test->glyphs[i]);
+        }
+        for (i = 0; i < test->strlen; i++) {
+            ok(logclust[i] == test->logClust[i], "Unexpected LogClust at %i:  %x != %x\n",i, logclust[i], test->logClust[i]);
+        }
+
+        ScriptFreeCache(&sc);
+        SelectObject(hdc, oldfont);
+        DeleteObject(font);
+    } else {
+        trace("%s font not found\n", test->font);
+    }
+}
+
+static void test_incomplete_indic(HDC hdc)
+{
+    const indic_test test1 = {
+        "Mangal", 15,
+        {0x093f, 0x094b},
+        2,
+        1,
+        4,
+        {0x1d4, 0x29c, 0x29c, 0x22a},
+        {0,2}
+    };
+    const indic_test test2 = {
+        "Vrinda", 16,
+        {0x09CC,0x09CC,0x09CC},
+        3,
+        1,
+        9,
+        {0x13a,0xdd,0x11d,0x118,0xdd,0x11d,0x118,0xdd,0x11d},
+        {0,3,6}
+    };
+    const indic_test test3 = {
+        "Vrinda", 16,
+        {0x09C7,0x09D7,0x09C7,0x09D7},
+        4,
+        1,
+        8,
+        {0x13a, 0xdd, 0xdd, 0x11d, 0x118, 0xdd, 0xdd, 0x11d},
+        {0,2,4,6}
+    };
+
+    incomplete_indic(hdc, &test1);
+    incomplete_indic(hdc, &test2);
+    incomplete_indic(hdc, &test3);
+}
+
 START_TEST(usp10)
 {
     HWND            hwnd;
@@ -4246,6 +4335,7 @@ START_TEST(usp10)
 
     test_ScriptIsComplex();
     test_script_cache_reuse();
+    test_incomplete_indic(hdc);
 
     ReleaseDC(hwnd, hdc);
     DestroyWindow(hwnd);

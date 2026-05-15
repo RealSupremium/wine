@@ -38,6 +38,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(uniscribe);
 #define FIRST_ARABIC_CHAR 0x0600
 #define LAST_ARABIC_CHAR  0x06ff
 
+#define U_DOTTED_CIRCLE 0x25cc
+
 typedef VOID (*ContextualShapingProc)(HDC, ScriptCache*, SCRIPT_ANALYSIS*,
                                       WCHAR*, INT, WORD*, INT*, INT, WORD*);
 
@@ -816,7 +818,7 @@ static void UpdateClusters(int nextIndex, int changeCount, int write_dir, int ch
         }
         else
         {
-            for (i = target_index; i < chars && i >= 0; i += cluster_dir)
+            for (i = target_index + 1; i < chars && i >= 0; i += cluster_dir)
                 pwLogClust[i] += changeCount;
         }
     }
@@ -909,7 +911,7 @@ static void mark_invalid_combinations(HDC hdc, const WCHAR* pwcChars, INT cChars
 {
     CHAR *context_type;
     int i,g;
-    WCHAR invalid = 0x25cc;
+    WCHAR invalid = U_DOTTED_CIRCLE;
     WORD invalid_glyph;
 
     context_type = malloc(cChars);
@@ -1672,7 +1674,21 @@ static void ReplaceInsertChars(HDC hdc, INT cWalk, INT* pcChars, WCHAR *pwOutCha
     }
 }
 
-static void DecomposeVowels(HDC hdc, WCHAR *pwOutChars, INT *pcChars, const VowelComponents vowels[], WORD* pwLogClust, INT cChars)
+static void UpdateSyllables(INT cWalk, INT count, IndicSyllable * syllables, INT syllable_count) {
+    int i;
+    if (count < 1) return;
+    for (i = 0; i < syllable_count; i++) {
+        if (syllables[i].start >= cWalk) {
+            if (syllables[i].start > cWalk) {
+                syllables[i].start += count;
+            }
+            syllables[i].end += count;
+        }
+
+    }
+}
+
+static void DecomposeVowels(HDC hdc, WCHAR *pwOutChars, INT *pcChars, const VowelComponents vowels[], WORD* pwLogClust, INT cChars, IndicSyllable *syllables, INT syllable_count)
 {
     int i;
     int cWalk;
@@ -1684,10 +1700,12 @@ static void DecomposeVowels(HDC hdc, WCHAR *pwOutChars, INT *pcChars, const Vowe
             if (pwOutChars[cWalk] == vowels[i].base)
             {
                 int o = 0;
+                int s = cWalk;
                 ReplaceInsertChars(hdc, cWalk, pcChars, pwOutChars, vowels[i].parts);
                 if (vowels[i].parts[1]) { cWalk++; o++; }
                 if (vowels[i].parts[2]) { cWalk++; o++; }
                 UpdateClusters(cWalk, o, 1,  cChars,  pwLogClust);
+                UpdateSyllables(s, o, syllables, syllable_count);
                 break;
             }
         }
@@ -1730,6 +1748,7 @@ static void ComposeConsonants(HDC hdc, WCHAR *pwOutChars, INT *pcChars, const Co
 
 static void Reorder_Ra_follows_base(WCHAR *pwChar, IndicSyllable *s, lexical_function lexical)
 {
+    if (!s->valid) return;
     if (s->ralf >= 0)
     {
         int j;
@@ -1749,6 +1768,7 @@ static void Reorder_Ra_follows_base(WCHAR *pwChar, IndicSyllable *s, lexical_fun
 
 static void Reorder_Ra_follows_matra(WCHAR *pwChar, IndicSyllable *s, lexical_function lexical)
 {
+    if (!s->valid) return;
     if (s->ralf >= 0)
     {
         int j,loc;
@@ -1774,6 +1794,7 @@ static void Reorder_Ra_follows_matra(WCHAR *pwChar, IndicSyllable *s, lexical_fu
 
 static void Reorder_Ra_follows_syllable(WCHAR *pwChar, IndicSyllable *s, lexical_function lexical)
 {
+    if (!s->valid) return;
     if (s->ralf >= 0)
     {
         int j;
@@ -1797,6 +1818,7 @@ static void Reorder_Matra_precede_base(WCHAR *pwChar, IndicSyllable *s, lexical_
 {
     int i;
 
+    if (!s->valid) return;
     /* reorder Matras */
     if (s->end > s->base)
     {
@@ -1824,6 +1846,7 @@ static void Reorder_Matra_precede_syllable(WCHAR *pwChar, IndicSyllable *s, lexi
 {
     int i;
 
+    if (!s->valid) return;
     /* reorder Matras */
     if (s->end > s->base)
     {
@@ -1850,6 +1873,7 @@ static void Reorder_Matra_precede_syllable(WCHAR *pwChar, IndicSyllable *s, lexi
 static void SecondReorder_Blwf_follows_matra(const WCHAR *chars, const IndicSyllable *s,
         WORD *glyphs, const IndicSyllable *g, lexical_function lexical)
 {
+    if (!s->valid) return;
     if (s->blwf >= 0 && g->blwf > g->base)
     {
         int j,loc;
@@ -1878,6 +1902,7 @@ static void SecondReorder_Matra_precede_base(const WCHAR *chars, const IndicSyll
 {
     int i;
 
+    if (!s->valid) return;
     /* reorder previously moved Matras to correct position*/
     for (i = s->start; i < s->base; i++)
     {
@@ -1900,6 +1925,7 @@ static void SecondReorder_Matra_precede_base(const WCHAR *chars, const IndicSyll
 static void SecondReorder_Pref_precede_base(const IndicSyllable *s,
         WORD *glyphs, const IndicSyllable *g, lexical_function lexical)
 {
+    if (!s->valid) return;
     if (s->pref >= 0 && g->pref > g->base)
     {
         int j;
@@ -1914,6 +1940,7 @@ static void SecondReorder_Pref_precede_base(const IndicSyllable *s,
 static void Reorder_Like_Sinhala(WCHAR *pwChar, IndicSyllable *s, lexical_function lexical)
 {
     TRACE("Syllable (%i..%i..%i)\n",s->start,s->base,s->end);
+    if (!s->valid) return;
     if (s->start == s->base && s->base == s->end)  return;
     if (lexical(pwChar[s->base]) == lex_Vowel) return;
 
@@ -1924,6 +1951,7 @@ static void Reorder_Like_Sinhala(WCHAR *pwChar, IndicSyllable *s, lexical_functi
 static void Reorder_Like_Devanagari(WCHAR *pwChar, IndicSyllable *s, lexical_function lexical)
 {
     TRACE("Syllable (%i..%i..%i)\n",s->start,s->base,s->end);
+    if (!s->valid) return;
     if (s->start == s->base && s->base == s->end)  return;
     if (lexical(pwChar[s->base]) == lex_Vowel) return;
 
@@ -1934,6 +1962,7 @@ static void Reorder_Like_Devanagari(WCHAR *pwChar, IndicSyllable *s, lexical_fun
 static void Reorder_Like_Bengali(WCHAR *pwChar, IndicSyllable *s, lexical_function lexical)
 {
     TRACE("Syllable (%i..%i..%i)\n",s->start,s->base,s->end);
+    if (!s->valid) return;
     if (s->start == s->base && s->base == s->end)  return;
     if (lexical(pwChar[s->base]) == lex_Vowel) return;
 
@@ -1944,6 +1973,7 @@ static void Reorder_Like_Bengali(WCHAR *pwChar, IndicSyllable *s, lexical_functi
 static void Reorder_Like_Kannada(WCHAR *pwChar, IndicSyllable *s, lexical_function lexical)
 {
     TRACE("Syllable (%i..%i..%i)\n",s->start,s->base,s->end);
+    if (!s->valid) return;
     if (s->start == s->base && s->base == s->end)  return;
     if (lexical(pwChar[s->base]) == lex_Vowel) return;
 
@@ -1956,6 +1986,7 @@ static void SecondReorder_Like_Telugu(const WCHAR *chars, const IndicSyllable *s
 {
     TRACE("Syllable (%i..%i..%i)\n",s->start,s->base,s->end);
     TRACE("Glyphs (%i..%i..%i)\n",g->start,g->base,g->end);
+    if (!s->valid) return;
     if (s->start == s->base && s->base == s->end)  return;
     if (lexical(chars[s->base]) == lex_Vowel) return;
 
@@ -1967,6 +1998,7 @@ static void SecondReorder_Like_Tamil(const WCHAR *chars, const IndicSyllable *s,
 {
     TRACE("Syllable (%i..%i..%i)\n",s->start,s->base,s->end);
     TRACE("Glyphs (%i..%i..%i)\n",g->start,g->base,g->end);
+    if (!s->valid) return;
     if (s->start == s->base && s->base == s->end)  return;
     if (lexical(chars[s->base]) == lex_Vowel) return;
 
@@ -2209,6 +2241,67 @@ static void ShapeIndicSyllables(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa,
     }
 }
 
+static inline int _check_invalid_glyph(WORD* pwGlyphs, INT check, INT invalid_glyph, IndicSyllable* syllable, INT offset)
+{
+    return (!(pwGlyphs[check] == invalid_glyph &&
+              check >= syllable->start + offset &&
+              check <= syllable->end + offset));
+}
+
+static void mark_invalid_syllables(HDC hdc, const WCHAR* pwcChars, INT cChars, WORD *pwGlyphs, INT *pcGlyphs, INT cMaxGlyphs, WORD *pwLogClust, IndicSyllable *syllables, int syllable_count, lexical_function lexical)
+{
+    int i;
+    WCHAR invalid = U_DOTTED_CIRCLE;
+    WORD invalid_glyph;
+    int offset = 0;
+
+    if (!hdc || !pwcChars || !pwGlyphs || !pcGlyphs || !pwLogClust || !syllables || syllable_count <= 0) {
+        ERR("Invalid parameters in mark_invalid_syllables\n");
+        return;
+    }
+    if (cChars <= 0 || cMaxGlyphs <= 0) {
+        ERR("Invalid size parameters\n");
+        return;
+    }
+
+    for (i = 0; i < syllable_count; i++)
+        if (!syllables[i].valid) break;
+
+    if (i >= syllable_count) {
+        /* Everything valid */
+        return;
+    }
+
+    if (NtGdiGetGlyphIndicesW(hdc, &invalid, 1, &invalid_glyph, 0) == GDI_ERROR || invalid_glyph == 0x0000) {
+        TRACE("Invalid glyph U_DOTTED_CIRCLE not found in font, using placeholder\n");
+        invalid_glyph = 0x0020; // Use space as fallback
+    }
+
+    /* Mark invalid combinations */
+    for (i = 0; i < syllable_count; i++)
+    {
+        if (!syllables[i].valid) {
+            if (*pcGlyphs + 1 > cMaxGlyphs) {
+                ERR("Number of glyphs exceed buffer(%i, %i)\n", *pcGlyphs, cMaxGlyphs);
+                return;
+            } else {
+                int dir = (lexical(pwcChars[syllables[i].start]) == lex_Matra_pre)?1:0;
+                int index = syllables[i].start+dir+offset;
+                int j;
+                if (_check_invalid_glyph(pwGlyphs, index-1, invalid_glyph, &syllables[i], offset)) {
+                    for (j = *pcGlyphs; j>=index; j--)
+                        pwGlyphs[j+1] = pwGlyphs[j];
+                    pwGlyphs[index] = invalid_glyph;
+                    *pcGlyphs = *pcGlyphs+1;
+                    offset++;
+                }
+                for (j = cChars; j>syllables[i].base; j--)
+                    pwLogClust[j] = pwLogClust[j] + 1;
+            }
+        }
+    }
+}
+
 static inline int unicode_lex(WCHAR c)
 {
     int type;
@@ -2302,13 +2395,16 @@ static void ContextualShape_Sinhala(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *
 
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, sinhala_lex,  TRUE);
+
     /* Step 1:  Decompose multi part vowels */
-    DecomposeVowels(hdc, input,  &cCount, Sinhala_vowels, pwLogClust, cChars);
+    DecomposeVowels(hdc, input,  &cCount, Sinhala_vowels, pwLogClust, cChars, syllables, syllable_count);
 
     TRACE("New double vowel expanded string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2:  Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, sinhala_lex, Reorder_Like_Sinhala, TRUE);
+    Indic_ReorderCharacters(input, syllables, syllable_count, sinhala_lex, Reorder_Like_Sinhala);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
 
     /* Step 3:  Strip dangling joiners */
@@ -2322,6 +2418,9 @@ static void ContextualShape_Sinhala(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *
     /* Step 4: Base Form application to syllables */
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, sinhala_lex);
+
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, sinhala_lex, NULL, TRUE);
 
     free(input);
@@ -2369,15 +2468,20 @@ static void ContextualShape_Devanagari(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSI
     input = malloc(cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, devanagari_lex,  modern);
+
     /* Step 1: Compose Consonant and Nukta */
     ComposeConsonants(hdc, input, &cCount, Devanagari_consonants, pwLogClust);
     TRACE("New composed string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, devanagari_lex, Reorder_Like_Devanagari, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, devanagari_lex, Reorder_Like_Devanagari);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, devanagari_lex);
 
     /* Step 3: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, devanagari_lex, NULL, modern);
@@ -2425,16 +2529,21 @@ static void ContextualShape_Bengali(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *
     input = malloc(2 * cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, bengali_lex, modern);
+
     /* Step 1: Decompose Vowels and Compose Consonants */
-    DecomposeVowels(hdc, input,  &cCount, Bengali_vowels, pwLogClust, cChars);
+    DecomposeVowels(hdc, input,  &cCount, Bengali_vowels, pwLogClust, cChars, syllables, syllable_count);
     ComposeConsonants(hdc, input, &cCount, Bengali_consonants, pwLogClust);
     TRACE("New composed string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, bengali_lex, Reorder_Like_Bengali, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, bengali_lex, Reorder_Like_Bengali);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, bengali_lex);
 
     /* Step 3: Initial form is only applied to the beginning of words */
     for (cCount = cCount - 1 ; cCount >= 0; cCount --)
@@ -2489,15 +2598,20 @@ static void ContextualShape_Gurmukhi(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS 
     input = malloc(cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, gurmukhi_lex, modern);
+
     /* Step 1: Compose Consonants */
     ComposeConsonants(hdc, input, &cCount, Gurmukhi_consonants, pwLogClust);
     TRACE("New composed string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, gurmukhi_lex, Reorder_Like_Bengali, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, gurmukhi_lex, Reorder_Like_Bengali);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, gurmukhi_lex);
 
     /* Step 3: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, gurmukhi_lex, NULL, modern);
@@ -2533,11 +2647,16 @@ static void ContextualShape_Gujarati(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS 
     input = malloc(cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, gujarati_lex, modern);
+
     /* Step 1: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, gujarati_lex, Reorder_Like_Devanagari, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, gujarati_lex, Reorder_Like_Devanagari);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, gujarati_lex);
 
     /* Step 2: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, gujarati_lex, NULL, modern);
@@ -2584,16 +2703,21 @@ static void ContextualShape_Oriya(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *ps
     input = malloc(2 * cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, oriya_lex, modern);
+
     /* Step 1: Decompose Vowels and Compose Consonants */
-    DecomposeVowels(hdc, input,  &cCount, Oriya_vowels, pwLogClust, cChars);
+    DecomposeVowels(hdc, input,  &cCount, Oriya_vowels, pwLogClust, cChars, syllables, syllable_count);
     ComposeConsonants(hdc, input, &cCount, Oriya_consonants, pwLogClust);
     TRACE("New composed string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, oriya_lex, Reorder_Like_Bengali, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, oriya_lex, Reorder_Like_Bengali);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, oriya_lex);
 
     /* Step 3: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, oriya_lex, NULL, modern);
@@ -2634,16 +2758,21 @@ static void ContextualShape_Tamil(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *ps
     input = malloc(2 * cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, tamil_lex, modern);
+
     /* Step 1: Decompose Vowels and Compose Consonants */
-    DecomposeVowels(hdc, input,  &cCount, Tamil_vowels, pwLogClust, cChars);
+    DecomposeVowels(hdc, input,  &cCount, Tamil_vowels, pwLogClust, cChars, syllables, syllable_count);
     ComposeConsonants(hdc, input, &cCount, Tamil_consonants, pwLogClust);
     TRACE("New composed string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, tamil_lex, Reorder_Like_Bengali, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, tamil_lex, Reorder_Like_Bengali);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, tamil_lex);
 
     /* Step 3: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, tamil_lex, SecondReorder_Like_Tamil, modern);
@@ -2684,15 +2813,20 @@ static void ContextualShape_Telugu(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *p
     input = malloc(2 * cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, telugu_lex, modern);
+
     /* Step 1: Decompose Vowels */
-    DecomposeVowels(hdc, input,  &cCount, Telugu_vowels, pwLogClust, cChars);
+    DecomposeVowels(hdc, input,  &cCount, Telugu_vowels, pwLogClust, cChars, syllables, syllable_count);
     TRACE("New composed string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, telugu_lex, Reorder_Like_Bengali, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, telugu_lex, Reorder_Like_Bengali);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, telugu_lex);
 
     /* Step 3: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, telugu_lex, SecondReorder_Like_Telugu, modern);
@@ -2736,15 +2870,20 @@ static void ContextualShape_Kannada(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *
     input = malloc(3 * cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, kannada_lex, modern);
+
     /* Step 1: Decompose Vowels */
-    DecomposeVowels(hdc, input,  &cCount, Kannada_vowels, pwLogClust, cChars);
+    DecomposeVowels(hdc, input,  &cCount, Kannada_vowels, pwLogClust, cChars, syllables, syllable_count);
     TRACE("New composed string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, kannada_lex, Reorder_Like_Kannada, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, kannada_lex, Reorder_Like_Kannada);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, kannada_lex);
 
     /* Step 3: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, kannada_lex, SecondReorder_Like_Telugu, modern);
@@ -2781,15 +2920,20 @@ static void ContextualShape_Malayalam(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS
     input = malloc(2 * cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, malayalam_lex, modern);
+
     /* Step 1: Decompose Vowels */
-    DecomposeVowels(hdc, input,  &cCount, Malayalam_vowels, pwLogClust, cChars);
+    DecomposeVowels(hdc, input,  &cCount, Malayalam_vowels, pwLogClust, cChars, syllables, syllable_count);
     TRACE("New composed string %s (%i)\n",debugstr_wn(input,cCount),cCount);
 
     /* Step 2: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, malayalam_lex, Reorder_Like_Devanagari, modern);
+    Indic_ReorderCharacters(input, syllables, syllable_count, malayalam_lex, Reorder_Like_Devanagari);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, malayalam_lex);
 
     /* Step 3: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, malayalam_lex, SecondReorder_Like_Tamil, modern);
@@ -2819,11 +2963,16 @@ static void ContextualShape_Khmer(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *ps
     input = malloc(cChars * sizeof(*input));
     memcpy(input, pwcChars, cChars * sizeof(WCHAR));
 
+    /* Step 0: Syllables */
+    Indic_ParseSyllables(hdc, psa, psc, input, cCount, &syllables, &syllable_count, khmer_lex, FALSE);
+
     /* Step 1: Reorder within Syllables */
-    Indic_ReorderCharacters( hdc, psa, psc, input, cCount, &syllables, &syllable_count, khmer_lex, Reorder_Like_Devanagari, FALSE);
+    Indic_ReorderCharacters(input, syllables, syllable_count, khmer_lex, Reorder_Like_Devanagari);
     TRACE("reordered string %s\n",debugstr_wn(input,cCount));
     NtGdiGetGlyphIndicesW(hdc, input, cCount, pwOutGlyphs, 0);
     *pcGlyphs = cCount;
+
+    mark_invalid_syllables(hdc, input, cChars, pwOutGlyphs, pcGlyphs, cMaxGlyphs, pwLogClust, syllables, syllable_count, khmer_lex);
 
     /* Step 2: Base Form application to syllables */
     ShapeIndicSyllables(hdc, psc, psa, input, cChars, syllables, syllable_count, pwOutGlyphs, pcGlyphs, pwLogClust, khmer_lex, NULL, FALSE);

@@ -326,6 +326,7 @@ void Indic_ParseSyllables(HDC hdc, SCRIPT_ANALYSIS *psa, ScriptCache *psc, const
     unsigned int center = 0;
     int index = 0;
     int next = 0;
+    BOOL valid;
 
     *syllable_count = 0;
 
@@ -344,30 +345,35 @@ void Indic_ParseSyllables(HDC hdc, SCRIPT_ANALYSIS *psa, ScriptCache *psc, const
         if (next >= cChar)
             break;
         next = Indic_process_next_syllable(input, cChar, 0, &center, index, lex);
-        if (next != -1)
-        {
-            *syllables = realloc(*syllables, sizeof(IndicSyllable)*(*syllable_count+1));
-            (*syllables)[*syllable_count].start = index;
-            (*syllables)[*syllable_count].base = center;
-            (*syllables)[*syllable_count].ralf = -1;
-            (*syllables)[*syllable_count].blwf = -1;
-            (*syllables)[*syllable_count].pref = -1;
-            (*syllables)[*syllable_count].end = next-1;
-            FindBaseConsonant(hdc, psa, psc, input, &(*syllables)[*syllable_count], lex, modern);
-            index = next;
-            *syllable_count = (*syllable_count)+1;
-        }
-        else if (index < cChar)
-        {
+        valid = (next != -1);
+        if (index < cChar && !valid) {
             TRACE("Processing failed at %i\n",index);
-            next = ++index;
+            center = index;
+            next = index + 1;
         }
+        *syllables = realloc(*syllables, sizeof(IndicSyllable)*(*syllable_count+1));
+        if (!*syllables) {
+            ERR("Allocation failure of syllables\n");
+            *syllable_count = 0;
+            return;
+        }
+        (*syllables)[*syllable_count].valid = valid;
+        (*syllables)[*syllable_count].start = index;
+        (*syllables)[*syllable_count].base = center;
+        (*syllables)[*syllable_count].ralf = -1;
+        (*syllables)[*syllable_count].blwf = -1;
+        (*syllables)[*syllable_count].pref = -1;
+        (*syllables)[*syllable_count].end = next-1;
+        if (valid)
+            FindBaseConsonant(hdc, psa, psc, input, &(*syllables)[*syllable_count], lex, modern);
+        index = next;
+        *syllable_count = (*syllable_count)+1;
     }
     TRACE("Processed %i of %i characters into %i syllables\n",index,cChar,*syllable_count);
 }
 
-void Indic_ReorderCharacters(HDC hdc, SCRIPT_ANALYSIS *psa, ScriptCache *psc, WCHAR *input, unsigned int cChar,
-        IndicSyllable **syllables, int *syllable_count, lexical_function lex, reorder_function reorder_f, BOOL modern)
+void Indic_ReorderCharacters(WCHAR *input, IndicSyllable *syllables, int syllable_count,
+        lexical_function lex, reorder_function reorder_f)
 {
     int i;
 
@@ -377,7 +383,6 @@ void Indic_ReorderCharacters(HDC hdc, SCRIPT_ANALYSIS *psa, ScriptCache *psc, WC
         return;
     }
 
-    Indic_ParseSyllables(hdc, psa, psc, input, cChar, syllables, syllable_count, lex, modern);
-    for (i = 0; i < *syllable_count; i++)
-        reorder_f(input, &(*syllables)[i], lex);
+    for (i = 0; i < syllable_count; i++)
+        reorder_f(input, &syllables[i], lex);
 }
