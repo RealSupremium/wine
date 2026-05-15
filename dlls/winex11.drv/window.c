@@ -1763,6 +1763,15 @@ static UINT window_update_client_config( struct x11drv_win_data *data )
             return 0;
     }
 
+    /* Ignore shaped window config changes when a maximized window is still at the desired
+     * rect. This is needed because when calling SetWindowRgn for a maximized window in X11,
+     * the rect after adjustment is mistakenly taken as an actual window resize. Syncing back X11 rects
+     * that do not include the adjustment causes SetWindowRgn to be called again, leading to visual flickering
+     * of the application window.*/
+    if (data->shaped && (data->current_state.net_wm_state & (1 << NET_WM_STATE_MAXIMIZED)) &&
+        EqualRect( &data->current_state.rect, &data->desired_state.rect ))
+        return 0;
+
     flags = SWP_NOACTIVATE | SWP_NOZORDER;
     rect = new_rect = window_rect_from_visible( &data->rects, data->current_state.rect );
     if (new_rect.left == old_rect.left && new_rect.top == old_rect.top) flags |= SWP_NOMOVE;

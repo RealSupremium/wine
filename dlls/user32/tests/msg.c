@@ -15410,6 +15410,77 @@ static const struct message WmSetWindowRgn_clear[] = {
     { 0 }
 };
 
+#define SET_WINDOW_RGN_FEEDBACK_LIMIT 10
+static unsigned int set_window_rgn_feedback_count;
+static BOOL set_window_rgn_feedback_armed;
+
+static void set_window_rgn_feedback_update_region(HWND hwnd)
+{
+    RECT rect;
+    HRGN rgn;
+    int width, height;
+    BOOL ret;
+
+    GetClientRect(hwnd, &rect);
+    width = rect.right - rect.left;
+    height = rect.bottom - rect.top;
+
+    rgn = CreateRectRgn(0, 0, width, height);
+    ret = SetWindowRgn(hwnd, rgn, TRUE);
+    if (!ret) DeleteObject(rgn);
+}
+
+static LRESULT CALLBACK set_window_rgn_feedback_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch(msg)
+    {
+    case WM_WINDOWPOSCHANGED:
+        {
+            WINDOWPOS *pos = (WINDOWPOS *)lparam;
+            if (set_window_rgn_feedback_armed && ((pos->flags & (SWP_NOSIZE | SWP_NOMOVE)) != (SWP_NOSIZE | SWP_NOMOVE)))
+            {
+                set_window_rgn_feedback_count++;
+                if (set_window_rgn_feedback_count < SET_WINDOW_RGN_FEEDBACK_LIMIT)
+                    set_window_rgn_feedback_update_region(hwnd);
+            }
+            break;
+        }
+    }
+    return DefWindowProcA(hwnd, msg, wparam, lparam);
+}
+
+static void test_SetWindowRgn_Feedback(void)
+{
+    HWND hwnd;
+    HINSTANCE instance = GetModuleHandleA(0);
+    WNDCLASSA cls = {
+        .lpfnWndProc = set_window_rgn_feedback_proc,
+        .hInstance = GetModuleHandleA(0),
+        .hCursor = LoadCursorA(0, (LPCSTR)IDC_ARROW),
+        .hbrBackground = GetStockObject(WHITE_BRUSH),
+        .lpszClassName = "TestSetWindowRgnFeedback"
+    };
+
+    register_class(&cls);
+    hwnd = CreateWindowExA(WS_EX_APPWINDOW, "TestSetWindowRgnFeedback", "TestSetWindowRgnFeedback",
+                                 WS_MAXIMIZE, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                 NULL, NULL, instance, NULL);
+    ok(hwnd != 0, "CreateWindowExA failed\n");
+    ShowWindow(hwnd, SW_SHOWMAXIMIZED);
+    ok(IsZoomed(hwnd), "window should be maximized\n");
+
+    flush_events();
+    set_window_rgn_feedback_count = 0;
+    set_window_rgn_feedback_armed = TRUE;
+    set_window_rgn_feedback_update_region(hwnd);
+    flush_events();
+
+    set_window_rgn_feedback_armed = FALSE;
+    DestroyWindow(hwnd) ;
+    flush_events();
+    ok(!set_window_rgn_feedback_count, "got window region feedback loop, count %u (expected 0)\n", set_window_rgn_feedback_count);
+}
+
 static void test_SetWindowRgn(void)
 {
     HRGN hrgn;
@@ -21536,6 +21607,7 @@ START_TEST(msg)
         test_TrackMouseEvent();
 
     test_SetWindowRgn();
+    test_SetWindowRgn_Feedback();
     test_sys_menu();
     test_dialog_messages();
     test_EndDialog();
