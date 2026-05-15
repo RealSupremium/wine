@@ -2784,6 +2784,34 @@ HRESULT WINAPI VarCmp(LPVARIANT left, LPVARIANT right, LCID lcid, DWORD flags)
 
     TRACE("%s, %s, %#lx, %#lx.\n", debugstr_variant(left), debugstr_variant(right), lcid, flags);
 
+    /* Fast path for common integer comparisons: skip expensive VariantChangeType */
+    if (V_VT(left) == VT_I2 && V_VT(right) == VT_I2)
+        return (V_I2(left) == V_I2(right)) ? VARCMP_EQ :
+               (V_I2(left) < V_I2(right)) ? VARCMP_LT : VARCMP_GT;
+
+    if (!(V_VT(left) & ~VT_TYPEMASK) && !(V_VT(right) & ~VT_TYPEMASK))
+    {
+        LONGLONG lval, rval;
+        BOOL left_i = TRUE, right_i = TRUE;
+
+        switch (V_VT(left))
+        {
+        case VT_I4:    lval = V_I4(left); break;
+        case VT_I2:    lval = V_I2(left); break;
+        case VT_EMPTY: lval = 0; break;
+        default:       left_i = FALSE; break;
+        }
+        switch (V_VT(right))
+        {
+        case VT_I4:    rval = V_I4(right); break;
+        case VT_I2:    rval = V_I2(right); break;
+        case VT_EMPTY: rval = 0; break;
+        default:       right_i = FALSE; break;
+        }
+        if (left_i && right_i)
+            return (lval == rval) ? VARCMP_EQ : (lval < rval) ? VARCMP_LT : VARCMP_GT;
+    }
+
     lvt = V_VT(left) & VT_TYPEMASK;
     rvt = V_VT(right) & VT_TYPEMASK;
     xmask = (1 << lvt) | (1 << rvt);
@@ -3240,6 +3268,76 @@ HRESULT WINAPI VarAdd(LPVARIANT left, LPVARIANT right, LPVARIANT result)
     };
 
     TRACE("(%s,%s,%p)\n", debugstr_variant(left), debugstr_variant(right), result);
+
+    /* Fast path for common integer additions: skip expensive VariantChangeType */
+    if (V_VT(left) == VT_I2 && V_VT(right) == VT_I2)
+    {
+        int sum = (int)V_I2(left) + (int)V_I2(right);
+        if (sum >= -32768 && sum <= 32767)
+        {
+            V_VT(result) = VT_I2;
+            V_I2(result) = sum;
+        }
+        else
+        {
+            V_VT(result) = VT_I4;
+            V_I4(result) = sum;
+        }
+        return S_OK;
+    }
+    if (!(V_VT(left) & ~VT_TYPEMASK) && !(V_VT(right) & ~VT_TYPEMASK))
+    {
+        LONGLONG lval, rval;
+        BOOL left_i = TRUE, right_i = TRUE;
+
+        switch (V_VT(left))
+        {
+        case VT_I4:    lval = V_I4(left); break;
+        case VT_I2:    lval = V_I2(left); break;
+        case VT_EMPTY: lval = 0; break;
+        default:       left_i = FALSE; break;
+        }
+        switch (V_VT(right))
+        {
+        case VT_I4:    rval = V_I4(right); break;
+        case VT_I2:    rval = V_I2(right); break;
+        case VT_EMPTY: rval = 0; break;
+        default:       right_i = FALSE; break;
+        }
+        if (left_i && right_i)
+        {
+            LONGLONG sum = lval + rval;
+            if (V_VT(left) == VT_I4 || V_VT(right) == VT_I4)
+            {
+                if (sum >= (LONGLONG)LONG_MIN && sum <= (LONGLONG)LONG_MAX)
+                {
+                    V_VT(result) = VT_I4;
+                    V_I4(result) = sum;
+                }
+                else
+                {
+                    /* I4 overflow promotes to R8 (not I8) per Windows behavior */
+                    V_VT(result) = VT_R8;
+                    V_R8(result) = (double)sum;
+                }
+            }
+            else
+            {
+                /* Both are I2 or EMPTY: result is I2, overflow promotes to I4 */
+                if (sum >= -32768 && sum <= 32767)
+                {
+                    V_VT(result) = VT_I2;
+                    V_I2(result) = sum;
+                }
+                else
+                {
+                    V_VT(result) = VT_I4;
+                    V_I4(result) = sum;
+                }
+            }
+            return S_OK;
+        }
+    }
 
     VariantInit(&lv);
     VariantInit(&rv);
