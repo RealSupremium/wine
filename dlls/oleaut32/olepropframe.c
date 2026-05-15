@@ -263,6 +263,9 @@ HRESULT WINAPI OleCreatePropertyFrameIndirect(LPOCPFIPARAMS lpParams)
     for(i=0; i<lpParams->cPages; i++) {
         PROPPAGEINFO page_info;
 
+        memset(&page_info, 0, sizeof(PROPPAGEINFO));
+        page_info.cb = sizeof(PROPPAGEINFO);
+
         res = CoCreateInstance(&lpParams->lpPages[i], NULL, CLSCTX_INPROC_SERVER,
                 &IID_IPropertyPage, (void**)&property_page[i]);
         if(FAILED(res))
