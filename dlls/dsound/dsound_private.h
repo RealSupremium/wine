@@ -106,7 +106,6 @@ struct DirectSoundDevice
     IAudioRenderClient *render;
 
     HANDLE sleepev, thread;
-    struct list entry;
 };
 
 /* reference counted buffer memory for duplicated buffer memory */
@@ -250,9 +249,6 @@ HRESULT IDirectSoundCaptureImpl_Create(IUnknown *outer_unk, REFIID riid, void **
 #define STATE_PLAYING   2
 #define STATE_CAPTURING 2
 #define STATE_STOPPING  3
-
-extern CRITICAL_SECTION DSOUND_renderers_lock;
-extern struct list DSOUND_renderers;
 
 extern GUID *DSOUND_renderer_guids;
 extern GUID *DSOUND_capture_guids;
