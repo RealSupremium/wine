@@ -1657,12 +1657,9 @@ static void test_vbdisp_typeinfo(void)
     hr = ITypeInfo_GetTypeAttr(typeinfo, &attr);
     ok(hr == S_OK, "GetTypeAttr failed: %08lx\n", hr);
     ok(attr->typekind == TKIND_DISPATCH, "Unexpected typekind %u\n", attr->typekind);
-    /* On Wine, oleaut32 CreateTypeLib2 currently adds 7 phantom inherited
-     * IDispatch methods to TKIND_DISPATCH typeinfos, inflating cFuncs
-     * from 4 to 11 and zeroing cImplTypes. */
-    todo_wine ok(attr->cFuncs == 4, "Unexpected cFuncs %u\n", attr->cFuncs);
+    ok(attr->cFuncs == 4, "Unexpected cFuncs %u\n", attr->cFuncs);
     ok(attr->cVars == 1, "Unexpected cVars %u\n", attr->cVars);
-    todo_wine ok(attr->cImplTypes == 1, "Unexpected cImplTypes %u\n", attr->cImplTypes);
+    ok(attr->cImplTypes == 1, "Unexpected cImplTypes %u\n", attr->cImplTypes);
     ok(attr->wTypeFlags == TYPEFLAG_FDISPATCHABLE, "Unexpected wTypeFlags 0x%x\n", attr->wTypeFlags);
     ITypeInfo_ReleaseTypeAttr(typeinfo, attr);
 
@@ -1672,10 +1669,7 @@ static void test_vbdisp_typeinfo(void)
     hr = ITypeInfo_GetFuncDesc(typeinfo, 0, &funcdesc);
     ok(hr == S_OK, "GetFuncDesc failed: %08lx\n", hr);
     ok(funcdesc->funckind == FUNC_DISPATCH, "Unexpected funckind %u\n", funcdesc->funckind);
-    /* Wine's phantom IDispatch methods occupy slots 0-6, so func[0] is
-     * QueryInterface (invkind reported as PROPERTYGET due to a separate
-     * Wine bug) instead of our 'method'. */
-    todo_wine ok(funcdesc->invkind == INVOKE_FUNC, "Unexpected invkind %u\n", funcdesc->invkind);
+    ok(funcdesc->invkind == INVOKE_FUNC, "Unexpected invkind %u\n", funcdesc->invkind);
     ITypeInfo_ReleaseFuncDesc(typeinfo, funcdesc);
 
     wcscpy(str, L"add");
@@ -1754,13 +1748,11 @@ static void test_vbdisp_typeinfo(void)
     hr = ITypeInfo_GetImplTypeFlags(typeinfo, 1, &implTypeFlags);
     ok(hr == TYPE_E_ELEMENTNOTFOUND, "GetImplTypeFlags(1) returned: %08lx\n", hr);
 
-    /* IDispatch parent. Wine's CreateTypeLib2 returns success here
-     * but the resulting reftype isn't usable via GetRefTypeInfo. */
     hr = ITypeInfo_GetRefTypeOfImplType(typeinfo, 0, &reftype);
     ok(hr == S_OK, "GetRefTypeOfImplType failed: %08lx\n", hr);
     if(SUCCEEDED(hr)) {
         hr = ITypeInfo_GetRefTypeInfo(typeinfo, reftype, &typeinfo2);
-        todo_wine ok(hr == S_OK, "GetRefTypeInfo failed: %08lx\n", hr);
+        ok(hr == S_OK, "GetRefTypeInfo failed: %08lx\n", hr);
         if(SUCCEEDED(hr)) {
             hr = ITypeInfo_GetDocumentation(typeinfo2, MEMBERID_NIL, &bstr, NULL, NULL, NULL);
             ok(hr == S_OK, "GetDocumentation failed: %08lx\n", hr);
