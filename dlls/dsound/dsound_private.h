@@ -70,8 +70,6 @@ typedef struct DSFilter {
  */
 struct DirectSoundDevice
 {
-    LONG                        ref;
-
     GUID                        guid;
     DSCAPS                      drvcaps;
     DWORD                       priolevel, sleeptime;
@@ -105,7 +103,7 @@ struct DirectSoundDevice
     IAudioStreamVolume *volume;
     IAudioRenderClient *render;
 
-    HANDLE sleepev, thread;
+    HANDLE sleepev, stopev, thread;
     struct list entry;
 };
 

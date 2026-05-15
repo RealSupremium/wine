@@ -883,25 +883,23 @@ static void DSOUND_PerformMix(DirectSoundDevice *device)
 DWORD CALLBACK DSOUND_mixthread(void *p)
 {
 	DirectSoundDevice *dev = p;
+	HANDLE handles[2] = { dev->stopev, dev->sleepev };
+	DWORD ret;
 
 	TRACE("(%p)\n", dev);
 	SetThreadDescription(GetCurrentThread(), L"wine_dsound_mixer");
         _controlfp_s(NULL, _DN_FLUSH, _MCW_DN);
 
-	while (dev->ref) {
-		DWORD ret;
-
-		/*
-		 * Some audio drivers are retarded and won't fire after being
-		 * stopped, add a timeout to handle this.
-		 */
-		ret = WaitForSingleObject(dev->sleepev, dev->sleeptime);
+	/*
+	 * Some audio drivers are retarded and won't fire after being
+	 * stopped, add a timeout to handle this.
+	 */
+	while ((ret = WaitForMultipleObjects(ARRAY_SIZE(handles), handles, FALSE, dev->sleeptime)) != WAIT_OBJECT_0)
+	{
 		if (ret == WAIT_FAILED)
 			WARN("wait returned error %lu %08lx!\n", GetLastError(), GetLastError());
-		else if (ret != WAIT_OBJECT_0)
+		else if (ret != WAIT_OBJECT_0 + 1)
 			WARN("wait returned %08lx!\n", ret);
-		if (!dev->ref)
-			break;
 
 		AcquireSRWLockShared(&dev->buffer_list_lock);
 		DSOUND_PerformMix(dev);
