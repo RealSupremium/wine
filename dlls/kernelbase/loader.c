@@ -33,6 +33,7 @@
 #include "wine/asm.h"
 #include "wine/debug.h"
 #include "wine/exception.h"
+#include "winreg.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(module);
 
@@ -54,6 +55,9 @@ static CRITICAL_SECTION_DEBUG critsect_debug =
       0, 0, { (DWORD_PTR)(__FILE__ ": exclusive_datafile_list_section") }
 };
 static CRITICAL_SECTION exclusive_datafile_list_section = { &critsect_debug, -1, 0, 0, 0, 0 };
+
+static HMODULE module_mui = NULL;
+static WCHAR mui_locale[LOCALE_NAME_MAX_LENGTH] = {L'\0'};
 
 /***********************************************************************
  * Modules
@@ -1062,11 +1066,73 @@ BOOL WINAPI DECLSPEC_HOTPATCH EnumResourceTypesExW( HMODULE module, ENUMRESTYPEP
     return ret;
 }
 
+/***********************************************************************/
+/* get_mui - Acquire an MUI module for the associated resource         */
+/***********************************************************************/
 
-/**********************************************************************
- *	    FindResourceExW  (kernelbase.@)
- */
-HRSRC WINAPI DECLSPEC_HOTPATCH FindResourceExW( HMODULE module, LPCWSTR type, LPCWSTR name, WORD lang )
+HMODULE get_mui(HMODULE module)
+{
+    WCHAR module_name[MAX_PATH], mui_name[MAX_PATH], * last_slash;
+    HMODULE mui_module = NULL;
+    HKEY intl_key;
+    DWORD count = LOCALE_NAME_MAX_LENGTH;
+    LONG save_error = GetLastError();
+
+    if (!(GetModuleFileNameW(module, module_name, MAX_PATH))) {
+        TRACE ("Module file name was not found - returning with source module\n");
+        SetLastError(save_error);
+        return module;
+    }
+
+    if (!(wcsstr(module_name, L".exe")) && !(wcsstr(module_name, L".EXE"))) return module;
+
+    if (wcslen(mui_locale) == 0) {
+        RegCreateKeyExW( HKEY_CURRENT_USER, L"Control Panel\\International",
+                     0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &intl_key, NULL );
+        RegQueryValueExW( intl_key, L"LocaleName", NULL, NULL, (BYTE *)mui_locale, &count );
+        TRACE("Locale name: %s\n", debugstr_w(mui_locale));
+    }
+	
+    SetLastError(save_error);
+
+    last_slash = wcsrchr(module_name, L'\\');
+
+    wcscpy(mui_name, module_name);
+
+    mui_name[last_slash - module_name + 1] = L'\0';
+
+    wcscat(mui_name, mui_locale);
+
+    wcscat(mui_name, last_slash);
+
+    if (wcsstr(module_name, L".exe")) {
+        wcscat(mui_name, L".mui");
+    } else {
+        wcscat(mui_name, L".MUI");
+    }
+	
+    TRACE("Language path: %s\n", debugstr_w(mui_name));
+
+    mui_module = LoadLibraryExW(mui_name, 0, 0);
+	
+    SetLastError(save_error);
+	
+    if (mui_module != NULL) {
+        module_mui = mui_module;
+        return mui_module;
+    } else {
+        module_mui = NULL;
+        return module;
+    }
+
+}
+
+/***********************************************************************/
+/* get_res_handle - Isolated call of the LdrFindResource function      */
+/***********************************************************************/
+
+HRSRC get_res_handle(HMODULE module, LPCWSTR type, LPCWSTR name, WORD lang)
+
 {
     NTSTATUS status;
     UNICODE_STRING nameW, typeW;
@@ -1075,7 +1141,6 @@ HRSRC WINAPI DECLSPEC_HOTPATCH FindResourceExW( HMODULE module, LPCWSTR type, LP
 
     TRACE( "%p %s %s %04x\n", module, debugstr_w(type), debugstr_w(name), lang );
 
-    if (!module) module = GetModuleHandleW( 0 );
     nameW.Buffer = typeW.Buffer = NULL;
 
     __TRY
@@ -1084,10 +1149,11 @@ HRSRC WINAPI DECLSPEC_HOTPATCH FindResourceExW( HMODULE module, LPCWSTR type, LP
         if ((status = get_res_nameW( type, &typeW )) != STATUS_SUCCESS) goto done;
         info.Type = (ULONG_PTR)typeW.Buffer;
         info.Name = (ULONG_PTR)nameW.Buffer;
-        info.Language = lang;
+        info.Language = lang; 
         status = LdrFindResource_U( module, &info, 3, &entry );
     done:
-        if (status != STATUS_SUCCESS) SetLastError( RtlNtStatusToDosError(status) );
+        if (status != STATUS_SUCCESS)
+            SetLastError( RtlNtStatusToDosError(status) );
     }
     __EXCEPT_PAGE_FAULT
     {
@@ -1097,9 +1163,46 @@ HRSRC WINAPI DECLSPEC_HOTPATCH FindResourceExW( HMODULE module, LPCWSTR type, LP
 
     if (!IS_INTRESOURCE(nameW.Buffer)) HeapFree( GetProcessHeap(), 0, nameW.Buffer );
     if (!IS_INTRESOURCE(typeW.Buffer)) HeapFree( GetProcessHeap(), 0, typeW.Buffer );
+
     return (HRSRC)entry;
 }
 
+
+/**********************************************************************
+ *	    FindResourceExW  (kernelbase.@)
+ */
+HRSRC WINAPI DECLSPEC_HOTPATCH FindResourceExW( HMODULE module, LPCWSTR type, LPCWSTR name, WORD lang )
+{
+
+    HRSRC rsrc;
+    HMODULE work_module = NULL, test_module = NULL;
+
+    if (!module) module = GetModuleHandleW( 0 );
+
+    work_module = GetModuleHandleW( 0 );
+	
+    if (module != work_module) {
+        rsrc = get_res_handle(module, type, name, lang);
+        module_mui = NULL;
+    } else {
+        test_module = get_mui(module);
+        if (test_module == module) {
+            rsrc = get_res_handle(module, type, name, lang);
+            module_mui = NULL;
+        } else {
+            rsrc = get_res_handle(test_module, type, name, lang);
+			
+            if (!rsrc) {
+                TRACE("Fallback from MUI to base module: %p %p %s %s\n", test_module, module, debugstr_w(type), debugstr_w(name));
+                rsrc = get_res_handle(module, type, name, lang);
+                module_mui = NULL;
+            }
+        }
+    }
+
+    return rsrc;
+
+}
 
 /**********************************************************************
  *	    FindResourceW    (kernelbase.@)
@@ -1125,14 +1228,28 @@ BOOL WINAPI DECLSPEC_HOTPATCH FreeResource( HGLOBAL handle )
 HGLOBAL WINAPI DECLSPEC_HOTPATCH LoadResource( HINSTANCE module, HRSRC rsrc )
 {
     void *ret;
-
-    TRACE( "%p %p\n", module, rsrc );
+    HMODULE work_module = NULL;
 
     if (!rsrc) return 0;
     if (!module) module = GetModuleHandleW( 0 );
-    if (!set_ntstatus( LdrAccessResource( module, (IMAGE_RESOURCE_DATA_ENTRY *)rsrc, &ret, NULL )))
+    work_module = module;
+
+    /* Check for and use a MUI module  	*/
+	
+    if (module_mui != NULL)	{
+        if (((HMODULE)rsrc < module) || ((module_mui > module) && ((HMODULE)rsrc > module_mui))) 
+        work_module = module_mui;
+    }
+
+    /* Ready this handle for next resource retrieval  */
+	
+    module_mui= NULL;				
+	
+    if (!set_ntstatus( LdrAccessResource( work_module, (IMAGE_RESOURCE_DATA_ENTRY *)rsrc, &ret, NULL ))) 
         return 0;
+	
     return ret;
+
 }
 
 
