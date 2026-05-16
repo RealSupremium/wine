@@ -914,10 +914,56 @@ static HRESULT interp_ident(exec_ctx_t *ctx)
     return stack_push(ctx, &v);
 }
 
+/* Returns TRUE for scalar value types that need no memory management.
+ * These can be copied with a plain struct assignment and cleared by
+ * simply overwriting - no VariantCopyInd, VariantClear, or Release
+ * calls required.  Excludes VT_BSTR, VT_DISPATCH, VT_UNKNOWN,
+ * VT_RECORD (ref-counted or allocated) and any VT_BYREF / VT_ARRAY
+ * combinations (indirect). */
+static inline BOOL is_simple_variant(const VARIANT *v)
+{
+    VARTYPE vt = V_VT(v);
+
+    if (vt & ~VT_TYPEMASK)
+        return FALSE;
+
+    switch (vt)
+    {
+    case VT_EMPTY:
+    case VT_NULL:
+    case VT_I2:
+    case VT_I4:
+    case VT_R4:
+    case VT_R8:
+    case VT_CY:
+    case VT_DATE:
+    case VT_ERROR:
+    case VT_BOOL:
+    case VT_DECIMAL:
+    case VT_I1:
+    case VT_UI1:
+    case VT_UI2:
+    case VT_UI4:
+    case VT_I8:
+    case VT_UI8:
+    case VT_INT:
+    case VT_UINT:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
 static HRESULT assign_value(exec_ctx_t *ctx, VARIANT *dst, VARIANT *src, WORD flags)
 {
     VARIANT value;
     HRESULT hres;
+
+    if (is_simple_variant(src) && is_simple_variant(dst))
+    {
+        *dst = *src;
+        return S_OK;
+    }
 
     V_VT(&value) = VT_EMPTY;
     hres = VariantCopyInd(&value, src);
