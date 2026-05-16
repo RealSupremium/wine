@@ -35,7 +35,7 @@
 @ stub SCardIntroduceReaderW
 @ stdcall SCardIsValidContext(long)
 @ stdcall SCardListCardsA(long ptr ptr long str ptr)
-@ stub SCardListCardsW
+@ stdcall SCardListCardsW(long ptr ptr long wstr ptr)
 @ stub SCardListInterfacesA
 @ stub SCardListInterfacesW
 @ stdcall SCardListReaderGroupsA(long ptr ptr)
