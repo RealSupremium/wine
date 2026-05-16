@@ -75,8 +75,13 @@ int memicmp_strW( const WCHAR *str1, const WCHAR *str2, data_size_t len )
 {
     int ret = 0;
 
-    for (len /= sizeof(WCHAR); len; str1++, str2++, len--)
+    for (len /= sizeof(WCHAR); len; str1++, str2++, len--) {
+        // when chars match case-sensitive, we can avoid slow to_lower
+        if (*str1 == *str2) {
+            continue;
+        }
         if ((ret = to_lower(*str1) - to_lower(*str2))) break;
+    }
     return ret;
 }
 
