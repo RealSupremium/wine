@@ -430,7 +430,6 @@ static void test_shared_handle_table(void)
     ok(hrgn != 0, "CreateRectRgn failed\n");
     handle = HandleToULong( hrgn );
     entry = &gdi_shared->Handles[handle & 0xffff];
-    todo_wine
     ok(entry->Owner.ProcessId == GetCurrentProcessId(), "ProcessId = %x, expected %lx\n",
        entry->Owner.ProcessId, GetCurrentProcessId());
 
@@ -442,7 +441,6 @@ static void test_shared_handle_table(void)
     todo_wine
     ok(entry->Type == 4, "Type = %x\n", entry->Type);
     ok(entry->Object, "Object = NULL\n");
-    todo_wine
     ok(entry->Owner.ProcessId == GetCurrentProcessId(), "ProcessId = %x, expected %lx\n",
        entry->Owner.ProcessId, GetCurrentProcessId());
     ok(entry->Owner.Count == 0, "Count = %u\n", entry->Owner.Count);
