@@ -1668,6 +1668,55 @@ static HRESULT interp_erase(exec_ctx_t *ctx)
     return hres;
 }
 
+/* Pure-integer fast-paths for VarAdd/VarCmp. VBScript For-loop counters and
+ * conditional comparisons hit these every iteration; the full VARIANT pipeline
+ * (VariantChangeType, locale grab/free) dominates. Returns TRUE if the
+ * operands were both VT_I2/VT_I4 and the fast-path took care of the operation.
+ * Overflow promotion mirrors native: I2+I2 -> I4, I4+I4 -> R8. */
+static BOOL try_int_add(VARIANT *l, VARIANT *r, VARIANT *out)
+{
+    LONGLONG lv, rv, sum;
+
+    if((V_VT(l) != VT_I2 && V_VT(l) != VT_I4) ||
+       (V_VT(r) != VT_I2 && V_VT(r) != VT_I4))
+        return FALSE;
+
+    lv = V_VT(l) == VT_I2 ? V_I2(l) : V_I4(l);
+    rv = V_VT(r) == VT_I2 ? V_I2(r) : V_I4(r);
+    sum = lv + rv;
+
+    if(V_VT(l) == VT_I2 && V_VT(r) == VT_I2) {
+        if(sum >= SHRT_MIN && sum <= SHRT_MAX) {
+            V_VT(out) = VT_I2;
+            V_I2(out) = sum;
+        }else {
+            V_VT(out) = VT_I4;
+            V_I4(out) = sum;
+        }
+    }else if(sum >= LONG_MIN && sum <= LONG_MAX) {
+        V_VT(out) = VT_I4;
+        V_I4(out) = sum;
+    }else {
+        V_VT(out) = VT_R8;
+        V_R8(out) = sum;
+    }
+    return TRUE;
+}
+
+static BOOL try_int_cmp(VARIANT *l, VARIANT *r, HRESULT *out)
+{
+    LONG lv, rv;
+
+    if((V_VT(l) != VT_I2 && V_VT(l) != VT_I4) ||
+       (V_VT(r) != VT_I2 && V_VT(r) != VT_I4))
+        return FALSE;
+
+    lv = V_VT(l) == VT_I2 ? V_I2(l) : V_I4(l);
+    rv = V_VT(r) == VT_I2 ? V_I2(r) : V_I4(r);
+    *out = lv < rv ? VARCMP_LT : lv > rv ? VARCMP_GT : VARCMP_EQ;
+    return TRUE;
+}
+
 static HRESULT interp_step(exec_ctx_t *ctx)
 {
     const BSTR ident = ctx->instr->arg2.bstr;
@@ -1693,7 +1742,8 @@ static HRESULT interp_step(exec_ctx_t *ctx)
 
     V_VT(&zero) = VT_I2;
     V_I2(&zero) = 0;
-    hres = VarCmp(stack_top(ctx, 0), &zero, ctx->script->lcid, 0);
+    if(!try_int_cmp(stack_top(ctx, 0), &zero, &hres))
+        hres = VarCmp(stack_top(ctx, 0), &zero, ctx->script->lcid, 0);
     if(FAILED(hres))
         goto loop_not_initialized;
 
@@ -1708,7 +1758,8 @@ static HRESULT interp_step(exec_ctx_t *ctx)
         return E_FAIL;
     }
 
-    hres = VarCmp(ref.u.v, stack_top(ctx, 1), ctx->script->lcid, 0);
+    if(!try_int_cmp(ref.u.v, stack_top(ctx, 1), &hres))
+        hres = VarCmp(ref.u.v, stack_top(ctx, 1), ctx->script->lcid, 0);
     if(FAILED(hres))
         goto loop_not_initialized;
 
@@ -2279,11 +2330,15 @@ static HRESULT var_cmp(exec_ctx_t *ctx, VARIANT *l, VARIANT *r, unsigned flags)
     BOOL r_lit = flags & CMP_RIGHT_LITERAL;
     VARTYPE lvt = V_VT(l) & VT_TYPEMASK;
     VARTYPE rvt = V_VT(r) & VT_TYPEMASK;
+    HRESULT cmp;
 
     TRACE("%s %s\n", debugstr_variant(l), debugstr_variant(r));
 
     if(is_unsupported_script_vt(lvt) || is_unsupported_script_vt(rvt))
         return MAKE_VBSERROR(VBSE_INVALID_TYPELIB_VARIABLE);
+
+    if(try_int_cmp(l, r, &cmp))
+        return cmp;
 
     /* BSTR vs numeric LITERAL: coerce BSTR to a number, parse failure raises
      * type-mismatch (error 13). */
@@ -2600,7 +2655,8 @@ static HRESULT interp_add(exec_ctx_t *ctx)
 
     hres = stack_pop_val(ctx, &l);
     if(SUCCEEDED(hres)) {
-        hres = VarAdd(l.v, r.v, &v);
+        if(!try_int_add(l.v, r.v, &v))
+            hres = VarAdd(l.v, r.v, &v);
         release_val(&l);
     }
     release_val(&r);
@@ -2796,9 +2852,11 @@ static HRESULT interp_incc(exec_ctx_t *ctx)
         return E_FAIL;
     }
 
-    hres = VarAdd(stack_top(ctx, 0), ref.u.v, &v);
-    if(FAILED(hres))
-        return hres;
+    if(!try_int_add(stack_top(ctx, 0), ref.u.v, &v)) {
+        hres = VarAdd(stack_top(ctx, 0), ref.u.v, &v);
+        if(FAILED(hres))
+            return hres;
+    }
 
     VariantClear(ref.u.v);
     *ref.u.v = v;
