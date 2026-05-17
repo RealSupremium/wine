@@ -642,7 +642,7 @@ HBITMAP WINAPI CreateDiscardableBitmap( HDC hdc, INT width, INT height )
  */
 HRGN WINAPI ExtCreateRegion( const XFORM *xform, DWORD count, const RGNDATA *data )
 {
-    if (!data)
+    if (!data || count < sizeof(RGNDATAHEADER))
     {
         SetLastError( ERROR_INVALID_PARAMETER );
         return 0;

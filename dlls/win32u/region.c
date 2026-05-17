@@ -896,7 +896,8 @@ HRGN WINAPI NtGdiExtCreateRegion( const XFORM *xform, DWORD count, const RGNDATA
     WINEREGION *obj;
     const RECT *pCurRect, *pEndRect;
 
-    if (!rgndata || rgndata->rdh.dwSize < sizeof(RGNDATAHEADER))
+    if (!rgndata || rgndata->rdh.dwSize < sizeof(RGNDATAHEADER) ||
+        count < sizeof(RGNDATAHEADER) + rgndata->rdh.nCount * sizeof(RECT))
         return 0;
 
     /* XP doesn't care about the type */
