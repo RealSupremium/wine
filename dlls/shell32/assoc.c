@@ -455,16 +455,19 @@ static HRESULT ASSOC_ReturnString(ASSOCF flags, LPWSTR out, DWORD *outlen, LPCWS
             len = 0;
             if (*outlen > 0) out[0] = 0;
             hr = E_POINTER;
+            *outlen = datalen;
         }
         else
         {
-            len = min(*outlen, datalen);
+            len = *outlen;
             hr = E_NOT_SUFFICIENT_BUFFER;
         }
-        *outlen = datalen;
     }
     else
+    {
         len = datalen;
+        *outlen = datalen;
+    }
 
     if (len)
         memcpy(out, data, len*sizeof(WCHAR));
