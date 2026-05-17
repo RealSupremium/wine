@@ -561,10 +561,185 @@ static void parse_command_line( int argc, WCHAR *argv[] )
     }
 }
 
+static WCHAR *make_argv_pretty(const WCHAR *src)
+{
+    WCHAR *result = wcsdup(src);
+    WCHAR *dst = result;
+    int in_quotes = 0, bcount = 0;
+
+    while (*src)
+    {
+        if ((*src == ' ' || *src == '\t') && !in_quotes)
+        {
+            /* skip the remaining spaces */
+            while (*src == ' ' || *src == '\t') src++;
+            if (!*src) break;
+            /* close the argument and copy it */
+            *dst++ = 0;
+            break;
+        }
+        else if (*src == '\\')
+        {
+            *dst++ = *src++;
+            bcount++;
+        }
+        else if (*src == '"')
+        {
+            if ((bcount & 1) == 0)
+            {
+                /* Preceded by an even number of '\', this is half that
+                * number of '\', plus a '"' which we discard.
+                */
+                dst -= bcount / 2;
+                src++;
+                if (in_quotes && *src == '"') *dst++ = *src++;
+                else in_quotes = !in_quotes;
+            }
+            else
+            {
+                /* Preceded by an odd number of '\', this is half that
+                * number of '\' followed by a '"'
+                */
+                dst -= bcount / 2 + 1;
+                *dst++ = *src++;
+            }
+            bcount = 0;
+        }
+        else  /* a regular character */
+        {
+            *dst++ = *src++;
+            bcount = 0;
+        }
+    }
+    *dst = 0;
+    return result;
+}
+
+/*******************************************************************
+ * WCMD_parameter_with_delims
+ *
+ * Extracts a delimited parameter from an input string, providing
+ * the delimiters characters to use
+ *
+ * PARAMS
+ *  s     [I] input string, non NULL
+ *  n     [I] # of the parameter to return, counted from 0
+ *  start [O] Optional. Pointer to the first char of param n in s
+ *  raw   [I] TRUE to return the parameter in raw format (quotes maintained)
+ *            FALSE to return the parameter with quotes stripped (including internal ones)
+ *  wholecmdline [I] TRUE to indicate this routine is being used to parse the
+ *                   command line, and special logic for arg0->1 transition
+ *                   needs to be applied.
+ *  delims[I] The delimiter characters to use
+ *
+ * RETURNS
+ *  Success: The nth delimited parameter found in s
+ *           if start != NULL, *start points to the start of the param (quotes maintained)
+ *  Failure: An empty string if the param is not found.
+ *           *start == NULL
+ *
+ * NOTES
+ *  Return value is stored in static storage (i.e. overwritten after each call).
+ *  By default, the parameter is returned with quotes removed, ready for use with
+ *  other API calls, e.g. c:\"a b"\c is returned as c:\a b\c. However, some commands
+ *  need to preserve the exact syntax (echo, for, etc) hence the raw option.
+ */
+WCHAR *WCMD_parameter_with_delims (WCHAR *s, int n, WCHAR **start,
+                                   BOOL raw, BOOL wholecmdline, const WCHAR *delims)
+{
+    int curParamNb = 0;
+    static WCHAR param[MAXSTRING];
+    WCHAR *p = s, *begin;
+
+    if (start != NULL) *start = NULL;
+    param[0] = '\0';
+
+    while (TRUE) {
+
+        /* Absorb repeated word delimiters until we get to the next token (or the end!) */
+        while (*p && (wcschr(delims, *p) != NULL))
+            p++;
+        if (*p == '\0') return param;
+
+        /* If we have reached the token number we want, remember the beginning of it */
+        if (start != NULL && curParamNb == n) *start = p;
+
+        /* Return the whole word up to the next delimiter, handling quotes in the middle
+           of it, e.g. a"\b c\"d is a single parameter.                                  */
+        begin = p;
+
+        /* Loop character by character, but just need to special case quotes */
+        while (*p) {
+            /* Once we have found a delimiter, break */
+            if (wcschr(delims, *p) != NULL) break;
+
+            /* Very odd special case - Seems as if a ( acts as a delimiter which is
+               not swallowed but is effective only when it comes between the program
+               name and the parameters. Need to avoid this triggering when used
+               to walk parameters generally.                                         */
+            if (wholecmdline && curParamNb == 0 && *p=='(') break;
+
+            /* If we find a quote, copy until we get the end quote */
+            if (*p == '"') {
+                p++;
+                while (*p && *p != '"') p++;
+            }
+
+            /* Now skip the character / quote */
+            if (*p) p++;
+        }
+
+        if (curParamNb == n) {
+            /* Return the parameter in static storage either as-is (raw) or
+               suitable for use with other win32 api calls (quotes stripped) */
+            if (raw) {
+                memcpy(param, begin, (p - begin) * sizeof(WCHAR));
+                param[p-begin] = '\0';
+            } else {
+                int i=0;
+                while (begin < p) {
+                  if (*begin != '"') param[i++] = *begin;
+                  begin++;
+                }
+                param[i] = '\0';
+            }
+            return param;
+        }
+        curParamNb++;
+    }
+}
+
+/*******************************************************************
+ * WCMD_parameter
+ *
+ * Extracts a delimited parameter from an input string, using a
+ * default set of delimiter characters. For parameters, see the main
+ * function above.
+ */
+WCHAR *WCMD_parameter (WCHAR *s, int n, WCHAR **start, BOOL raw, BOOL wholecmdline)
+{
+    return WCMD_parameter_with_delims (s, n, start, raw, wholecmdline, L" \t,=;");
+}
 
 int __cdecl wmain (int argc, WCHAR *argv[])
 {
 	DWORD binary_type;
+    int argno;
+    WCHAR *args = wcsdup(GetCommandLineW());
+
+    for (argno = 0; ; argno++)
+    {
+        WCHAR *arg = WCMD_parameter(args, argno, NULL, TRUE, FALSE);
+        if (!*arg) break;
+    }
+    argc = argno;
+    argv = HeapAlloc( GetProcessHeap(), 0, (argc+1) * sizeof(*argv) );
+    for (argno = 0; argno < argc; argno++)
+    {
+        WCHAR *arg = WCMD_parameter(args, argno, NULL, TRUE, FALSE);
+        argv[argno] = make_argv_pretty(arg);
+    }
+    argv[argno] = 0;
 
         parse_command_line( argc, argv );
 
