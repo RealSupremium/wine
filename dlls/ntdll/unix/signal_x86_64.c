@@ -3129,7 +3129,8 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    /* push rbp-based kernel stack cfi */
                    __ASM_CFI(".cfi_remember_state\n\t")
                    __ASM_CFI_CFA_IS_AT2(rcx, 0xa8, 0x01) /* frame->syscall_cfa */
-                   "leaq 0x70(%rcx),%rsp\n\t"      /* %rsp > frame means no longer inside syscall */
+                   /* switch to user stack */
+                   "movq 0x88(%rcx),%rsp\n\t"
 #ifdef __linux__
                    "movb $1,0x340(%r13)\n\t"       /* amd64_thread_data()->syscall_dispatch */
                    "movw 0x338(%r13),%dx\n"        /* amd64_thread_data()->fs */
@@ -3186,8 +3187,6 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    "3:\ttestl $0x3,%edx\n\t"       /* CONTEXT_CONTROL | CONTEXT_INTEGER */
                    "jnz 1f\n\t"
 
-                   /* switch to user stack */
-                   "movq 0x88(%rcx),%rsp\n\t"
                    /* push rcx-based kernel stack cfi */
                    __ASM_CFI(".cfi_remember_state\n\t")
                    __ASM_CFI(".cfi_def_cfa %rsp, 0\n\t")
@@ -3212,7 +3211,8 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    /* pop rcx-based kernel stack cfi */
                    __ASM_CFI(".cfi_restore_state\n")
 
-                   "1:\ttestl $0x2,%edx\n\t"       /* CONTEXT_INTEGER */
+                   "1:\tleaq 0x70(%rcx),%rsp\n\t"  /* %rsp > frame means no longer inside syscall */
+                   "testl $0x2,%edx\n\t"           /* CONTEXT_INTEGER */
                    "jnz 1f\n\t"
                    /* CONTEXT_CONTROL */
                    "movq (%rsp),%rcx\n\t"          /* frame->rip */
@@ -3238,6 +3238,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    "movq (%r10),%r10\n\t"
                    "test %r10,%r10\n\t"
                    "jz 3b\n\t"
+                   "leaq 0x70(%rcx),%rsp\n\t"     /* %rsp > frame means no longer inside syscall */
                    "testl $0x2,%edx\n\t"          /* CONTEXT_INTEGER */
                    "jnz 1b\n\t"
                    "xchgq %r10,(%rsp)\n\t"

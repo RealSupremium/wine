@@ -26,6 +26,7 @@ SOURCES = \
 	testdll.c \
 	testdll.spec \
 	thread.c \
+	threadctx.c \
 	threadpool.c \
 	time.c \
 	unwind.c \
