@@ -632,6 +632,29 @@ NTSTATUS WINAPI wow64_NtAlpcDisconnectPort( UINT *args )
 }
 
 /**********************************************************************
+ *           wow64_NtAlpcImpersonateClientOfPort
+ */
+NTSTATUS WINAPI wow64_NtAlpcImpersonateClientOfPort( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    ALPC_PORT_MESSAGE32 *msg32 = get_ptr( &args );
+    void *reserved = get_ptr( &args );
+    NTSTATUS status;
+
+    ALPC_PORT_MESSAGE *msg = NULL;
+
+    if (msg32)
+    {
+        msg = RtlAllocateHeap( GetProcessHeap(), 0, sizeof(*msg) + msg32->DataLength );
+        if (!msg) return STATUS_NO_MEMORY;
+    }
+
+    status = NtAlpcImpersonateClientOfPort( handle, alpc_port_message_32to64( msg, msg32 ), reserved );
+    RtlFreeHeap( GetProcessHeap(), 0, msg );
+    return status;
+}
+
+/**********************************************************************
  *           wow64_NtAlpcSendWaitReceivePort
  */
 NTSTATUS WINAPI wow64_NtAlpcSendWaitReceivePort( UINT *args )
