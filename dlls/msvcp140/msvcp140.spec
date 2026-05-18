@@ -3634,14 +3634,14 @@
 @ cdecl _Cnd_unregister_at_thread_exit(ptr)
 @ cdecl _Cnd_wait(ptr ptr)
 @ cdecl _Copy_file(wstr wstr)
-@ stub _Cosh
+@ cdecl _Cosh(double double)
 @ cdecl _Current_get(ptr)
 @ cdecl _Current_set(wstr) tr2_sys__Current_set_wchar
 @ extern _Denorm
 @ cdecl _Dtest(ptr)
 @ cdecl _Equivalent(wstr wstr) _Equivalent
 @ cdecl _Exp(ptr double long)
-@ stub _FCosh
+@ cdecl _FCosh(float float)
 @ extern _FDenorm
 @ cdecl _FDtest(ptr)
 @ cdecl _FExp(ptr float long)

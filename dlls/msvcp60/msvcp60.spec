@@ -2574,8 +2574,8 @@
 @ cdecl -arch=arm ?_Copy@?$basic_string@GU?$char_traits@G@std@@V?$allocator@G@2@@std@@AAAXI@Z(ptr long) basic_string_wchar__Copy
 @ thiscall -arch=i386 ?_Copy@?$basic_string@GU?$char_traits@G@std@@V?$allocator@G@2@@std@@AAEXI@Z(ptr long) basic_string_wchar__Copy
 @ cdecl -arch=win64 ?_Copy@?$basic_string@GU?$char_traits@G@std@@V?$allocator@G@2@@std@@AEAAX_K@Z(ptr long) basic_string_wchar__Copy
-@ stub ?_Cosh@?$_Ctr@M@std@@SAMMM@Z
-@ stub ?_Cosh@?$_Ctr@N@std@@SANNN@Z
+@ cdecl ?_Cosh@?$_Ctr@M@std@@SAMMM@Z(float float) _FCosh
+@ cdecl ?_Cosh@?$_Ctr@N@std@@SANNN@Z(double double) _Cosh
 @ stub ?_Cosh@?$_Ctr@O@std@@SAOOO@Z
 @ cdecl -arch=arm ?_Decref@facet@locale@std@@QAAPAV123@XZ(ptr) locale_facet__Decref
 @ thiscall -arch=i386 ?_Decref@facet@locale@std@@QAEPAV123@XZ(ptr) locale_facet__Decref
@@ -5633,14 +5633,14 @@
 @ cdecl -arch=arm ?xsputn@?$basic_streambuf@GU?$char_traits@G@std@@@std@@MAAHPBGH@Z(ptr ptr long) basic_streambuf_wchar_xsputn
 @ thiscall -arch=i386 ?xsputn@?$basic_streambuf@GU?$char_traits@G@std@@@std@@MAEHPBGH@Z(ptr ptr long) basic_streambuf_wchar_xsputn
 @ cdecl -arch=win64 ?xsputn@?$basic_streambuf@GU?$char_traits@G@std@@@std@@MEAA_JPEBG_J@Z(ptr ptr long) basic_streambuf_wchar_xsputn
-@ stub _Cosh
+@ cdecl _Cosh(double double)
 @ extern _Denorm _Denorm
 @ stub _Dnorm
 @ cdecl _Dscale(ptr long)
 @ cdecl _Dtest(ptr)
 @ extern _Eps _Eps
 @ cdecl _Exp(ptr double long)
-@ stub _FCosh
+@ cdecl _FCosh(float float)
 @ extern _FDenorm _FDenorm
 @ stub _FDnorm
 @ cdecl _FDscale(ptr long)

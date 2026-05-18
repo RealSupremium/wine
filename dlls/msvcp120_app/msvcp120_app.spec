@@ -3679,7 +3679,7 @@
 @ cdecl _Cnd_timedwait(ptr ptr ptr) msvcp120._Cnd_timedwait
 @ cdecl _Cnd_unregister_at_thread_exit(ptr) msvcp120._Cnd_unregister_at_thread_exit
 @ cdecl _Cnd_wait(ptr ptr) msvcp120._Cnd_wait
-@ stub _Cosh
+@ cdecl _Cosh(double double) msvcp120._Cosh
 @ extern _Denorm msvcp120._Denorm
 @ stub _Dint
 @ stub _Dnorm
@@ -3690,7 +3690,7 @@
 @ stub _Dunscale
 @ extern _Eps msvcp120._Eps
 @ cdecl _Exp(ptr double long) msvcp120._Exp
-@ stub _FCosh
+@ cdecl _FCosh(float float) msvcp120._FCosh
 @ extern _FDenorm msvcp120._FDenorm
 @ stub _FDint
 @ stub _FDnorm

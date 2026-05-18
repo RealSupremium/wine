@@ -3633,14 +3633,14 @@
 @ cdecl _Cnd_unregister_at_thread_exit(ptr) msvcp140._Cnd_unregister_at_thread_exit
 @ cdecl _Cnd_wait(ptr ptr) msvcp140._Cnd_wait
 @ cdecl _Copy_file(wstr wstr) msvcp140._Copy_file
-@ stub _Cosh
+@ cdecl _Cosh(double double) msvcp140._Cosh
 @ cdecl _Current_get(ptr) msvcp140._Current_get
 @ cdecl _Current_set(wstr) msvcp140._Current_set
 @ extern _Denorm msvcp140._Denorm
 @ cdecl _Dtest(ptr) msvcp140._Dtest
 @ cdecl _Equivalent(wstr wstr) msvcp140._Equivalent
 @ cdecl _Exp(ptr double long) msvcp140._Exp
-@ stub _FCosh
+@ cdecl _FCosh(float float) msvcp140._FCosh
 @ extern _FDenorm msvcp140._FDenorm
 @ cdecl _FDtest(ptr) msvcp140._FDtest
 @ cdecl _FExp(ptr float long) msvcp140._FExp
