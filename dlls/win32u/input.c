@@ -880,7 +880,7 @@ DWORD WINAPI NtUserGetMessagePos(void)
 }
 
 /*******************************************************************
- *           NtUserGetThreadInfo (win32u.@)
+ *           NtUserGetThreadState (win32u.@)
  */
 ULONG_PTR WINAPI NtUserGetThreadState( USERTHREADSTATECLASS cls )
 {
@@ -996,9 +996,6 @@ static HKL get_locale_kbd_layout(void)
 
 /***********************************************************************
  *	     NtUserGetKeyboardLayout    (win32u.@)
- *
- * Device handle for keyboard layout defaulted to
- * the language id. This is the way Windows default works.
  */
 HKL WINAPI NtUserGetKeyboardLayout( DWORD thread_id )
 {
@@ -1476,11 +1473,10 @@ BOOL WINAPI NtUserGetKeyboardLayoutName( WCHAR *name )
 
     layout = NtUserGetKeyboardLayout( 0 );
     id = HandleToUlong( layout );
-    if (HIWORD( id ) == LOWORD( id )) id = LOWORD( id );
+    if (!(HIWORD( id ) & 0xf000)) id = HIWORD( id );
     snprintf( buffer, sizeof(buffer), "%08X", id );
     asciiz_to_unicode( name, buffer );
-
-    if ((hkey = reg_open_key( NULL, keyboard_layouts_keyW, sizeof(keyboard_layouts_keyW) )))
+    if ((HIWORD( id ) & 0x1000) && (hkey = reg_open_key( NULL, keyboard_layouts_keyW, sizeof(keyboard_layouts_keyW) )))
     {
         while (!NtEnumerateKey( hkey, i++, KeyNodeInformation, key,
                                 sizeof(buffer) - sizeof(WCHAR), &len ))
