@@ -528,7 +528,7 @@ BOOL WINAPI CmdBatNotification( BOOL bBatchRunning )
  */
 HRESULT WINAPI RegisterApplicationRestart(PCWSTR pwzCommandLine, DWORD dwFlags)
 {
-    FIXME("(%s,%ld)\n", debugstr_w(pwzCommandLine), dwFlags);
+    TRACE("(%s,%ld)\n", debugstr_w(pwzCommandLine), dwFlags);
 
     return S_OK;
 }
@@ -575,8 +575,7 @@ BOOL WINAPI SetProcessDEPPolicy( DWORD flags )
  */
 VOID WINAPI ApplicationRecoveryFinished(BOOL success)
 {
-    FIXME(": stub\n");
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    TRACE("(%d)\n", success);
 }
 
 /**********************************************************************
@@ -584,8 +583,7 @@ VOID WINAPI ApplicationRecoveryFinished(BOOL success)
  */
 HRESULT WINAPI ApplicationRecoveryInProgress(PBOOL canceled)
 {
-    FIXME(":%p stub\n", canceled);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    TRACE("(%p)\n", canceled);
     return E_FAIL;
 }
 
@@ -594,7 +592,7 @@ HRESULT WINAPI ApplicationRecoveryInProgress(PBOOL canceled)
  */
 HRESULT WINAPI RegisterApplicationRecoveryCallback(APPLICATION_RECOVERY_CALLBACK callback, PVOID param, DWORD pingint, DWORD flags)
 {
-    FIXME("%p, %p, %ld, %ld: stub, faking success\n", callback, param, pingint, flags);
+    TRACE("%p, %p, %ld, %ld\n", callback, param, pingint, flags);
     return S_OK;
 }
 
@@ -854,8 +852,7 @@ BOOL WINAPI GetProcessDEPPolicy(HANDLE process, LPDWORD flags, PBOOL permanent)
  */
 HRESULT WINAPI UnregisterApplicationRestart(void)
 {
-    FIXME(": stub\n");
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    TRACE("\n");
     return S_OK;
 }
 

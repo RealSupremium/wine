@@ -97,6 +97,11 @@ static DWORD  (WINAPI *pGetMaximumProcessorCount)(WORD);
 static BOOL   (WINAPI *pGetProcessInformation)(HANDLE,PROCESS_INFORMATION_CLASS,void*,DWORD);
 static void (WINAPI *pClosePseudoConsole)(HPCON);
 static HRESULT (WINAPI *pCreatePseudoConsole)(COORD,HANDLE,HANDLE,DWORD,HPCON*);
+static HRESULT (WINAPI *pRegisterApplicationRestart)(PCWSTR, DWORD);
+static HRESULT (WINAPI *pUnregisterApplicationRestart)(void);
+static HRESULT (WINAPI *pRegisterApplicationRecoveryCallback)(APPLICATION_RECOVERY_CALLBACK, PVOID, DWORD, DWORD);
+static VOID    (WINAPI *pApplicationRecoveryFinished)(BOOL);
+static HRESULT (WINAPI *pApplicationRecoveryInProgress)(PBOOL);
 
 #if defined(__x86_64__) || defined(__i386__)
 static NTSTATUS (WINAPI *pNtQueryInformationThread)(HANDLE, THREADINFOCLASS, PVOID, ULONG, PULONG);
@@ -268,6 +273,11 @@ static BOOL init(void)
     pSetInformationJobObject = (void *)GetProcAddress(hkernel32, "SetInformationJobObject");
     pCreateIoCompletionPort = (void *)GetProcAddress(hkernel32, "CreateIoCompletionPort");
     pGetNumaProcessorNode = (void *)GetProcAddress(hkernel32, "GetNumaProcessorNode");
+    pRegisterApplicationRestart = (void *)GetProcAddress(hkernel32, "RegisterApplicationRestart");
+    pUnregisterApplicationRestart = (void *)GetProcAddress(hkernel32, "UnregisterApplicationRestart");
+    pRegisterApplicationRecoveryCallback = (void *)GetProcAddress(hkernel32, "RegisterApplicationRecoveryCallback");
+    pApplicationRecoveryFinished = (void *)GetProcAddress(hkernel32, "ApplicationRecoveryFinished");
+    pApplicationRecoveryInProgress = (void *)GetProcAddress(hkernel32, "ApplicationRecoveryInProgress");
     pWTSGetActiveConsoleSessionId = (void *)GetProcAddress(hkernel32, "WTSGetActiveConsoleSessionId");
     pCreateToolhelp32Snapshot = (void *)GetProcAddress(hkernel32, "CreateToolhelp32Snapshot");
     pProcess32First = (void *)GetProcAddress(hkernel32, "Process32First");
@@ -5725,6 +5735,51 @@ static void test_GetProcessInformation(void)
     }
 }
 
+static void test_application_restart(void)
+{
+    WCHAR cmdline[RESTART_MAX_CMD_LINE + 2];
+    HRESULT hr;
+    BOOL canceled;
+
+    if (!pRegisterApplicationRestart)
+    {
+        win_skip("RegisterApplicationRestart is not available\n");
+        return;
+    }
+
+    hr = pRegisterApplicationRestart(NULL, 0);
+    ok(hr == S_OK, "RegisterApplicationRestart(NULL) returned %#lx\n", hr);
+
+    hr = pRegisterApplicationRestart(L"test args", 0);
+    ok(hr == S_OK, "RegisterApplicationRestart returned %#lx\n", hr);
+
+    /* command line of exactly RESTART_MAX_CMD_LINE chars is accepted */
+    memset(cmdline, 'a', RESTART_MAX_CMD_LINE * sizeof(WCHAR));
+    cmdline[RESTART_MAX_CMD_LINE] = 0;
+    hr = pRegisterApplicationRestart(cmdline, 0);
+    ok(hr == S_OK, "RegisterApplicationRestart(max length) returned %#lx\n", hr);
+
+    /* command line longer than RESTART_MAX_CMD_LINE chars should return E_INVALIDARG */
+    memset(cmdline, 'a', (RESTART_MAX_CMD_LINE + 1) * sizeof(WCHAR));
+    cmdline[RESTART_MAX_CMD_LINE + 1] = 0;
+    hr = pRegisterApplicationRestart(cmdline, 0);
+    ok(hr == E_INVALIDARG, "RegisterApplicationRestart(too long) returned %#lx\n", hr);
+
+    hr = pUnregisterApplicationRestart();
+    ok(hr == S_OK, "UnregisterApplicationRestart returned %#lx\n", hr);
+
+    hr = pRegisterApplicationRecoveryCallback(NULL, NULL, 0, 0);
+    ok(hr == S_OK, "RegisterApplicationRecoveryCallback(NULL) returned %#lx\n", hr);
+
+    /* outside a recovery callback, Windows returns E_FAIL */
+    canceled = 0xdeadbeef;
+    hr = pApplicationRecoveryInProgress(&canceled);
+    ok(hr == E_FAIL, "ApplicationRecoveryInProgress returned %#lx\n", hr);
+
+    pApplicationRecoveryFinished(TRUE);
+    pApplicationRecoveryFinished(FALSE);
+}
+
 START_TEST(process)
 {
     HANDLE job, hproc, h, h2;
@@ -5855,6 +5910,7 @@ START_TEST(process)
     test_services_exe();
     test_startupinfo();
     test_GetProcessInformation();
+    test_application_restart();
 
     /* things that can be tested:
      *  lookup:         check the way program to be executed is searched
