@@ -3132,7 +3132,18 @@ HRESULT WINAPI VarAnd(LPVARIANT left, LPVARIANT right, LPVARIANT result)
             hres = VariantChangeType(&varLeft,&varLeft,
             VARIANT_LOCALBOOL, VT_BOOL);
         if (SUCCEEDED(hres) && V_VT(&varLeft) != resvt)
+        {
+            if (V_VT(&varLeft) == VT_BSTR)
+            {
+                if (d > I4_MAX || d < I4_MIN)
+                {
+                    hres = DISP_E_OVERFLOW;
+                    goto VarAnd_Exit;
+                }
+                if (d >= I4_MIN && d <= I4_MAX) resvt = VT_I4;
+            }
             hres = VariantChangeType(&varLeft,&varLeft,0,resvt);
+        }
         if (FAILED(hres)) goto VarAnd_Exit;
     }
 
@@ -3148,8 +3159,31 @@ HRESULT WINAPI VarAnd(LPVARIANT left, LPVARIANT right, LPVARIANT result)
             hres = VariantChangeType(&varRight, &varRight,
                 VARIANT_LOCALBOOL, VT_BOOL);
         if (SUCCEEDED(hres) && V_VT(&varRight) != resvt)
+        {
+            if (V_VT(&varRight) == VT_BSTR)
+            {
+                if (d > I4_MAX || d < I4_MIN)
+                {
+                    hres = DISP_E_OVERFLOW;
+                    goto VarAnd_Exit;
+                }
+                if (d >= I4_MIN && d <= I4_MAX) resvt = VT_I4;
+            }
             hres = VariantChangeType(&varRight, &varRight, 0, resvt);
+        }
         if (FAILED(hres)) goto VarAnd_Exit;
+    }
+
+    if (V_VT(&varLeft) != resvt)
+    {
+        hres = VariantChangeType(&varLeft, &varLeft, 0, resvt);
+        if (FAILED(hres)) goto VarAnd_Exit;
+    }
+
+    if (V_VT(&varRight) != resvt)
+    {
+        hres = VariantChangeType(&varRight, &varRight, 0, resvt);
+        if (FAILED(hres))  goto VarAnd_Exit;
     }
 
     V_VT(result) = resvt;
