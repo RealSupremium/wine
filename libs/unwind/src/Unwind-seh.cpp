@@ -442,21 +442,18 @@ _Unwind_GetRegionStart(struct _Unwind_Context *context) {
 static int
 _unw_init_seh(unw_cursor_t *cursor, CONTEXT *context) {
 #ifdef _LIBUNWIND_TARGET_X86_64
-  new ((void *)cursor) UnwindCursor<LocalAddressSpace, Registers_x86_64>(
+  auto *co = new (cursor->data) UnwindCursor<LocalAddressSpace, Registers_x86_64>(
       context, LocalAddressSpace::sThisAddressSpace);
-  auto *co = reinterpret_cast<AbstractUnwindCursor *>(cursor);
   co->setInfoBasedOnIPRegister();
   return UNW_ESUCCESS;
 #elif defined(_LIBUNWIND_TARGET_ARM)
-  new ((void *)cursor) UnwindCursor<LocalAddressSpace, Registers_arm>(
+  auto *co = new (cursor->data) UnwindCursor<LocalAddressSpace, Registers_arm>(
       context, LocalAddressSpace::sThisAddressSpace);
-  auto *co = reinterpret_cast<AbstractUnwindCursor *>(cursor);
   co->setInfoBasedOnIPRegister();
   return UNW_ESUCCESS;
 #elif defined(_LIBUNWIND_TARGET_AARCH64)
-  new ((void *)cursor) UnwindCursor<LocalAddressSpace, Registers_arm64>(
+  auto *co = new (cursor->data) UnwindCursor<LocalAddressSpace, Registers_arm64>(
       context, LocalAddressSpace::sThisAddressSpace);
-  auto *co = reinterpret_cast<AbstractUnwindCursor *>(cursor);
   co->setInfoBasedOnIPRegister();
   return UNW_ESUCCESS;
 #else
@@ -467,11 +464,11 @@ _unw_init_seh(unw_cursor_t *cursor, CONTEXT *context) {
 static DISPATCHER_CONTEXT *
 _unw_seh_get_disp_ctx(unw_cursor_t *cursor) {
 #ifdef _LIBUNWIND_TARGET_X86_64
-  return reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_x86_64> *>(cursor)->getDispatcherContext();
+  return reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_x86_64> *>(cursor->data)->getDispatcherContext();
 #elif defined(_LIBUNWIND_TARGET_ARM)
-  return reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_arm> *>(cursor)->getDispatcherContext();
+  return reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_arm> *>(cursor->data)->getDispatcherContext();
 #elif defined(_LIBUNWIND_TARGET_AARCH64)
-  return reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_arm64> *>(cursor)->getDispatcherContext();
+  return reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_arm64> *>(cursor->data)->getDispatcherContext();
 #else
   return nullptr;
 #endif
@@ -480,11 +477,11 @@ _unw_seh_get_disp_ctx(unw_cursor_t *cursor) {
 static void
 _unw_seh_set_disp_ctx(unw_cursor_t *cursor, DISPATCHER_CONTEXT *disp) {
 #ifdef _LIBUNWIND_TARGET_X86_64
-  reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_x86_64> *>(cursor)->setDispatcherContext(disp);
+  reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_x86_64> *>(cursor->data)->setDispatcherContext(disp);
 #elif defined(_LIBUNWIND_TARGET_ARM)
-  reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_arm> *>(cursor)->setDispatcherContext(disp);
+  reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_arm> *>(cursor->data)->setDispatcherContext(disp);
 #elif defined(_LIBUNWIND_TARGET_AARCH64)
-  reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_arm64> *>(cursor)->setDispatcherContext(disp);
+  reinterpret_cast<UnwindCursor<LocalAddressSpace, Registers_arm64> *>(cursor->data)->setDispatcherContext(disp);
 #endif
 }
 

@@ -73,10 +73,9 @@ _LIBUNWIND_EXPORT int unw_init_local(unw_cursor_t *cursor,
 # error Architecture not supported
 #endif
   // Use "placement new" to allocate UnwindCursor in the cursor buffer.
-  new ((void *)cursor) UnwindCursor<LocalAddressSpace, REGISTER_KIND>(
+  auto *co = new (cursor->data) UnwindCursor<LocalAddressSpace, REGISTER_KIND>(
                                  context, LocalAddressSpace::sThisAddressSpace);
 #undef REGISTER_KIND
-  AbstractUnwindCursor *co = (AbstractUnwindCursor *)cursor;
   co->setInfoBasedOnIPRegister();
 
   return UNW_ESUCCESS;
@@ -94,17 +93,17 @@ _LIBUNWIND_EXPORT int unw_init_remote_thread(unw_cursor_t *cursor,
   // use "placement new" to allocate UnwindCursor in the cursor buffer
   switch (as->cpuType) {
   case CPU_TYPE_I386:
-    new ((void *)cursor)
+    new (cursor->data)
         UnwindCursor<RemoteAddressSpace<Pointer32<LittleEndian>>,
                      Registers_x86>(((unw_addr_space_i386 *)as)->oas, arg);
     break;
   case CPU_TYPE_X86_64:
-    new ((void *)cursor)
+    new (cursor->data)
         UnwindCursor<RemoteAddressSpace<Pointer64<LittleEndian>>,
                      Registers_x86_64>(((unw_addr_space_x86_64 *)as)->oas, arg);
     break;
   case CPU_TYPE_POWERPC:
-    new ((void *)cursor)
+    new (cursor->data)
         UnwindCursor<RemoteAddressSpace<Pointer32<BigEndian>>,
                      Registers_ppc>(((unw_addr_space_ppc *)as)->oas, arg);
     break;
