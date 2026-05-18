@@ -30706,7 +30706,7 @@ static int SQLITE_APICALL winMutexNotheld(sqlite3_mutex *p){
 SQLITE_PRIVATE void SQLITE_APICALL sqlite3MemoryBarrier(void){
 #if defined(SQLITE_MEMORY_BARRIER)
   SQLITE_MEMORY_BARRIER;
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) || defined(__clang__)
   __sync_synchronize();
 #elif MSVC_VERSION>=1400
   _ReadWriteBarrier();
