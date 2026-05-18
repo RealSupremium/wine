@@ -2377,6 +2377,13 @@ float __cdecl _FCosh(float x, float y)
     return y * cosh(x);
 }
 
+/* ?_Cosh@?$_Ctr@O@std@@SAOOO@Z
+   ?_Cosh@?$_Ctraits@O@std@@SAOOO@Z*/
+double __cdecl _LCosh(double x, double y)
+{
+    return y * cosh(x);
+}
+
 /* ?_Sinh@?$_Ctr@N@std@@SANNN@Z
    ?_Sinh@?$_Ctraits@N@std@@SANNN@Z */
 double __cdecl _Sinh(double x, double y)
