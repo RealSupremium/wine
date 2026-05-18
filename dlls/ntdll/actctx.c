@@ -27,6 +27,9 @@
 #include <stdlib.h>
 
 #include "ntstatus.h"
+#include "windef.h"
+#include "winbase.h"
+#include "winnt.h"
 #include "winternl.h"
 #include "ddk/ntddk.h"
 #include "ddk/wdm.h"
@@ -3326,6 +3329,197 @@ static NTSTATUS lookup_winsxs(struct actctx_loader* acl, struct assembly_identit
     return io.Status;
 }
 
+static void parse_probing_elem( xmlbuf_t *xmlbuf, const struct xml_elem *parent, WCHAR **private_path )
+{
+    struct xml_attr attr;
+    BOOL end = FALSE;
+
+    while (next_xml_attr( xmlbuf, &attr, &end ))
+    {
+        if (xml_attr_cmp( &attr, L"privatePath" ))
+        {
+            if (!*private_path && !(*private_path = xmlstrdupW( &attr.value )))
+                set_error( xmlbuf );
+        } else if (!is_xmlns_attr( &attr ))
+            WARN( "unknown config attr %s\n", debugstr_xml_attr( &attr ) );
+    }
+
+    if (!end) parse_expect_end_elem( xmlbuf, parent );
+}
+
+static void parse_assembly_binding_elem( xmlbuf_t *xmlbuf, const struct xml_elem *parent, WCHAR **private_path )
+{
+    struct xml_attr attr;
+    struct xml_elem elem;
+    BOOL end = FALSE;
+
+    while (next_xml_attr( xmlbuf, &attr, &end ));
+    if (end) return;
+
+    while (next_xml_elem( xmlbuf, &elem, parent ))
+    {
+        if (xml_elem_cmp( &elem, L"probing", asmv1W ))
+            parse_probing_elem( xmlbuf, &elem, private_path );
+        else
+            parse_unknown_elem( xmlbuf, &elem );
+    }
+}
+
+static void parse_windows_elem( xmlbuf_t *xmlbuf, const struct xml_elem *parent, WCHAR **private_path )
+{
+    struct xml_attr attr;
+    struct xml_elem elem;
+    BOOL end = FALSE;
+
+    while (next_xml_attr( xmlbuf, &attr, &end ));
+    if (end) return;
+
+    while (next_xml_elem( xmlbuf, &elem, parent ))
+    {
+        if (xml_elem_cmp( &elem, L"assemblyBinding", asmv1W ))
+            parse_assembly_binding_elem( xmlbuf, &elem, private_path );
+        else
+            parse_unknown_elem( xmlbuf, &elem );
+    }
+}
+
+
+static NTSTATUS parse_config_file( xmlbuf_t *xmlbuf, WCHAR **private_path )
+{
+    struct xml_elem elem;
+    struct xml_elem parent = {};
+    struct xml_elem configuration_root = {};
+    BOOL end = FALSE;
+
+    xmlbuf->error = FALSE;
+    xmlbuf->ns_pos = 0;
+    *private_path = NULL;
+
+    
+    if (!next_xml_elem( xmlbuf, &elem, &parent )) return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+
+    if (xmlstr_cmp( &elem.name, L"?xml" ) &&
+        (!parse_xml_header( xmlbuf ) || !next_xml_elem(xmlbuf, &elem, &parent)))
+        return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+
+    if (!xmlstr_cmp( &elem.name, L"configuration" ) || elem.ns.len)
+    {
+        FIXME( "root element is %s, expected <configuration>", debugstr_xml_elem( &elem ) );
+        return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+    }
+
+    parse_expect_no_attr( xmlbuf, &end );
+
+    configuration_root = elem;
+    if (!end)
+    {
+        while (next_xml_elem( xmlbuf, &elem, &configuration_root ))
+        {
+            if (xmlstr_cmp( &elem.name, L"windows" ) && !elem.ns.len)
+                parse_windows_elem( xmlbuf, &elem, private_path );
+            else
+                parse_unknown_elem( xmlbuf, &elem );
+        }
+    }
+
+    if (xmlbuf->error) return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+    if (next_xml_elem( xmlbuf, &elem, &parent )) return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+    if (xmlbuf->ptr != xmlbuf->end) return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS open_config_file( LPCWSTR filename, HANDLE file, WCHAR **private_path )
+{
+    FILE_END_OF_FILE_INFORMATION info;
+    IO_STATUS_BLOCK io;
+    HANDLE              mapping;
+    OBJECT_ATTRIBUTES   attr;
+    LARGE_INTEGER       size;
+    LARGE_INTEGER       offset;
+    NTSTATUS            status;
+    SIZE_T              count;
+    INT                 buffer_len;
+    void               *base;
+    xmlbuf_t            xmlbuf;
+    int                 unicode_tests;
+
+    TRACE( "loading config file %s\n", debugstr_w(filename) );
+
+    InitializeObjectAttributes( &attr, NULL, OBJ_CASE_INSENSITIVE, 0, NULL );
+    size.QuadPart = 0;
+    status = NtCreateSection( &mapping, STANDARD_RIGHTS_REQUIRED | SECTION_QUERY | SECTION_MAP_READ,
+                              &attr, &size, PAGE_READONLY, SEC_COMMIT, file );
+    if (status != STATUS_SUCCESS) return status;
+
+    offset.QuadPart = 0;
+    count = 0;
+    base = NULL;
+    status = NtMapViewOfSection( mapping, GetCurrentProcess(), &base, 0, 0, &offset,
+                                 &count, ViewShare, 0, PAGE_READONLY );
+    NtClose( mapping );
+    if (status != STATUS_SUCCESS) return status;
+
+    status = NtQueryInformationFile( file, &io, &info, sizeof(info), FileEndOfFileInformation );
+    if (status == STATUS_SUCCESS)
+    {
+        if (info.EndOfFile.QuadPart > INT_MAX)
+        {
+            /* the config file seems to be malformed, ignore */
+            status = STATUS_SXS_ASSEMBLY_NOT_FOUND;
+            goto done;
+        }
+        buffer_len = info.EndOfFile.QuadPart;
+        unicode_tests = IS_TEXT_UNICODE_SIGNATURE | IS_TEXT_UNICODE_REVERSE_SIGNATURE;
+        if (RtlIsTextUnicode( base, buffer_len, &unicode_tests ))
+        {
+            xmlbuf.ptr = base;
+            xmlbuf.end = xmlbuf.ptr + buffer_len / sizeof(WCHAR);
+            status = parse_config_file( &xmlbuf, private_path );
+        }
+        else if (unicode_tests & IS_TEXT_UNICODE_REVERSE_SIGNATURE)
+        {
+            const WCHAR *buf = base;
+            WCHAR *new_buff;
+            unsigned int i;
+
+            if (!(new_buff = RtlAllocateHeap( GetProcessHeap(), 0, buffer_len )))
+            {
+                status = STATUS_NO_MEMORY;
+                goto done;
+            }
+            for (i = 0; i < buffer_len / sizeof(WCHAR); i++)
+                new_buff[i] = RtlUshortByteSwap( buf[i] );
+            xmlbuf.ptr = new_buff;
+            xmlbuf.end = xmlbuf.ptr + buffer_len / sizeof(WCHAR);
+            status = parse_config_file( &xmlbuf, private_path );
+            RtlFreeHeap( GetProcessHeap(), 0, new_buff );
+        }
+        else
+        {
+            DWORD len;
+            WCHAR *new_buff;
+
+            /* let's assume utf-8 for now */
+            RtlUTF8ToUnicodeN( NULL, 0, &len, base, buffer_len );
+            if (!(new_buff = RtlAllocateHeap( GetProcessHeap(), 0, len )))
+            {
+                status = STATUS_NO_MEMORY;
+                goto done;
+            }
+            RtlUTF8ToUnicodeN( new_buff, len, &len, base, buffer_len );
+            xmlbuf.ptr = new_buff;
+            xmlbuf.end = xmlbuf.ptr + len / sizeof(WCHAR);
+            status = parse_config_file( &xmlbuf, private_path );
+            RtlFreeHeap( GetProcessHeap(), 0, new_buff );
+        }
+    }
+    done:
+    NtUnmapViewOfSection( GetCurrentProcess(), base );
+    return status;
+}
+
+
 static NTSTATUS open_manifest_file( struct actctx_loader *acl, struct assembly_identity *ai,
                                     const WCHAR *lang, const WCHAR *directory, WCHAR *buffer, DWORD len )
 {
@@ -3367,6 +3561,122 @@ done:
     RtlFreeUnicodeString( &nameW );
     return status;
 }
+
+static NTSTATUS probe_private_path( struct actctx_loader *acl, struct assembly_identity *ai )
+{
+    DWORD total;
+    DWORD len;
+    HANDLE file;
+    UNICODE_STRING nameW;
+    WCHAR *manifest_dir = NULL;
+    WCHAR *private_path = NULL;
+    WCHAR *directory = NULL;
+    WCHAR *buffer = NULL;
+    WCHAR *path = NULL;
+    const WCHAR *lang = ai->language;
+    NTSTATUS status;
+
+    if (acl->actctx->config.type != ACTIVATION_CONTEXT_PATH_TYPE_WIN32_FILE)
+        return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+
+    nameW.Buffer = NULL;
+    if (!RtlDosPathNameToNtPathName_U( acl->actctx->config.info, &nameW, NULL, NULL ))
+        return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+
+    status = open_nt_file( &file, &nameW );
+    RtlFreeUnicodeString( &nameW );
+    if (status) return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+
+    status = open_config_file( acl->actctx->config.info, file, &private_path );
+    NtClose( file );
+
+    if ( status != STATUS_SUCCESS )
+    {
+        RtlFreeHeap( GetProcessHeap(), 0, private_path );
+        return status;
+    }
+
+    if (!private_path) return STATUS_SXS_ASSEMBLY_NOT_FOUND;
+
+    TRACE( "got privatePath %s from %s\n", debugstr_w( private_path ),
+           debugstr_w( acl->actctx->config.info ) );
+
+    if (!lang || !wcsicmp( lang, L"neutral" ) || !wcscmp( lang, L"*")) lang = L"";
+    
+    len = max( RtlGetFullPathName_U( acl->actctx->assemblies->manifest.info, 0, NULL, NULL ) / sizeof(WCHAR),
+                 wcslen( acl->actctx->appdir.info ) );
+    total = len + 2 * wcslen( private_path ) + 2 * wcslen( ai->name ) + wcslen( lang ) + 12;
+
+    if (!(buffer = RtlAllocateHeap( GetProcessHeap(), 0, total * sizeof(WCHAR) )))
+    {
+        RtlFreeHeap( GetProcessHeap(), 0, private_path );
+        return STATUS_NO_MEMORY;
+    }
+    if(!(manifest_dir = RtlAllocateHeap( GetProcessHeap(), 0, total * sizeof(WCHAR) )))
+    {
+        RtlFreeHeap( GetProcessHeap(), 0, private_path );
+        RtlFreeHeap( GetProcessHeap(), 0, buffer );
+        return STATUS_NO_MEMORY;
+    }
+
+    if (!(directory = build_assembly_dir( ai )))
+    {
+        RtlFreeHeap( GetProcessHeap(), 0, buffer );
+        RtlFreeHeap( GetProcessHeap(), 0, private_path );
+        RtlFreeHeap( GetProcessHeap(), 0, manifest_dir );
+        return STATUS_NO_MEMORY;
+    }
+
+    status = STATUS_SXS_ASSEMBLY_NOT_FOUND;
+    path = private_path;
+
+    while (*path)
+    {
+        WCHAR *p = NULL;
+        WCHAR *end = wcschr( path, ';' );
+        SIZE_T path_len = end ? end - path : wcslen( path );
+        if (path_len)
+        {
+            /* follow the same lookup order in lookup_assembly */
+            /* but insert privatePath in between */
+            p = buffer + swprintf( buffer, total, L"%s%.*s", acl->actctx->appdir.info,
+                      (int)path_len, path);
+            if (p > buffer && p[-1] != '\\') *p++ = '\\';
+            *p = 0;
+            status = open_manifest_file( acl, ai, lang, directory, buffer, total );
+            if (status != STATUS_SXS_ASSEMBLY_NOT_FOUND) break;
+            swprintf( buffer, total, L"%s%.*s\\%s\\", acl->actctx->appdir.info,
+                      (int)path_len, path, ai->name );
+            status = open_manifest_file( acl, ai, lang, directory, buffer, total );
+            if (status != STATUS_SXS_ASSEMBLY_NOT_FOUND) break;
+
+            if (RtlGetFullPathName_U( acl->actctx->assemblies->manifest.info, len * sizeof(WCHAR), manifest_dir, &p ))
+            {
+                *p = 0;
+                p = buffer + swprintf( buffer, total, L"%s%.*s", manifest_dir,
+                                       (int)path_len, path);
+                if (p > buffer && p[-1] != '\\') *p++ = '\\';
+                *p = 0; 
+                status = open_manifest_file( acl, ai, lang, directory, buffer, total );
+                if (status != STATUS_SXS_ASSEMBLY_NOT_FOUND) break;
+                swprintf( buffer, total, L"%s%.*s\\%s\\", manifest_dir,
+                          (int)path_len, path, ai->name );
+
+                status = open_manifest_file( acl, ai, lang, directory, buffer, total );
+                if (status != STATUS_SXS_ASSEMBLY_NOT_FOUND) break;
+            }
+        }
+        if (!end) break;
+        path = end + 1;
+    }
+
+    RtlFreeHeap( GetProcessHeap(), 0, buffer);
+    RtlFreeHeap( GetProcessHeap(), 0, directory );
+    RtlFreeHeap( GetProcessHeap(), 0, private_path );
+    RtlFreeHeap( GetProcessHeap(), 0, manifest_dir );
+    return status;
+}
+
 
 static NTSTATUS lookup_assembly(struct actctx_loader* acl,
                                 struct assembly_identity* ai)
@@ -3423,6 +3733,8 @@ static NTSTATUS lookup_assembly(struct actctx_loader* acl,
         swprintf( p, total - (p - buffer), L"%s\\", ai->name );
         status = open_manifest_file( acl, ai, lang, directory, buffer, total );
     }
+ 
+    if ((status = probe_private_path( acl, ai )) != STATUS_SXS_ASSEMBLY_NOT_FOUND) goto done;
 
 done:
     RtlFreeHeap( GetProcessHeap(), 0, directory );
@@ -5262,6 +5574,62 @@ static const WCHAR *find_app_settings( ACTIVATION_CONTEXT *actctx, const WCHAR *
     return NULL;
 }
 
+static NTSTATUS probe_config_path( ACTIVATION_CONTEXT *actctx )
+{
+    struct assembly *root;
+    WCHAR *path;
+    UNICODE_STRING nt_name;
+    HANDLE file;
+    size_t len;
+    static const WCHAR manifest_ext[] = L".manifest";
+    static const WCHAR config_ext[] = L".config";
+    size_t manifest_ext_len = ARRAY_SIZE(manifest_ext) - 1;
+    size_t config_ext_len = ARRAY_SIZE(config_ext) - 1;
+    
+    if (!actctx->num_assemblies) return STATUS_SUCCESS;
+
+    root = &actctx->assemblies[0];
+    if (root->manifest.type != ACTIVATION_CONTEXT_PATH_TYPE_WIN32_FILE || !root->manifest.info)
+        return STATUS_SUCCESS;
+
+    len = wcslen( root->manifest.info );
+    if (len > manifest_ext_len &&
+        !wcsicmp( root->manifest.info + len - manifest_ext_len, manifest_ext ))
+    {
+        if (!(path = RtlAllocateHeap( GetProcessHeap(), 0, (len - manifest_ext_len + config_ext_len + 1) * sizeof(WCHAR) ))) return STATUS_NO_MEMORY;
+
+        memcpy( path, root->manifest.info, (len - manifest_ext_len) * sizeof(WCHAR) );
+        memcpy( path + len - manifest_ext_len, config_ext, (config_ext_len + 1) * sizeof(WCHAR) );
+    }
+    else
+    {
+        if (!(path = RtlAllocateHeap( GetProcessHeap(), 0, (len + config_ext_len + 1) * sizeof(WCHAR) ))) return STATUS_NO_MEMORY;
+
+        memcpy( path, root->manifest.info, len * sizeof(WCHAR) );
+        memcpy( path + len, config_ext, (config_ext_len + 1) * sizeof(WCHAR) );
+    }
+
+    if (!RtlDosPathNameToNtPathName_U( path, &nt_name, NULL, NULL ))
+    {
+        RtlFreeHeap( GetProcessHeap(), 0, path );
+        return STATUS_SUCCESS;
+    }
+
+    if (!open_nt_file( &file, &nt_name ))
+    {
+        NtClose( file );
+        actctx->config.info = path;
+        actctx->config.type = ACTIVATION_CONTEXT_PATH_TYPE_WIN32_FILE;
+    }
+    else
+    {
+        RtlFreeHeap( GetProcessHeap(), 0, path );
+    }
+
+    RtlFreeUnicodeString( &nt_name );
+    return STATUS_SUCCESS;
+}
+
 /* initialize the activation context for the current process */
 void actctx_init(void)
 {
@@ -5278,7 +5646,6 @@ void actctx_init(void)
 
     NtCurrentTeb()->Peb->ActivationContextData = process_actctx;
 }
-
 
 /***********************************************************************
  * RtlCreateActivationContext (NTDLL.@)
@@ -5420,6 +5787,8 @@ NTSTATUS WINAPI RtlCreateActivationContext( ACTIVATION_CONTEXT **new_actctx, con
     if (file) NtClose( file );
     RtlFreeUnicodeString( &nameW );
 
+    if (status == STATUS_SUCCESS) status = probe_config_path(actctx);
+    
     if (status == STATUS_SUCCESS) status = parse_depend_manifests(&acl);
     free_depend_manifests( &acl );
 
