@@ -621,6 +621,17 @@ NTSTATUS WINAPI wow64_NtAlpcCreatePort( UINT *args )
 }
 
 /**********************************************************************
+ *           wow64_NtAlpcDisconnectPort
+ */
+NTSTATUS WINAPI wow64_NtAlpcDisconnectPort( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    ULONG flags = get_ulong( &args );
+
+    return NtAlpcDisconnectPort( handle, flags );
+}
+
+/**********************************************************************
  *           wow64_NtAlpcSendWaitReceivePort
  */
 NTSTATUS WINAPI wow64_NtAlpcSendWaitReceivePort( UINT *args )
