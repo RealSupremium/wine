@@ -937,8 +937,16 @@ static struct unix_face *unix_face_create( const char *unix_name, void *data_ptr
 
         memset( &style_name, 0, sizeof(style_name) );
         style_name.primary_langid = primary_langid;
-        opentype_enum_style_names( tt_name_v0, search_face_name_callback, &style_name );
+        opentype_enum_typographic_style_names( tt_name_v0, search_face_name_callback, &style_name );
         This->style_name = decode_opentype_name( &style_name.face_name );
+        if (!This->style_name || !This->style_name[0] || !(This->ntm_flags & NTM_PS_OPENTYPE))
+        {
+            memset( &style_name, 0, sizeof(style_name) );
+            style_name.primary_langid = primary_langid;
+            free(This->style_name);
+            opentype_enum_style_names( tt_name_v0, search_face_name_callback, &style_name );
+            This->style_name = decode_opentype_name( &style_name.face_name );
+        }
 
         memset( &full_name, 0, sizeof(full_name) );
         full_name.primary_langid = primary_langid;

@@ -701,6 +701,17 @@ BOOL opentype_enum_family_names( const struct tt_name_v0 *header, opentype_enum_
     return FALSE;
 }
 
+BOOL opentype_enum_typographic_style_names( const struct tt_name_v0 *header, opentype_enum_names_cb callback, void *user )
+{
+    if (opentype_enum_font_names( header, OPENTYPE_PLATFORM_WIN, OPENTYPE_NAME_TYPOGRAPHIC_SUBFAMILY, callback, user ))
+        return TRUE;
+    if (opentype_enum_font_names( header, OPENTYPE_PLATFORM_MAC, OPENTYPE_NAME_TYPOGRAPHIC_SUBFAMILY, callback, user ))
+        return TRUE;
+    if (opentype_enum_font_names( header, OPENTYPE_PLATFORM_UNICODE, OPENTYPE_NAME_TYPOGRAPHIC_SUBFAMILY, callback, user ))
+        return TRUE;
+    return FALSE;
+}
+
 BOOL opentype_enum_style_names( const struct tt_name_v0 *header, opentype_enum_names_cb callback, void *user )
 {
     if (opentype_enum_font_names( header, OPENTYPE_PLATFORM_WIN, OPENTYPE_NAME_SUBFAMILY, callback, user ))

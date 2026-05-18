@@ -5778,7 +5778,72 @@ static void test_fullname2(void)
     test_fullname2_helper("@Batang");
     test_fullname2_helper("@UnBatang");
     test_fullname2_helper("@UnDotum");
+}
 
+static int CALLBACK test_get_typographic_subfamily_helper(const LOGFONTA *lf, const TEXTMETRICA *ntm, DWORD type, LPARAM lParam)
+{
+    const char *ttf_family = "WineTestTypographicSubfamilyTTF", *otf_family = "WineTestTypographicSubfamilyOTF";
+    const ENUMLOGFONTA *f = (const ENUMLOGFONTA *)lf;
+    const char *style = (const char *)f->elfStyle;
+
+    if (!lstrcmpA(f->elfLogFont.lfFaceName, otf_family))
+        ok(!lstrcmpA(style, "Base"), "%s: style names don't match: returned %s, expect Base\n", f->elfLogFont.lfFaceName, style);
+    else if (!lstrcmpA(f->elfLogFont.lfFaceName, ttf_family))
+        ok(!lstrcmpA(style, "Regular"), "%s: style names don't match: returned %s, expect Regular\n", f->elfLogFont.lfFaceName, style);
+    else
+        ok(FALSE, "%s invalid FaceName, expected WineTestTypographicSubfamilyTTF or WineTypographicSubfamilyOTF\n", f->elfLogFont.lfFaceName);
+    return 1;
+}
+
+static void test_get_typographic_subfamily(void)
+{
+    char ttf_name[MAX_PATH], otf_name[MAX_PATH];
+    const char *ttf_family = "WineTestTypographicSubfamilyTTF", *otf_family = "WineTestTypographicSubfamilyOTF";
+    int num;
+    BOOL ret;
+    HDC hdc;
+    LOGFONTA lf;
+
+    if (!write_ttf_file("wine_test_typographic_subfamily.ttf", ttf_name))
+    {
+        skip("Failed to create ttf file for testing\n");
+        return;
+    }
+
+    num = AddFontResourceExA(ttf_name, FR_PRIVATE, 0);
+    ok(num == 1, "AddFontResourceExA should add 1 font from wine_test_typographic_subfamily.ttf\n");
+
+    hdc = GetDC(0);
+    memset(&lf, 0, sizeof(lf));
+    lf.lfCharSet = DEFAULT_CHARSET;
+    strcpy(lf.lfFaceName, ttf_family);
+    lf.lfPitchAndFamily = 0;
+    EnumFontFamiliesExA(hdc, &lf, test_get_typographic_subfamily_helper, 0, 0);
+
+    ReleaseDC(0, hdc);
+    ret = RemoveFontResourceExA(ttf_name, FR_PRIVATE, 0);
+    ok(ret, "RemoveFontResourceEx(%s) error %ld\n", ttf_name, GetLastError());
+    DeleteFileA(ttf_name);
+
+    if (!write_ttf_file("wine_test_typographic_subfamily.otf", otf_name))
+    {
+        skip("Failed to create otf file for testing\n");
+        return;
+    }
+
+    num = AddFontResourceExA(otf_name, FR_PRIVATE, 0);
+    ok(num == 1, "AddFontResourceExA should add 1 font from wine_test_typographic_subfamily.otf\n");
+
+    hdc = GetDC(0);
+    lf.lfCharSet = DEFAULT_CHARSET;
+    strcpy(lf.lfFaceName, otf_family);
+    lf.lfPitchAndFamily = 0;
+    EnumFontFamiliesExA(hdc, &lf, test_get_typographic_subfamily_helper, 0, 0);
+
+    ReleaseDC(0, hdc);
+    ret = RemoveFontResourceExA(otf_name, FR_PRIVATE, 0);
+    ok(ret, "RemoveFontResourceEx(%s) error %ld\n", otf_name, GetLastError());
+    DeleteFileA(otf_name);
 }
 
 static void test_GetGlyphOutline_empty_contour(void)
@@ -8098,6 +8163,7 @@ START_TEST(font)
     test_select_object();
     test_font_weight();
     test_add_font_path();
+    test_get_typographic_subfamily();
 
     /* These tests should be last test until RemoveFontResource
      * is properly implemented.

@@ -28,4 +28,6 @@ SOURCES = \
 	wine_test.sfd \
 	wine_ttfnames.sfd \
 	wine_ttfnames_bold.sfd \
-	wine_vdmx.sfd
+	wine_vdmx.sfd \
+	wine_test_typographic_subfamily.otf.sfd \
+	wine_test_typographic_subfamily.sfd

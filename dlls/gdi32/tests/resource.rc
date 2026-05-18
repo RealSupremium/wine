@@ -55,3 +55,9 @@ wine_nul.ttf RCDATA wine_nul.ttf
 
 /* @makedep: wine_heavy.ttf */
 wine_heavy.ttf RCDATA wine_heavy.ttf
+
+/* @makedep: wine_test_typographic_subfamily.ttf */
+wine_test_typographic_subfamily.ttf RCDATA wine_test_typographic_subfamily.ttf
+
+/* @makedep: wine_test_typographic_subfamily.otf */
+wine_test_typographic_subfamily.otf RCDATA wine_test_typographic_subfamily.otf
