@@ -2398,6 +2398,13 @@ float __cdecl _FSinh(float x, float y)
     return y * sinh(x);
 }
 
+/* ?_Sinh@?$_Ctr@O@std@@SAOOO@Z
+   ?_Sinh@?$_Ctraits@O@std@@SAOOO@Z */
+double __cdecl _LSinh(double x, double y)
+{
+    return y * sinh(x);
+}
+
 /* ?_XLgamma@std@@YANN@Z */
 double __cdecl std__XLgamma_double(double z)
 {

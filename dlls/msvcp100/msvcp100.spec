@@ -3876,7 +3876,7 @@
 @ extern _LNan
 @ stub _LPoly
 # extern _LRteps
-@ stub _LSinh
+@ cdecl _LSinh(double double)
 @ extern _LSnan
 # extern _LXbig
 @ extern _LZero
