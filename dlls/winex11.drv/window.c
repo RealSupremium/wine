@@ -1865,7 +1865,9 @@ void window_wm_state_notify( struct x11drv_win_data *data, unsigned long serial,
     received = wine_dbg_sprintf( "WM_STATE %#x/%lu", value, serial );
     expected = *expect_serial ? wine_dbg_sprintf( ", expected %#x/%lu", *pending, *expect_serial ) : "";
     /* ignore Metacity/Mutter transient NormalState during WithdrawnState <-> IconicState transitions */
-    if (value == NormalState && *current + *pending == IconicState) reason = "transient ";
+    if (value == NormalState && *current + *pending == IconicState) reason = "transient NormalState ";
+    /* ignore KWin transient IconicState when entering WithdrawnState */
+    if (value == IconicState && *pending == WithdrawnState) reason = "transient IconicState ";
 
     if (!handle_state_change( serial, expect_serial, sizeof(value), &value, desired, pending,
                               current, expected, prefix, received, reason ))
