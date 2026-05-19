@@ -376,6 +376,8 @@
 /* 339 - 511 not used on Windows */
 #define IDI_SHELL_WEB_BROWSER      512
 
+#define IDI_SHELL_INFO             1001
+
 /* 
 AVI resources, windows shell32 has 14 of them: 150-152 and 160-170
 FIXME: Need to add them, but for now just let them use the same: searching.avi 

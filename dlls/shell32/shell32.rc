@@ -794,6 +794,9 @@ IDI_SHELL_RESTRICTED ICON resources/restricted.ico
 /* @makedep: resources/folder.ico */
 IDI_SHELL_DEFAULT_FOLDER ICON resources/folder.ico
 
+/* @makedep: resources/info.ico */
+IDI_SHELL_INFO ICON resources/info.ico
+
 /* @makedep: resources/users.ico */
 IDI_SHELL_USERS ICON resources/users.ico
 
