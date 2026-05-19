@@ -615,11 +615,6 @@ public class WineActivity extends Activity
             if (content_view != null) return content_view;
             content_view = new WineView( WineActivity.this, win, is_client );
             addView( content_view );
-            if (!is_client)
-            {
-                content_view.setFocusable( true );
-                content_view.setFocusableInTouchMode( true );
-            }
             return content_view;
         }
 
@@ -656,8 +651,8 @@ public class WineActivity extends Activity
             setSurfaceTextureListener( this );
             setVisibility( VISIBLE );
             setOpaque( false );
-            setFocusable( true );
-            setFocusableInTouchMode( true );
+            setFocusable( !client );
+            setFocusableInTouchMode( !client );
         }
 
         public WineWindow get_window()
@@ -709,6 +704,16 @@ public class WineActivity extends Activity
 
             if ((event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0)
             {
+                /* Primary button press/release is also reported through touch down/up
+                 * on some Android devices. Sending both paths to Wine leaves it with
+                 * duplicate mouse button events, which can desynchronize button state
+                 * and break capture/activation after window moves.
+                 */
+                if ((event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS ||
+                     event.getActionMasked() == MotionEvent.ACTION_BUTTON_RELEASE) &&
+                    event.getActionButton() == MotionEvent.BUTTON_PRIMARY)
+                    return true;
+
                 int[] pos = new int[2];
                 window.get_event_pos( event, pos );
                 Log.i( LOGTAG, String.format( "view motion event win %08x action %d pos %d,%d buttons %04x view %d,%d",
@@ -801,6 +806,7 @@ public class WineActivity extends Activity
                 desktop_window = win;
                 top_view.addView( desktop_window.create_whole_view() );
                 desktop_window.client_group.bringToFront();
+                desktop_window.window_group.get_content_view().requestFocus();
             }
         }
         if (opengl) win.create_client_view();
