@@ -181,9 +181,26 @@ DECL_HANDLER(create_class)
     struct window_class *class;
     struct unicode_str name = get_req_unicode_str();
     struct atom_table *table = get_user_atom_table();
+    int local = !!(req->flags & CREATE_CLASS_LOCAL);
+    user_handle_t icon = 0, icon_small = 0;
     atom_t atom = req->atom, base_atom;
     unsigned int name_offset = 0;
     WCHAR buffer[16];
+
+    if (req->flags & CREATE_CLASS_ICON)
+    {
+        if (name.len < sizeof(icon)) return set_error( STATUS_INVALID_PARAMETER );
+        memcpy( &icon, name.str, sizeof(icon) );
+        name.str += sizeof(icon) / sizeof(WCHAR);
+        name.len -= sizeof(icon);
+    }
+    if (req->flags & CREATE_CLASS_ICONSM)
+    {
+        if (name.len < sizeof(icon_small)) return set_error( STATUS_INVALID_PARAMETER );
+        memcpy( &icon_small, name.str, sizeof(icon_small) );
+        name.str += sizeof(icon_small) / sizeof(WCHAR);
+        name.len -= sizeof(icon_small);
+    }
 
     if (atom && !name.len) name = integral_atom_name( buffer, atom );
     if (!atom && !(atom = add_atom( table, &name ))) return;
@@ -208,7 +225,7 @@ DECL_HANDLER(create_class)
     }
 
     class = find_class( current->process, atom, req->instance );
-    if (class && !class->local == !req->local)
+    if (class && !class->local == !local)
     {
         set_win32_error( ERROR_CLASS_ALREADY_EXISTS );
         release_atom( table, atom );
@@ -224,7 +241,7 @@ DECL_HANDLER(create_class)
         return;
     }
 
-    if (!(class = create_class( current->process, req->local, req->cls_extra )))
+    if (!(class = create_class( current->process, local, req->cls_extra )))
     {
         release_atom( table, atom );
         release_atom( table, base_atom );
@@ -246,6 +263,8 @@ DECL_HANDLER(create_class)
         shared->wndproc      = req->wndproc;
         shared->win_extra    = req->win_extra;
         shared->cls_extra    = req->cls_extra;
+        shared->icon         = icon;
+        shared->icon_small   = icon_small;
         memset( (void *)shared->extra, 0, req->cls_extra );
     }
     SHARED_WRITE_END;
@@ -324,6 +343,14 @@ DECL_HANDLER(set_class_info)
         case GCLP_HBRBACKGROUND:
             reply->old_info = shared->background;
             shared->background = req->new_info;
+            break;
+        case GCLP_HICON:
+            reply->old_info = shared->icon;
+            shared->icon = req->new_info;
+            break;
+        case GCLP_HICONSM:
+            reply->old_info = shared->icon_small;
+            shared->icon_small = req->new_info;
             break;
         default:
             if (req->size > sizeof(req->new_info) || req->offset < 0 ||

@@ -1047,6 +1047,8 @@ typedef volatile struct
     unsigned int         win_extra;          /* number of window extra bytes */
     user_handle_t        cursor;             /* default cursor */
     user_handle_t        background;         /* default background */
+    user_handle_t        icon;               /* default icon */
+    user_handle_t        icon_small;         /* default cursor (small) */
     mod_handle_t         instance;           /* module instance */
     data_size_t          name_offset;        /* offset in WCHAR of the unversioned class name, constant */
     data_size_t          name_len;           /* len in bytes of the class name, constant */
@@ -3269,7 +3271,7 @@ enum caret_state
 
 /* Create a window class */
 @REQ(create_class)
-    int            local;          /* is it a local class? */
+    unsigned int   flags;          /* flags, see below */
     atom_t         atom;           /* class atom */
     unsigned int   style;          /* class style */
     user_handle_t  cursor;         /* class default cursor */
@@ -3280,11 +3282,17 @@ enum caret_state
     short int      cls_extra;      /* number of extra class bytes */
     short int      win_extra;      /* number of window extra bytes */
     data_size_t    name_offset;    /* base class name offset for specified atom */
+    VARARG(icon,uints);            /* class default icon */
+    VARARG(icon_small,uints);      /* class default icon (small) */
     VARARG(name,unicode_str);      /* class name */
 @REPLY
     struct obj_locator locator;    /* locator for the shared class object */
     atom_t             atom;       /* resulting class atom */
 @END
+
+#define CREATE_CLASS_LOCAL  1
+#define CREATE_CLASS_ICON   2
+#define CREATE_CLASS_ICONSM 4
 
 
 /* Destroy a window class */
