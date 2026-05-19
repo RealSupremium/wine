@@ -2246,7 +2246,10 @@ MONTHCAL_LButtonDown(MONTHCAL_INFO *infoPtr, LPARAM lParam)
 
     st[0] = st[1] = ht.st;
     /* clear selection range */
-    MONTHCAL_SetSelRange(infoPtr, st);
+    if (infoPtr->dwStyle & MCS_MULTISELECT)
+        MONTHCAL_SetSelRange(infoPtr, st);
+    else
+        MONTHCAL_SetCurSel(infoPtr, st);
 
     infoPtr->status = MC_SEL_LBUTDOWN;
     if (MONTHCAL_SetDayFocus(infoPtr, &ht.st) && (infoPtr->dwStyle & MCS_MULTISELECT))
