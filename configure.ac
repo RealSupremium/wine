@@ -735,6 +735,7 @@ AC_CHECK_HEADERS(\
 	gettext-po.h \
 	link.h \
 	linux/cdrom.h \
+	linux/errqueue.h \
 	linux/filter.h \
 	linux/fs.h \
 	linux/hdreg.h \
