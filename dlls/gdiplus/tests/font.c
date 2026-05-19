@@ -1061,6 +1061,7 @@ static void test_font_transform(void)
     GpStringFormat *format, *typographic;
     PointF pos[1] = { { 0,0 } };
     REAL height, margin_y;
+    const REAL emSize = 120.0f;
     RectF bounds, rect;
 
     hdc = CreateCompatibleDC(0);
@@ -1077,12 +1078,12 @@ static void test_font_transform(void)
 
     memset(&lf, 0, sizeof(lf));
     lstrcpyA(lf.lfFaceName, "Tahoma");
-    lf.lfHeight = -100;
-    lf.lfWidth = 100;
+    lf.lfHeight = -emSize;
+    lf.lfWidth = emSize;
     status = GdipCreateFontFromLogfontA(hdc, &lf, &font);
     expect(Ok, status);
 
-    margin_y = 100.0 / 8.0;
+    margin_y = emSize / 8.0f;
 
     /* identity matrix */
     status = GdipCreateMatrix(&matrix);
