@@ -46,4 +46,22 @@ extern void set_gl_error( GLenum error );
 extern struct registry_entry *get_function_entry( const char *name );
 extern BOOL get_integer( GLenum name, GLint *data );
 
+enum object_type
+{
+    OBJ_TYPE_BUFFER,
+    OBJ_TYPE_COUNT,
+};
+
+static inline GLuint *memdup_objects( UINT n, const GLuint *handles, GLuint *buf, UINT max )
+{
+    GLuint *tmp = buf;
+    if (n > max && !(tmp = malloc( n * sizeof(*handles) ))) return NULL;
+    memcpy( tmp, handles, n * sizeof(*handles) );
+    return tmp;
+}
+
+extern void put_context_objects( enum object_type type, UINT n, GLuint *handles );
+extern BOOL alloc_context_objects( enum object_type type, UINT n, const GLuint *handles, BOOL extension );
+extern GLuint *del_context_objects( enum object_type type, UINT n, GLuint *handles );
+
 #endif /* __WINE_OPENGL32_PRIVATE_H */
