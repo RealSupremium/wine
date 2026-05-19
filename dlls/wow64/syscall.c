@@ -463,6 +463,278 @@ NTSTATUS WINAPI wow64_NtAllocateUuids( UINT *args )
     return NtAllocateUuids( time, delta, sequence, seed );
 }
 
+/**********************************************************************
+ *           wow64_NtAlpcAcceptConnectPort
+ */
+NTSTATUS WINAPI wow64_NtAlpcAcceptConnectPort( UINT *args )
+{
+    ULONG *communication_port_ptr = get_ptr( &args );
+    HANDLE connection_port = get_handle( &args );
+    ULONG flags = get_ulong( &args );
+    OBJECT_ATTRIBUTES32 *attr32 = get_ptr( &args );
+    ALPC_PORT_ATTRIBUTES32 *port_attr32 = get_ptr( &args );
+    void *context = get_ptr( &args );
+    ALPC_PORT_MESSAGE32 *msg32 = get_ptr( &args );
+    ALPC_MESSAGE_ATTRIBUTES32 *msg_attr32 = get_ptr( &args );
+    BOOLEAN accept = get_ulong( &args );
+    NTSTATUS status;
+
+    HANDLE communication_port = 0;
+    struct object_attr64 attr;
+    ALPC_PORT_ATTRIBUTES port_attr;
+    ALPC_PORT_MESSAGE *msg = NULL;
+    ALPC_MESSAGE_ATTRIBUTES *msg_attr = NULL;
+    SECURITY_QUALITY_OF_SERVICE qos;
+
+    if (msg32)
+    {
+        msg = RtlAllocateHeap( GetProcessHeap(), 0, sizeof(*msg) + msg32->DataLength );
+        if (!msg) return STATUS_NO_MEMORY;
+    }
+
+    if (msg_attr32)
+    {
+        msg_attr = RtlAllocateHeap( GetProcessHeap(), 0, AlpcGetHeaderSize( msg_attr32->AllocatedAttributes ) );
+        if (!msg_attr)
+        {
+            RtlFreeHeap( GetProcessHeap(), 0, msg );
+            return STATUS_NO_MEMORY;
+        }
+    }
+
+    status = NtAlpcAcceptConnectPort( communication_port_ptr ? &communication_port : NULL,
+                                      connection_port, flags, objattr_32to64( &attr, attr32 ),
+                                      alpc_port_attributes_32to64( &port_attr, port_attr32 ), context,
+                                      alpc_port_message_32to64( msg, msg32 ),
+                                      alpc_port_message_attributes_32to64( msg_attr, &qos, msg_attr32, TRUE ),
+                                      accept);
+    if (status == STATUS_SUCCESS && accept && communication_port_ptr)
+        put_handle( communication_port_ptr, communication_port );
+    RtlFreeHeap( GetProcessHeap(), 0, msg );
+    RtlFreeHeap( GetProcessHeap(), 0, msg_attr );
+    return status;
+}
+
+/**********************************************************************
+ *           wow64_NtAlpcConnectPort
+ */
+NTSTATUS WINAPI wow64_NtAlpcConnectPort( UINT *args )
+{
+    ULONG *handle_ptr = get_ptr( &args );
+    UNICODE_STRING32 *str32 = get_ptr( &args );
+    OBJECT_ATTRIBUTES32 *attr32 = get_ptr( &args );
+    ALPC_PORT_ATTRIBUTES32 *port_attr32 = get_ptr( &args );
+    ULONG flags = get_ulong( &args );
+    SID *sid = get_ptr( &args );
+    ALPC_PORT_MESSAGE32 *msg32 = get_ptr( &args );
+    ULONG *size32 = get_ptr( &args );
+    ALPC_MESSAGE_ATTRIBUTES32 *send_msg_attr32 = get_ptr( &args );
+    ALPC_MESSAGE_ATTRIBUTES32 *recv_msg_attr32 = get_ptr( &args );
+    LARGE_INTEGER *timeout = get_ptr( &args );
+    NTSTATUS status;
+
+    HANDLE handle = 0;
+    UNICODE_STRING str;
+    struct object_attr64 attr;
+    ALPC_PORT_ATTRIBUTES port_attr;
+    ALPC_PORT_MESSAGE *msg = NULL;
+    SIZE_T size = size32 ? (*size32 + sizeof(ALPC_PORT_MESSAGE) - sizeof(ALPC_PORT_MESSAGE32)) : 65535;
+    ALPC_MESSAGE_ATTRIBUTES *send_msg_attr = NULL;
+    ALPC_MESSAGE_ATTRIBUTES *recv_msg_attr = NULL;
+    SECURITY_QUALITY_OF_SERVICE send_qos;
+    SECURITY_QUALITY_OF_SERVICE recv_qos;
+
+    if (!handle_ptr) return STATUS_OBJECT_NAME_NOT_FOUND;
+
+    if (port_attr32 && (!port_attr32->MaxMessageLength
+                        || port_attr32->MaxMessageLength > (65535 - (sizeof(ALPC_PORT_MESSAGE) - sizeof(ALPC_PORT_MESSAGE32)))))
+        return STATUS_INVALID_PARAMETER;
+
+    if (msg32)
+    {
+        msg = RtlAllocateHeap( GetProcessHeap(), 0, size );
+        if (!msg) return STATUS_NO_MEMORY;
+    }
+
+    if (send_msg_attr32)
+    {
+        send_msg_attr = RtlAllocateHeap( GetProcessHeap(), 0, AlpcGetHeaderSize( send_msg_attr32->AllocatedAttributes ) );
+        if (!send_msg_attr)
+        {
+            RtlFreeHeap( GetProcessHeap(), 0, msg );
+            return STATUS_NO_MEMORY;
+        }
+    }
+
+    if (recv_msg_attr32)
+    {
+        recv_msg_attr = RtlAllocateHeap( GetProcessHeap(), 0, AlpcGetHeaderSize( recv_msg_attr32->AllocatedAttributes ) );
+        if (!recv_msg_attr)
+        {
+            RtlFreeHeap( GetProcessHeap(), 0, send_msg_attr );
+            RtlFreeHeap( GetProcessHeap(), 0, msg );
+            return STATUS_NO_MEMORY;
+        }
+    }
+
+    status = NtAlpcConnectPort( &handle, unicode_str_32to64( &str, str32 ), objattr_32to64( &attr, attr32 ),
+                                alpc_port_attributes_32to64( &port_attr, port_attr32 ), flags, sid,
+                                alpc_port_message_32to64( msg, msg32 ), &size,
+                                alpc_port_message_attributes_32to64( send_msg_attr, &send_qos, send_msg_attr32, TRUE ),
+                                alpc_port_message_attributes_32to64( recv_msg_attr, &recv_qos, recv_msg_attr32, FALSE ), timeout);
+    if (status == STATUS_SUCCESS)
+    {
+        put_handle( handle_ptr, handle );
+        alpc_port_message_64to32( msg32, msg );
+        alpc_port_message_attributes_64to32( recv_msg_attr32, recv_msg_attr );
+    }
+    else if (status == STATUS_BUFFER_TOO_SMALL)
+    {
+        put_size( size32, size - (sizeof(ALPC_PORT_MESSAGE) - sizeof(ALPC_PORT_MESSAGE32)));
+    }
+    RtlFreeHeap( GetProcessHeap(), 0, msg );
+    RtlFreeHeap( GetProcessHeap(), 0, send_msg_attr );
+    RtlFreeHeap( GetProcessHeap(), 0, recv_msg_attr );
+    return status;
+}
+
+/**********************************************************************
+ *           wow64_NtAlpcCreatePort
+ */
+NTSTATUS WINAPI wow64_NtAlpcCreatePort( UINT *args )
+{
+    ULONG *handle_ptr = get_ptr( &args );
+    OBJECT_ATTRIBUTES32 *attr32 = get_ptr( &args );
+    ALPC_PORT_ATTRIBUTES32 *port_attr32 = get_ptr( &args );
+    NTSTATUS status;
+
+    struct object_attr64 attr;
+    ALPC_PORT_ATTRIBUTES port_attr;
+    HANDLE handle = 0;
+
+    if (!handle_ptr) return STATUS_ACCESS_VIOLATION;
+
+    status = NtAlpcCreatePort( &handle, objattr_32to64( &attr, attr32 ),
+                               alpc_port_attributes_32to64( &port_attr, port_attr32 ) );
+    if (!status) put_handle( handle_ptr, handle );
+    return status;
+}
+
+/**********************************************************************
+ *           wow64_NtAlpcDisconnectPort
+ */
+NTSTATUS WINAPI wow64_NtAlpcDisconnectPort( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    ULONG flags = get_ulong( &args );
+
+    return NtAlpcDisconnectPort( handle, flags );
+}
+
+/**********************************************************************
+ *           wow64_NtAlpcImpersonateClientOfPort
+ */
+NTSTATUS WINAPI wow64_NtAlpcImpersonateClientOfPort( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    ALPC_PORT_MESSAGE32 *msg32 = get_ptr( &args );
+    void *reserved = get_ptr( &args );
+    NTSTATUS status;
+
+    ALPC_PORT_MESSAGE *msg = NULL;
+
+    if (msg32)
+    {
+        msg = RtlAllocateHeap( GetProcessHeap(), 0, sizeof(*msg) + msg32->DataLength );
+        if (!msg) return STATUS_NO_MEMORY;
+    }
+
+    status = NtAlpcImpersonateClientOfPort( handle, alpc_port_message_32to64( msg, msg32 ), reserved );
+    RtlFreeHeap( GetProcessHeap(), 0, msg );
+    return status;
+}
+
+/**********************************************************************
+ *           wow64_NtAlpcSendWaitReceivePort
+ */
+NTSTATUS WINAPI wow64_NtAlpcSendWaitReceivePort( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    ULONG flags = get_ulong( &args );
+    ALPC_PORT_MESSAGE32 *send_msg32 = get_ptr( &args );
+    ALPC_MESSAGE_ATTRIBUTES32 *send_msg_attr32 = get_ptr( &args );
+    ALPC_PORT_MESSAGE32 *recv_msg32 = get_ptr( &args );
+    ULONG *size32 = get_ptr( &args );
+    ALPC_MESSAGE_ATTRIBUTES32 *recv_msg_attr32 = get_ptr( &args );
+    LARGE_INTEGER *timeout = get_ptr( &args );
+    NTSTATUS status;
+
+    ALPC_PORT_MESSAGE *send_msg = NULL;
+    ALPC_MESSAGE_ATTRIBUTES *send_msg_attr = NULL;
+    ALPC_PORT_MESSAGE *recv_msg = NULL;
+    ALPC_MESSAGE_ATTRIBUTES *recv_msg_attr = NULL;
+    SIZE_T size = size32 ? (*size32 + sizeof(ALPC_PORT_MESSAGE) - sizeof(ALPC_PORT_MESSAGE32)) : 65535;
+    SECURITY_QUALITY_OF_SERVICE send_qos;
+    SECURITY_QUALITY_OF_SERVICE recv_qos;
+
+    if (send_msg32)
+    {
+        send_msg = RtlAllocateHeap( GetProcessHeap(), 0, sizeof(*send_msg) + send_msg32->DataLength );
+        if (!send_msg) return STATUS_NO_MEMORY;
+    }
+
+    if (send_msg_attr32)
+    {
+        send_msg_attr = RtlAllocateHeap( GetProcessHeap(), 0, AlpcGetHeaderSize( send_msg_attr32->AllocatedAttributes ) );
+        if (!send_msg_attr)
+        {
+            RtlFreeHeap( GetProcessHeap(), 0, send_msg );
+            return STATUS_NO_MEMORY;
+        }
+    }
+
+    if (recv_msg32)
+    {
+        recv_msg = RtlAllocateHeap( GetProcessHeap(), 0, size );
+        if (!recv_msg)
+        {
+            RtlFreeHeap( GetProcessHeap(), 0, send_msg_attr );
+            RtlFreeHeap( GetProcessHeap(), 0, send_msg );
+            return STATUS_NO_MEMORY;
+        }
+    }
+
+    if (recv_msg_attr32)
+    {
+        recv_msg_attr = RtlAllocateHeap( GetProcessHeap(), 0, AlpcGetHeaderSize( recv_msg_attr32->AllocatedAttributes ) );
+        if (!recv_msg_attr)
+        {
+            RtlFreeHeap( GetProcessHeap(), 0, recv_msg );
+            RtlFreeHeap( GetProcessHeap(), 0, send_msg_attr );
+            RtlFreeHeap( GetProcessHeap(), 0, send_msg );
+            return STATUS_NO_MEMORY;
+        }
+    }
+
+    status = NtAlpcSendWaitReceivePort( handle, flags, alpc_port_message_32to64( send_msg, send_msg32 ),
+                                        alpc_port_message_attributes_32to64( send_msg_attr, &send_qos, send_msg_attr32, TRUE ),
+                                        recv_msg, &size,
+                                        alpc_port_message_attributes_32to64( recv_msg_attr, &recv_qos, recv_msg_attr32, FALSE ), timeout );
+    if (status == STATUS_SUCCESS)
+    {
+        alpc_port_message_64to32( recv_msg32, recv_msg );
+        alpc_port_message_attributes_64to32( recv_msg_attr32, recv_msg_attr );
+    }
+    else if (status == STATUS_BUFFER_TOO_SMALL && size32)
+    {
+        put_size( size32, size - (sizeof(ALPC_PORT_MESSAGE) - sizeof(ALPC_PORT_MESSAGE32)) );
+    }
+    RtlFreeHeap( GetProcessHeap(), 0, recv_msg_attr );
+    RtlFreeHeap( GetProcessHeap(), 0, recv_msg );
+    RtlFreeHeap( GetProcessHeap(), 0, send_msg_attr );
+    RtlFreeHeap( GetProcessHeap(), 0, send_msg );
+    return status;
+}
 
 /***********************************************************************
  *           wow64_NtCallbackReturn
