@@ -1319,7 +1319,7 @@ BOOL WINAPI PlayEnhMetaFileRecord(
 	HRGN hRgn = 0;
 
         if (mr->nSize >= sizeof(*lpRgn) + sizeof(RGNDATAHEADER))
-            hRgn = ExtCreateRegion( &info->init_transform, 0, (const RGNDATA *)lpRgn->RgnData );
+            hRgn = ExtCreateRegion( &info->init_transform, lpRgn->cbRgnData, (const RGNDATA *)lpRgn->RgnData );
 
 	ExtSelectClipRgn(hdc, hRgn, (INT)(lpRgn->iMode));
 	/* ExtSelectClipRgn created a copy of the region */
