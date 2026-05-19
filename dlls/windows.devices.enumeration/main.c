@@ -391,7 +391,6 @@ static HRESULT WINAPI device_watcher_Start( IDeviceWatcher *iface )
         const DEVPROP_FILTER_EXPRESSION *filters = NULL;
         ULONG filters_len = 0;
         IWeakReference *weak;
-        HRESULT hr;
 
         if (query_params->expr)
         {

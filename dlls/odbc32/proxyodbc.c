@@ -2967,8 +2967,8 @@ static SQLRETURN get_desc_rec_win32_a( struct descriptor *desc, SQLSMALLINT reco
                                                      subtype, len, precision, scale, nullable );
         if (SUCCESS( ret ))
         {
-            int len = WideCharToMultiByte( CP_ACP, 0, nameW, -1, (char *)name, buflen, NULL, NULL );
-            if (retlen) *retlen = len - 1;
+            int stringlen = WideCharToMultiByte( CP_ACP, 0, nameW, -1, (char *)name, buflen, NULL, NULL );
+            if (retlen) *retlen = stringlen - 1;
         }
         free( nameW );
     }
