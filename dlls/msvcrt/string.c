@@ -3435,8 +3435,11 @@ int __cdecl _memicmp_l(const void *v1, const void *v2, size_t len, _locale_t loc
 
     while (len--)
     {
-        if ((ret = _tolower_l(*s1, locale) - _tolower_l(*s2, locale)))
-            break;
+        if (*s1 != *s2) {
+            /* only convert _tolower_l if not exact match already */
+            if ((ret = _tolower_l(*s1, locale) - _tolower_l(*s2, locale)))
+                break;
+        }
         s1++;
         s2++;
     }
