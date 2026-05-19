@@ -417,6 +417,14 @@ done
 for wine_arch in $cross_archs $extra_arch
 do
     case $wine_arch in
+      x86_64)
+        x86_64_cpu_available=1 ;;
+    esac
+done
+
+for wine_arch in $cross_archs $extra_arch
+do
+    case $wine_arch in
       i386) mingw_cpu=i686 ;;
       arm)  mingw_cpu=armv7 ;;
       *)    mingw_cpu=$wine_arch ;;
@@ -449,7 +457,17 @@ do
         [wine_try_msvc=no])
 
     CPPFLAGS=""
-    AS_VAR_SET_IF([${wine_arch}_CFLAGS],[],[AS_VAR_SET([${wine_arch}_CFLAGS],[${CROSSCFLAGS:-"-g -O2"}])])
+    case $wine_arch in
+      i386)
+        if test -n "$x86_64_cpu_available" -o -n "$with_wine64"
+        then
+            AS_VAR_SET_IF([${wine_arch}_CFLAGS],[],[AS_VAR_SET([${wine_arch}_CFLAGS],[${CROSSCFLAGS:-"-g -O2 -march=x86-64"}])])
+        else
+            AS_VAR_SET_IF([${wine_arch}_CFLAGS],[],[AS_VAR_SET([${wine_arch}_CFLAGS],[${CROSSCFLAGS:-"-g -O2 -msse"}])])
+        fi ;;
+      *)
+        AS_VAR_SET_IF([${wine_arch}_CFLAGS],[],[AS_VAR_SET([${wine_arch}_CFLAGS],[${CROSSCFLAGS:-"-g -O2"}])]) ;;
+    esac
     AS_VAR_SET_IF([${wine_arch}_LDFLAGS],[],[AS_VAR_SET([${wine_arch}_LDFLAGS],[$CROSSLDFLAGS])])
     AS_VAR_SET_IF([${wine_arch}_CXX],[],[AS_VAR_COPY([${wine_arch}_CXX],[${wine_arch}_CC])])
     AS_VAR_SET_IF([${wine_arch}_CXXFLAGS],[],[AS_VAR_COPY([${wine_arch}_CXXFLAGS],[${wine_arch}_CFLAGS])])
