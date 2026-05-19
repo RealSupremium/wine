@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <assert.h>
+#include <wchar.h>
 
 #define COBJMACROS
 
@@ -455,15 +456,18 @@ static BOOL SHELL_TryAppPathW( LPCWSTR szName, LPWSTR lpResult, WCHAR **env)
     LONG res;
     BOOL found = FALSE;
 
+    /* Registry subkey can't include backslash. */
+    LPCWSTR filenameOnly = wcsrchr(szName, L'\\');
+
     if (env) *env = NULL;
     wcscpy(buffer, L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\");
-    if (wcslen(buffer) + wcslen(szName) + 1 > ARRAY_SIZE(buffer))
+    if (wcslen(buffer) + wcslen(filenameOnly) + 1 > ARRAY_SIZE(buffer))
     {
         WARN("Name is too big.\n");
         return FALSE;
     }
 
-    wcscat(buffer, szName);
+    wcscat(buffer, filenameOnly);
     res = RegOpenKeyExW(HKEY_LOCAL_MACHINE, buffer, 0, KEY_READ, &hkApp);
     if (res)
     {
