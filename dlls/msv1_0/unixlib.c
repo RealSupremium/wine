@@ -28,13 +28,16 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <spawn.h>
 #include <sys/wait.h>
 #include "ntstatus.h"
 #include "windef.h"
 #include "winternl.h"
 #include "winbase.h"
 #include "sspi.h"
+
+#ifdef HAVE_POSIX_SPAWN
+#include <spawn.h>
+#endif
 
 #include "wine/debug.h"
 #include "unixlib.h"
@@ -161,9 +164,12 @@ static NTSTATUS ntlm_fork( void *args )
 {
     const struct fork_params *params = args;
     struct ntlm_ctx *ctx = params->ctx;
-    posix_spawn_file_actions_t file_actions;
-    int pipe_in[2], pipe_out[2], err;
+    int pipe_in[2], pipe_out[2];
     NTSTATUS status = STATUS_SUCCESS;
+#ifdef HAVE_POSIX_SPAWN
+    int err;
+    posix_spawn_file_actions_t file_actions;
+#endif
 
 #ifdef HAVE_PIPE2
     if (pipe2( pipe_in, O_CLOEXEC ) < 0)
@@ -187,6 +193,7 @@ static NTSTATUS ntlm_fork( void *args )
         fcntl( pipe_out[1], F_SETFD, FD_CLOEXEC );
     }
 
+#ifdef HAVE_POSIX_SPAWN
     posix_spawn_file_actions_init( &file_actions );
 
     posix_spawn_file_actions_adddup2( &file_actions, pipe_out[0], 0 );
@@ -207,12 +214,46 @@ static NTSTATUS ntlm_fork( void *args )
         status = STATUS_UNSUCCESSFUL;
     }
 
+    posix_spawn_file_actions_destroy( &file_actions );
+#else
+    {
+        volatile int failed = 0;
+        pid_t child = vfork();
+
+        if (!child)
+        {
+            if (dup2( pipe_out[0], 0 ) == -1 || dup2( pipe_in[1], 1 ) == -1)
+            {
+                failed = 1;
+                _exit(127);
+            }
+
+            close( pipe_out[0] );
+            close( pipe_out[1] );
+            close( pipe_in[0] );
+            close( pipe_in[1] );
+
+            execvp( params->argv[0], params->argv );
+            failed = 1;
+            _exit(127);
+        }
+
+        if (child == -1 || failed)
+        {
+            ctx->pid = -1;
+            write( pipe_in[1], "BH\n", 3 );
+            ERR_(winediag)( "Can't start ntlm_auth. "
+                            "Usually you can find it in the winbind package of your distribution.\n" );
+            status = STATUS_UNSUCCESSFUL;
+        }
+        else ctx->pid = child;
+    }
+#endif
+
     ctx->pipe_in = pipe_in[0];
     close( pipe_in[1] );
     ctx->pipe_out = pipe_out[1];
     close( pipe_out[0] );
-
-    posix_spawn_file_actions_destroy( &file_actions );
 
     return status;
 }

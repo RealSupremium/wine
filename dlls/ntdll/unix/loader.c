@@ -30,7 +30,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <signal.h>
-#include <spawn.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -39,6 +38,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#ifdef HAVE_POSIX_SPAWN
+#include <spawn.h>
+#endif
 #ifdef HAVE_PWD_H
 # include <pwd.h>
 #endif
@@ -249,10 +251,27 @@ static char *build_relative_path( const char *base, const char *from, const char
 /* build a path to a binary and exec it */
 static int build_path_and_exec( pid_t *pid, const char *dir, const char *name, char **argv )
 {
-    int ret;
+    int ret = 0;
 
     argv[0] = build_path( dir, name );
+#ifdef HAVE_POSIX_SPAWN
     ret = posix_spawn( pid, argv[0], NULL, NULL, argv, environ );
+#else
+    {
+        volatile int failed = 0;
+        pid_t child = vfork();
+
+        if (!child)
+        {
+            execv( argv[0], argv );
+            failed = 1;
+            _exit(127);
+        }
+
+        ret = child == -1 || failed ? 127 : 0;
+        if (!ret) *pid = child;
+    }
+#endif
     free( argv[0] );
     return ret;
 }
