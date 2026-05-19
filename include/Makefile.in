@@ -730,6 +730,8 @@ SOURCES = \
 	natupnp.idl \
 	nb30.h \
 	ncrypt.h \
+	ndattrib.idl \
+	ndfapi.h \
 	ndrtypes.h \
 	netcfgx.idl \
 	netcon.idl \
