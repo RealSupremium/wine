@@ -1,0 +1,77 @@
+SplineFontDB: 3.0
+FontName: WineTestCFF
+FullName: WineTestCFF
+FamilyName: WineTestCFF
+Weight: Regular
+Copyright: Copyright(c) 2026 Wine Project
+UComments: "#pragma makedep otf"
+Version: 001.000
+ItalicAngle: 0
+UnderlinePosition: -100
+UnderlineWidth: 50
+Ascent: 800
+Descent: 200
+InvalidEm: 0
+LayerCount: 2
+Layer: 0 0 "Back" 1
+Layer: 1 0 "Fore" 0
+XUID: [1021 820 1266790224 8728248]
+FSType: 0
+OS2Version: 4
+OS2_WeightWidthSlopeOnly: 0
+OS2_UseTypoMetrics: 1
+CreationTime: 1776459418
+ModificationTime: 1776488787
+PfmFamily: 17
+TTFWeight: 400
+TTFWidth: 5
+LineGap: 500
+VLineGap: 0
+OS2TypoAscent: 880
+OS2TypoAOffset: 0
+OS2TypoDescent: -120
+OS2TypoDOffset: 0
+OS2TypoLinegap: 500
+OS2WinAscent: 1000
+OS2WinAOffset: 0
+OS2WinDescent: 240
+OS2WinDOffset: 0
+HheadAscent: 880
+HheadAOffset: 0
+HheadDescent: -120
+HheadDOffset: 0
+OS2Vendor: 'PfEd'
+MarkAttachClasses: 1
+DEI: 91125
+Encoding: ISO8859-1
+UnicodeInterp: none
+NameList: AGL For New Fonts
+DisplaySize: -48
+AntiAlias: 1
+FitToEm: 0
+WinInfo: 0 28 11
+BeginPrivate: 0
+EndPrivate
+BeginChars: 256 1
+
+StartChar: zero
+Encoding: 48 48 0
+Width: 1000
+Flags: H
+LayerCount: 2
+Fore
+SplineSet
+392 624 m 0
+ 389.000022888 624 386.000022888 624 383 624 c 0
+ 267.939740009 595.893556721 193.103101666 477.990871628 209 360 c 0
+ 188.189011503 240.233056337 277.262329295 144.585963957 398 159 c 0
+ 420.568423556 158.914300294 437.595888407 160.035977779 458 174 c 0
+ 576.77492213 199.252966911 654.742061929 330.670439307 644 450 c 0
+ 659.739813253 565.231194559 547.015903323 635.657432906 449 645 c 0
+ 425.568450805 647.870332424 406.287034473 640.721319603 386 636 c 0
+ 360.384076063 632.200638278 337.488412015 620.970317136 332 603 c 0
+ 320 597 l 1025
+EndSplineSet
+EndChar
+EndChars
+EndSplineFont

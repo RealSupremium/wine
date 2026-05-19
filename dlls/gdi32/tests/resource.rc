@@ -55,3 +55,6 @@ wine_nul.ttf RCDATA wine_nul.ttf
 
 /* @makedep: wine_heavy.ttf */
 wine_heavy.ttf RCDATA wine_heavy.ttf
+
+/* @makedep: cff.otf */
+cff.otf RCDATA cff.otf

@@ -4,6 +4,7 @@ IMPORTS   = setupapi user32 gdi32 advapi32
 SOURCES = \
 	bitmap.c \
 	brush.c \
+	cff.sfd \
 	clipping.c \
 	dc.c \
 	dib.c \
