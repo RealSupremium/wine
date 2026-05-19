@@ -312,6 +312,15 @@ static inline void getpixel_64bppPARGB(BYTE *r, BYTE *g, BYTE *b, BYTE *a,
     }
 }
 
+static inline void getpixel_32bppCMYK(BYTE *c, BYTE *m, BYTE *y, BYTE *k,
+    const BYTE *row, UINT x)
+{
+    *c = row[x*4];
+    *m = row[x*4+1];
+    *y = row[x*4+2];
+    *k = row[x*4+3];
+}
+
 GpStatus WINGDIPAPI GdipBitmapGetPixel(GpBitmap* bitmap, INT x, INT y,
     ARGB *color)
 {
@@ -650,6 +659,21 @@ GpStatus convert_pixels(INT width, INT height,
             BYTE r, g, b, a; \
             getpixel_function(&r, &g, &b, &a, src_bits+src_stride*y, x); \
             setpixel_function(r, g, b, a, dst_bits+dst_stride*y, x, dst_palette); \
+        } \
+    return Ok; \
+} while (0);
+
+#define convert_cmyk_to_rgb(getpixel_function, setpixel_function) do { \
+    for (y=0; y<height; y++) \
+        for (x=0; x<width; x++) { \
+            BYTE r, g, b, a; \
+            BYTE cc, cm, cy, ck; \
+            getpixel_function(&cc, &cm, &cy, &ck, src_bits+src_stride*y, x); \
+            r = (255-cc) * (255-ck)/255; \
+            g = (255-cm) * (255-ck)/255; \
+            b = (255-cy) * (255-ck)/255; \
+            a = 255; \
+            setpixel_function(r, g, b, a, dst_bits+dst_stride*y, x); \
         } \
     return Ok; \
 } while (0);
@@ -1087,6 +1111,15 @@ GpStatus convert_pixels(INT width, INT height,
             convert_rgb_to_rgb(getpixel_64bppPARGB, setpixel_48bppRGB);
         case PixelFormat64bppARGB:
             convert_rgb_to_rgb(getpixel_64bppPARGB, setpixel_64bppARGB);
+        default:
+            break;
+        }
+        break;
+    case PixelFormat32bppCMYK:
+        switch (dst_format)
+        {
+        case PixelFormat32bppARGB:
+            convert_cmyk_to_rgb(getpixel_32bppCMYK, setpixel_32bppARGB);
         default:
             break;
         }
