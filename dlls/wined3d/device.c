@@ -5082,6 +5082,17 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
     TRACE("refresh_rate %u\n", swapchain_desc->refresh_rate);
     TRACE("auto_restore_display_mode %#x\n", swapchain_desc->auto_restore_display_mode);
 
+    /* d3d8 allows the lockable flag even though the backbuffer is not lockable. */
+    if (swapchain_desc->flags & WINED3D_SWAPCHAIN_NO_16_BIT_MULTISAMPLING)
+    {
+        if (wined3d_get_format(device->adapter, swapchain_desc->backbuffer_format, 0)->byte_count == 2)
+            return WINED3DERR_INVALIDCALL;
+    }
+    else if (swapchain_desc->multisample_type && (swapchain_desc->flags & WINED3D_SWAPCHAIN_LOCKABLE_BACKBUFFER))
+    {
+        return WINED3DERR_INVALIDCALL;
+    }
+
     if (swapchain_desc->backbuffer_bind_flags && swapchain_desc->backbuffer_bind_flags != WINED3D_BIND_RENDER_TARGET)
         FIXME("Got unexpected backbuffer bind flags %#x.\n", swapchain_desc->backbuffer_bind_flags);
 
@@ -5169,6 +5180,8 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
     if (swapchain_desc->flags != current_desc->flags)
     {
         current_desc->flags = swapchain_desc->flags;
+        if (swapchain_desc->multisample_type)
+            current_desc->flags &= ~WINED3D_SWAPCHAIN_LOCKABLE_BACKBUFFER;
 
         update_swapchain_flags(swapchain->front_buffer);
         for (i = 0; i < current_desc->backbuffer_count; ++i)

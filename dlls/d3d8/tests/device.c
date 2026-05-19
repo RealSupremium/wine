@@ -9507,25 +9507,34 @@ static void test_clip_planes_limits(void)
 static void test_swapchain_multisample_reset(void)
 {
     D3DPRESENT_PARAMETERS present_parameters;
+    IDirect3DSurface8 *surface;
     IDirect3DDevice8 *device;
+    D3DLOCKED_RECT lr;
     IDirect3D8 *d3d;
+    unsigned int i;
     ULONG refcount;
     HWND window;
     HRESULT hr;
+
+    static const struct
+    {
+        const char *name;
+        D3DFORMAT format;
+        HRESULT expected_hr;
+    }
+    formats[] =
+    {
+        {"D3DFMT_R5G6B5",   D3DFMT_R5G6B5, D3DERR_INVALIDCALL},
+        {"D3DFMT_X1R5G5B5", D3DFMT_X1R5G5B5, D3DERR_INVALIDCALL},
+        {"D3DFMT_A1R5G5B5", D3DFMT_A1R5G5B5, D3DERR_INVALIDCALL},
+        {"D3DFMT_X8R8G8B8", D3DFMT_X8R8G8B8},
+        {"D3DFMT_A8R8G8B8", D3DFMT_A8R8G8B8},
+    };
 
     window = create_window();
     ok(!!window, "Failed to create a window.\n");
     d3d = Direct3DCreate8(D3D_SDK_VERSION);
     ok(!!d3d, "Failed to create D3D object.\n");
-
-    if (IDirect3D8_CheckDeviceMultiSampleType(d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
-            D3DFMT_A8R8G8B8, TRUE, D3DMULTISAMPLE_2_SAMPLES) == D3DERR_NOTAVAILABLE)
-    {
-        skip("Multisampling not supported for D3DFMT_A8R8G8B8.\n");
-        IDirect3D8_Release(d3d);
-        DestroyWindow(window);
-        return;
-    }
 
     if (!(device = create_device(d3d, window, NULL)))
     {
@@ -9538,19 +9547,57 @@ static void test_swapchain_multisample_reset(void)
     hr = IDirect3DDevice8_Clear(device, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xffffffff, 1.0f, 0);
     ok(hr == D3D_OK, "Failed to clear, hr %#lx.\n", hr);
 
-    memset(&present_parameters, 0, sizeof(present_parameters));
-    present_parameters.BackBufferWidth = 640;
-    present_parameters.BackBufferHeight = 480;
-    present_parameters.BackBufferFormat = D3DFMT_A8R8G8B8;
-    present_parameters.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    present_parameters.hDeviceWindow = NULL;
-    present_parameters.Windowed = TRUE;
-    present_parameters.MultiSampleType = D3DMULTISAMPLE_2_SAMPLES;
-    hr = IDirect3DDevice8_Reset(device, &present_parameters);
-    ok(hr == D3D_OK, "Failed to reset device, hr %#lx.\n", hr);
+    for (i = 0; i < ARRAY_SIZE(formats); ++i)
+    {
+        winetest_push_context("Test %u, format %s", i, formats[i].name);
 
-    hr = IDirect3DDevice8_Clear(device, 0, NULL, D3DCLEAR_TARGET, 0xffffffff, 0.0f, 0);
-    ok(hr == D3D_OK, "Failed to clear, hr %#lx.\n", hr);
+        if (FAILED(hr = IDirect3D8_CheckDeviceMultiSampleType(d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+                formats[i].format, TRUE, D3DMULTISAMPLE_2_SAMPLES)))
+        {
+            ok(hr == D3DERR_NOTAVAILABLE, "Unexpected hr %#lx.\n", hr);
+            skip("Multisampling not supported.\n");
+            winetest_pop_context();
+            continue;
+        }
+
+        memset(&present_parameters, 0, sizeof(present_parameters));
+        present_parameters.BackBufferWidth = 640;
+        present_parameters.BackBufferHeight = 480;
+        present_parameters.BackBufferFormat = formats[i].format;
+        present_parameters.SwapEffect = D3DSWAPEFFECT_DISCARD;
+        present_parameters.hDeviceWindow = window;
+        present_parameters.Windowed = TRUE;
+        present_parameters.MultiSampleType = D3DMULTISAMPLE_2_SAMPLES;
+        hr = IDirect3DDevice8_Reset(device, &present_parameters);
+        ok(hr == formats[i].expected_hr, "Unexpected hr %#lx.\n", hr);
+
+        if (FAILED(hr))
+        {
+            hr = IDirect3DDevice8_TestCooperativeLevel(device);
+            ok(hr == D3DERR_DEVICENOTRESET, "TestCooperativeLevel returned hr %#lx.\n", hr);
+            winetest_pop_context();
+            continue;
+        }
+
+        hr = IDirect3DDevice8_Clear(device, 0, NULL, D3DCLEAR_TARGET, 0xffffffff, 0.0f, 0);
+        ok(hr == D3D_OK, "Failed to clear, hr %#lx.\n", hr);
+
+        /* Lockable back buffer flag is allowed. */
+        present_parameters.Flags = D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
+        hr = IDirect3DDevice8_Reset(device, &present_parameters);
+        ok(hr == D3D_OK, "Failed to reset device, hr %#lx.\n", hr);
+
+        hr = IDirect3DDevice8_GetBackBuffer(device, 0, D3DBACKBUFFER_TYPE_MONO, &surface);
+        ok(SUCCEEDED(hr), "GetBackBuffer failed, hr %#lx.\n", hr);
+
+        /* But locking is not allowed. */
+        hr = IDirect3DSurface8_LockRect(surface, &lr, NULL, 0);
+        ok(hr == D3DERR_INVALIDCALL, "Unexpected hr %#lx.\n", hr);
+
+        IDirect3DSurface8_Release(surface);
+
+        winetest_pop_context();
+    }
 
     refcount = IDirect3DDevice8_Release(device);
     ok(!refcount, "Device has %lu references left.\n", refcount);
