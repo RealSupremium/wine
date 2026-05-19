@@ -175,7 +175,7 @@ public class WineActivity extends Activity
     {
         String[] cmd = { loader,
                          "c:\\windows\\system32\\explorer.exe",
-                         "/desktop=shell,,android",
+                         "/desktop=shell,-1x-1,android",
                          cmdline };
 
         String err = wine_init( cmd );
