@@ -34,8 +34,10 @@ WINE_DEFAULT_DEBUG_CHANNEL(ole);
 
 typedef struct {
     IPropertyPageSite IPropertyPageSite_iface;
+    IPropertyPage *page;
     LCID lcid;
     LONG ref;
+    HWND hwnd;
 } PropertyPageSite;
 
 static inline PropertyPageSite *impl_from_IPropertyPageSite(IPropertyPageSite *iface)
@@ -50,16 +52,29 @@ static INT_PTR CALLBACK property_sheet_proc(HWND hwnd, UINT msg, WPARAM wparam, 
     switch(msg) {
     case WM_INITDIALOG: {
         RECT rect;
+        IPropertyPageSite *iface = (IPropertyPageSite*)((LPPROPSHEETPAGEW)lparam)->lParam;
+        PropertyPageSite *this = impl_from_IPropertyPageSite(iface);
 
-        property_page = (IPropertyPage*)((LPPROPSHEETPAGEW)lparam)->lParam;
+        property_page = this->page;
 
         GetClientRect(hwnd, &rect);
         IPropertyPage_Activate(property_page, hwnd, &rect, TRUE);
         IPropertyPage_Show(property_page, SW_SHOW);
 
+        this->hwnd = hwnd;
         SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)property_page);
         return FALSE;
     }
+    case WM_NOTIFY:
+        switch(((LPNMHDR)lparam)->code) {
+        case PSN_APPLY:
+            if (SUCCEEDED(IPropertyPage_Apply(property_page)))
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+            else
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID);
+            return TRUE;
+        }
+        return FALSE;
     case WM_DESTROY:
         IPropertyPage_Show(property_page, SW_HIDE);
         IPropertyPage_Deactivate(property_page);
@@ -109,7 +124,11 @@ static ULONG WINAPI PropertyPageSite_Release(IPropertyPageSite* iface)
 static HRESULT WINAPI PropertyPageSite_OnStatusChange(
         IPropertyPageSite *iface, DWORD dwFlags)
 {
+    PropertyPageSite *this = impl_from_IPropertyPageSite(iface);
+
     TRACE("%p, %lx.\n", iface, dwFlags);
+    if (dwFlags & PROPPAGESTATUS_DIRTY)
+        SendMessageW(GetParent(this->hwnd), PSM_CHANGED, (WPARAM)this->hwnd, 0);
     return S_OK;
 }
 
@@ -274,6 +293,7 @@ HRESULT WINAPI OleCreatePropertyFrameIndirect(LPOCPFIPARAMS lpParams)
         property_page_site->IPropertyPageSite_iface.lpVtbl = &PropertyPageSiteVtbl;
         property_page_site->ref = 1;
         property_page_site->lcid = lpParams->lcid;
+        property_page_site->page = property_page[i];
 
         res = IPropertyPage_SetPageSite(property_page[i],
                 &property_page_site->IPropertyPageSite_iface);
@@ -294,7 +314,7 @@ HRESULT WINAPI OleCreatePropertyFrameIndirect(LPOCPFIPARAMS lpParams)
         dialogs[i].template.cy = MulDiv(page_info.size.cy, 8, font_height);
 
         property_sheet_page.pResource = &dialogs[i].template;
-        property_sheet_page.lParam = (LPARAM)property_page[i];
+        property_sheet_page.lParam = (LPARAM)property_page_site;
         property_sheet_page.pszTitle = page_info.pszTitle;
 
         property_sheet.phpage[property_sheet.nPages++] =
