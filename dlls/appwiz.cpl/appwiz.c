@@ -416,6 +416,7 @@ static void InstallProgram(HWND hWnd)
     WCHAR filter_all[MAX_STRING_LEN];
     WCHAR FilterBufferW[MAX_PATH];
     WCHAR FileNameBufferW[MAX_PATH];
+    BOOL ret;
 
     LoadStringW(hInst, IDS_CPL_TITLE, titleW, ARRAY_SIZE(titleW));
     LoadStringW(hInst, IDS_FILTER_INSTALLS, filter_installs, ARRAY_SIZE(filter_installs));
@@ -445,10 +446,25 @@ static void InstallProgram(HWND hWnd)
         sei.cbSize = sizeof(sei);
         sei.lpVerb = L"open";
         sei.nShow = SW_SHOWDEFAULT;
-        sei.fMask = 0;
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS;
         sei.lpFile = ofn.lpstrFile;
 
-        ShellExecuteExW(&sei);
+        ret = ShellExecuteExW(&sei);
+
+        if (ret)
+        {
+            while (MsgWaitForMultipleObjects(1, &sei.hProcess, FALSE, INFINITE, QS_ALLINPUT) == 1 ) {
+                MSG message;
+
+                while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
+                {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+
+            }
+            CloseHandle(sei.hProcess);
+        }
     }
 }
 
@@ -825,6 +841,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             {
                 case IDC_INSTALL:
                     InstallProgram(hWnd);
+                    hImageList = ResetApplicationList(FALSE, hWnd, hImageList);
                     break;
 
                 case IDC_ADDREMOVE:
