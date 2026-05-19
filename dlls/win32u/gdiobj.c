@@ -742,6 +742,7 @@ HGDIOBJ alloc_gdi_handle( struct gdi_obj_header *obj, DWORD type, const struct g
     entry->Object  = (UINT_PTR)obj;
     entry->ExtType = type >> NTGDI_HANDLE_TYPE_SHIFT;
     entry->Type    = entry->ExtType & 0x1f;
+    entry->Owner.ProcessId = GetCurrentProcessId();
     if (++entry->Generation == 0x80) entry->Generation = 1;
     ret = entry_to_handle( entry );
     pthread_mutex_unlock( &gdi_lock );
