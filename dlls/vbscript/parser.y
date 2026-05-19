@@ -30,7 +30,6 @@ static int parser_error(unsigned*,parser_ctx_t*,const char*);
 static void handle_isexpression_script(parser_ctx_t *ctx, expression_t *expr);
 
 static void source_add_statement(parser_ctx_t*,statement_t*);
-static void source_add_class(parser_ctx_t*,class_decl_t*);
 
 static void *new_expression(parser_ctx_t*,expression_type_t,size_t);
 static expression_t *new_bool_expression(parser_ctx_t*,VARIANT_BOOL);
@@ -58,6 +57,7 @@ static statement_t *new_forto_statement(parser_ctx_t*,unsigned,const WCHAR*,expr
 static statement_t *new_foreach_statement(parser_ctx_t*,unsigned,const WCHAR*,expression_t*,statement_t*);
 static statement_t *new_if_statement(parser_ctx_t*,unsigned,expression_t*,statement_t*,elseif_decl_t*,statement_t*);
 static statement_t *new_function_statement(parser_ctx_t*,unsigned,function_decl_t*);
+static statement_t *new_class_statement(parser_ctx_t*,unsigned,class_decl_t*);
 static statement_t *new_onerror_statement(parser_ctx_t*,unsigned,BOOL);
 static statement_t *new_const_statement(parser_ctx_t*,unsigned,const_decl_t*);
 static statement_t *new_select_statement(parser_ctx_t*,unsigned,expression_t*,case_clausule_t*);
@@ -186,7 +186,6 @@ SourceElements
     | SourceElements GlobalDimDeclaration StSep
                                             { source_add_statement(ctx, $2); }
     | SourceElements StatementNl            { source_add_statement(ctx, $2); }
-    | SourceElements ClassDeclaration       { source_add_class(ctx, $2); }
 
 GlobalDimDeclaration
     : tPRIVATE tCONST ConstDeclList         { $$ = new_const_statement(ctx, @$, $3); CHECK_ERROR; }
@@ -267,6 +266,7 @@ SimpleStatement
     | tDO StSep StatementsNl_opt error      { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_LOOP); YYABORT; }
     | tDO error                             { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_WHILE_UNTIL_EOS); YYABORT; }
     | FunctionDecl                          { $$ = new_function_statement(ctx, @$, $1); CHECK_ERROR; }
+    | ClassDeclaration                      { $$ = new_class_statement(ctx, @$, $1); CHECK_ERROR; }
     | tEXIT tDO                             { $$ = new_statement(ctx, STAT_EXITDO, 0, @2); CHECK_ERROR; }
     | tEXIT tFOR                            { $$ = new_statement(ctx, STAT_EXITFOR, 0, @2); CHECK_ERROR; }
     | tEXIT tFUNCTION                       { $$ = new_statement(ctx, STAT_EXITFUNC, 0, @2); CHECK_ERROR; }
@@ -574,7 +574,7 @@ PrimaryExpression
     | tME                           { $$ = new_expression(ctx, EXPR_ME, 0); CHECK_ERROR; }
 
 ClassDeclaration
-    : tCLASS Identifier StSep ClassBody tEND tCLASS StSep       { $4->name = $2; $4->loc = @2; $$ = $4; }
+    : tCLASS Identifier StSep ClassBody tEND tCLASS             { $4->name = $2; $4->loc = @2; $$ = $4; }
     | tCLASS Identifier tEND tCLASS         { ctx->error_loc = @3; ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_STATEMENT); YYABORT; }
     | tCLASS Identifier StSep ClassBody tEND error               { ctx->hres = MAKE_VBSERROR(VBSE_EXPECTED_CLASS); YYABORT; }
 
@@ -729,12 +729,6 @@ static void source_add_statement(parser_ctx_t *ctx, statement_t *stat)
     while(ctx->stats_tail->next) {
         ctx->stats_tail=ctx->stats_tail->next;
     }
-}
-
-static void source_add_class(parser_ctx_t *ctx, class_decl_t *class_decl)
-{
-    class_decl->next = ctx->class_decls;
-    ctx->class_decls = class_decl;
 }
 
 static void handle_isexpression_script(parser_ctx_t *ctx, expression_t *expr)
@@ -1259,6 +1253,18 @@ static statement_t *new_function_statement(parser_ctx_t *ctx, unsigned loc, func
         return NULL;
 
     stat->func_decl = decl;
+    return &stat->stat;
+}
+
+static statement_t *new_class_statement(parser_ctx_t *ctx, unsigned loc, class_decl_t *decl)
+{
+    class_statement_t *stat;
+
+    stat = new_statement(ctx, STAT_CLASS, sizeof(*stat), loc);
+    if(!stat)
+        return NULL;
+
+    stat->class_decl = decl;
     return &stat->stat;
 }
 

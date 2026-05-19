@@ -46,6 +46,7 @@ typedef struct {
 
     unsigned loc;
     statement_ctx_t *stat_ctx;
+    unsigned stmt_depth;
 
     unsigned *labels;
     unsigned labels_size;
@@ -1441,6 +1442,18 @@ static HRESULT compile_function_statement(compile_ctx_t *ctx, function_statement
     return S_OK;
 }
 
+static HRESULT compile_class_statement(compile_ctx_t *ctx, class_statement_t *stat)
+{
+    if(ctx->func != &ctx->code->main_code || ctx->stmt_depth > 1) {
+        ctx->loc = stat->stat.loc;
+        return MAKE_VBSERROR(VBSE_SYNTAX_ERROR);
+    }
+
+    stat->class_decl->next = ctx->parser.class_decls;
+    ctx->parser.class_decls = stat->class_decl;
+    return S_OK;
+}
+
 static HRESULT compile_exitdo_statement(compile_ctx_t *ctx)
 {
     statement_ctx_t *iter;
@@ -1663,6 +1676,8 @@ static HRESULT compile_statement(compile_ctx_t *ctx, statement_ctx_t *stat_ctx, 
 {
     HRESULT hres;
 
+    ctx->stmt_depth++;
+
     if(stat_ctx) {
         stat_ctx->next = ctx->stat_ctx;
         ctx->stat_ctx = stat_ctx;
@@ -1712,6 +1727,9 @@ static HRESULT compile_statement(compile_ctx_t *ctx, statement_ctx_t *stat_ctx, 
         case STAT_FUNC:
             hres = compile_function_statement(ctx, (function_statement_t*)stat);
             break;
+        case STAT_CLASS:
+            hres = compile_class_statement(ctx, (class_statement_t*)stat);
+            break;
         case STAT_IF:
             hres = compile_if_statement(ctx, (if_statement_t*)stat);
             break;
@@ -1750,16 +1768,18 @@ static HRESULT compile_statement(compile_ctx_t *ctx, statement_ctx_t *stat_ctx, 
         }
 
         if(FAILED(hres))
-            return hres;
+            goto done;
         stat = stat->next;
     }
 
+    hres = S_OK;
+done:
     if(stat_ctx) {
         assert(ctx->stat_ctx == stat_ctx);
         ctx->stat_ctx = stat_ctx->next;
     }
-
-    return S_OK;
+    ctx->stmt_depth--;
+    return hres;
 }
 
 static void resolve_labels(compile_ctx_t *ctx, unsigned off)
@@ -1834,6 +1854,7 @@ static HRESULT compile_func(compile_ctx_t *ctx, statement_t *stat, function_t *f
     ctx->func = func;
     ctx->dim_decls = ctx->dim_decls_tail = NULL;
     ctx->const_decls = NULL;
+    ctx->stmt_depth = 0;
 
     hres = collect_const_decls(ctx, stat);
     if(FAILED(hres))
