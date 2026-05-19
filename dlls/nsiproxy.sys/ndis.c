@@ -31,6 +31,10 @@
 #include <unistd.h>
 #include <errno.h>
 
+#ifdef HAVE_IFADDRS_H
+#include <ifaddrs.h>
+#endif
+
 #ifdef HAVE_NET_IF_H
 #include <net/if.h>
 #endif
@@ -65,6 +69,10 @@
 
 #ifdef HAVE_LINUX_WIRELESS_H
 #include <linux/wireless.h>
+#endif
+
+#if defined(HAVE_IFADDRS_H) && defined(HAVE_NET_IF_DL_H) && defined(HAVE_NET_IF_TYPES_H)
+#define HAVE_BSD_IF_INFO 1
 #endif
 
 #include <pthread.h>
@@ -275,11 +283,43 @@ static WCHAR *strdupAtoW( const char *str )
     return ret;
 }
 
-static struct if_entry *add_entry( UINT index, char *name )
+#ifdef HAVE_BSD_IF_INFO
+static void if_get_bsd_info( const struct ifaddrs *ifaddrs, const char *name, UINT *bsd_type )
+{
+    const struct ifaddrs *entry;
+    
+    *bsd_type = 0;
+    if (!ifaddrs) return;
+
+    for (entry = ifaddrs; entry; entry = entry->ifa_next)
+    {
+        if (!entry->ifa_name || strcmp( entry->ifa_name, name )) continue;
+        if (!entry->ifa_addr || entry->ifa_addr->sa_family != AF_LINK) continue;
+        *bsd_type = ((const struct sockaddr_dl *)entry->ifa_addr)->sdl_type;
+        return;
+    }
+}
+
+static BOOL if_should_skip( UINT bsd_type )
+{
+    if (bsd_type == IFT_GIF || bsd_type == IFT_STF) return TRUE;
+
+    return FALSE;
+}
+#else
+static BOOL if_should_skip( UINT bsd_type )
+{
+    (void)bsd_type;
+    return FALSE;
+}
+#endif
+
+static struct if_entry *add_entry( UINT index, char *name, UINT bsd_type )
 {
     struct if_entry *entry;
     int name_len = strlen( name );
 
+    if (if_should_skip( bsd_type )) return NULL;
     if (name_len >= sizeof(entry->if_unix_name)) return NULL;
     entry = malloc( sizeof(*entry) );
     if (!entry) return NULL;
@@ -311,6 +351,10 @@ static unsigned int update_if_table( void )
 {
     struct if_nameindex *indices, *entry;
     unsigned int append_count = 0;
+#ifdef HAVE_BSD_IF_INFO
+    struct ifaddrs *ifaddrs = NULL;
+    if (getifaddrs( &ifaddrs ) != 0) ifaddrs = NULL;
+#endif
 
     indices = if_nameindex();
     if (!indices)
@@ -321,9 +365,18 @@ static unsigned int update_if_table( void )
 
     for (entry = indices; entry->if_index; entry++)
     {
-        if (!find_entry_from_index( entry->if_index ) && add_entry( entry->if_index, entry->if_name ))
+        UINT bsd_type;
+        bsd_type = 0;
+#ifdef HAVE_BSD_IF_INFO
+        if_get_bsd_info( ifaddrs, entry->if_name, &bsd_type );
+#endif
+        if (!find_entry_from_index( entry->if_index ) && add_entry( entry->if_index, entry->if_name, bsd_type ))
             ++append_count;
     }
+
+#ifdef HAVE_BSD_IF_INFO
+    if (ifaddrs) freeifaddrs( ifaddrs );
+#endif
 
     if_freenameindex( indices );
     return append_count;
