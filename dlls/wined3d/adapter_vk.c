@@ -2190,7 +2190,7 @@ static bool adapter_vk_init_driver_info(struct wined3d_adapter_vk *adapter_vk,
                 debugstr_a(properties->deviceName), properties->vendorID, properties->deviceID);
 
         description.vendor = properties->vendorID;
-        description.device = properties->deviceID;
+        description.device = properties->deviceID & 0xffff;
         description.description = properties->deviceName;
         description.driver = guess_display_driver(properties->vendorID);
         description.vidmem = vram_bytes;
