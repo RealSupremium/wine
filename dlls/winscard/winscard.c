@@ -17,12 +17,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
 #define WINSCARDAPI
+#include "assert.h"
+#include <stdarg.h>
+#include "winerror.h"
 #include "windef.h"
 #include "winbase.h"
+#include "winreg.h"
 #include "winscard.h"
-#include "winternl.h"
 
 #include "wine/debug.h"
 #include "wine/unixlib.h"
@@ -184,14 +186,6 @@ LONG WINAPI SCardIsValidContext( SCARDCONTEXT context )
     ret = UNIX_CALL( scard_is_valid_context, &params );
     TRACE( "returning %#lx\n", ret );
     return ret;
-}
-
-LONG WINAPI SCardListCardsA( SCARDCONTEXT context, const BYTE *atr, const GUID *interfaces, DWORD interface_count,
-                             char *cards, DWORD *cards_len )
-{
-    FIXME( "%Ix, %p, %p, %lu, %p, %p stub\n", context, atr, interfaces, interface_count, cards, cards_len );
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return SCARD_F_INTERNAL_ERROR;
 }
 
 LONG WINAPI SCardReleaseContext( SCARDCONTEXT context )
@@ -964,6 +958,523 @@ LONG WINAPI SCardFreeMemory( SCARDCONTEXT context, const void *mem )
 
     free( (void *)mem );
     return SCARD_S_SUCCESS;
+}
+
+/* subkey of the db in HKLM */
+const WCHAR* SUBKEY_SMARTCARDS_DATABASE = L"SOFTWARE\\Microsoft\\Cryptography\\Calais\\SmartCards";
+
+/* The ATR is between 2 and 33 bytes, but winscard pads it to 36 bytes (see struct SCARD_READERSTATEW) */
+#define ATR_N_BYTES 36
+
+LONG WINAPI SCardGetCardTypeProviderNameW(
+        SCARDCONTEXT context, const WCHAR *card_type, DWORD provider_id, WCHAR *out_provider, DWORD *inout_provider_len)
+{
+    struct handle *handle = (struct handle *)context;
+    HKEY key;
+    LONG ret;
+    DWORD value_len_wchars;
+    DWORD value_len_bytes = MAX_PATH * sizeof(WCHAR);
+    WCHAR value[MAX_PATH];
+    BYTE **new_output;
+
+    TRACE("%Ix, %s, %lu, %p, %p\n", context, debugstr_w(card_type), provider_id, out_provider, inout_provider_len);
+
+    if (!card_type || !inout_provider_len) return SCARD_E_INVALID_PARAMETER;
+
+    if (handle != NULL)
+    {
+        if (handle->magic != CONTEXT_MAGIC)
+        {
+            return ERROR_INVALID_HANDLE;
+        }
+        /* the handle should be used to restrict the visible cards, continue anyway */
+        FIXME("card scopes not implemented\n");
+    }
+
+    ret = RegOpenKeyExW(HKEY_LOCAL_MACHINE, SUBKEY_SMARTCARDS_DATABASE, 0, KEY_READ, &key);
+    if (ret != ERROR_SUCCESS)
+    {
+        WARN("could not open the SmartCard database: error %ld\n", ret);
+        return SCARD_E_UNKNOWN_CARD;
+    }
+
+    /* read the value that corresponds to the requested type of provider (given by provider_id) */
+    switch (provider_id)
+    {
+        case SCARD_PROVIDER_PRIMARY:
+            FIXME("SCARD_PROVIDER_PRIMARY not implemented\n");
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return SCARD_F_INTERNAL_ERROR;
+        case SCARD_PROVIDER_CSP:
+            ret = RegGetValueW(key, card_type, L"Crypto Provider", RRF_RT_REG_SZ, NULL, &value, &value_len_bytes);
+            break;
+        case SCARD_PROVIDER_KSP:
+            ret = RegGetValueW(
+                    key, card_type, L"Smart Card Key Storage Provider", RRF_RT_REG_SZ, NULL, &value, &value_len_bytes);
+            break;
+        case SCARD_PROVIDER_CARD_MODULE:
+            ret = RegGetValueW(key, card_type, L"80000001", RRF_RT_REG_SZ, NULL, &value, &value_len_bytes);
+            break;
+        default: return SCARD_E_INVALID_PARAMETER;
+    }
+    RegCloseKey(key);
+    if (ret != ERROR_SUCCESS) return ret;
+
+    /* note: the value includes a trailing zero thanks to RegGetValueW */
+    assert(value_len_bytes % sizeof(WCHAR) == 0);
+    value_len_wchars = value_len_bytes / sizeof(WCHAR);
+
+    /* store the value in out_provider (its length *in wchars* will go in inout_provider_len, including the trailing NUL char) */
+    if (out_provider == NULL)
+    {
+        /* this is fine (even if it's not clear from msdn), just return the length */
+    }
+    else if (*inout_provider_len == SCARD_AUTOALLOCATE)
+    {
+        /* write the value to a new buffer */
+        new_output = (BYTE**)out_provider;
+        *new_output = malloc(value_len_bytes);
+        if (*new_output == NULL) return ERROR_NOT_ENOUGH_MEMORY;
+        memcpy(*new_output, value, value_len_bytes);
+        TRACE("returning %s at %p, length %lu\n", debugstr_w((WCHAR*)*new_output), *new_output, value_len_wchars);
+    }
+    else if (*inout_provider_len < value_len_wchars)
+    {
+        return SCARD_E_INSUFFICIENT_BUFFER;
+    }
+    else
+    {
+        /* write the value to out_provider */
+        memcpy(out_provider, value, value_len_bytes);
+        TRACE("returning %s, length %lu\n", debugstr_w(out_provider), value_len_wchars);
+    }
+    *inout_provider_len = value_len_wchars;
+    return SCARD_S_SUCCESS;
+}
+
+LONG WINAPI SCardGetCardTypeProviderNameA(
+        SCARDCONTEXT context, const CHAR *card_type, DWORD provider_id, char *out_provider, DWORD *inout_provider_len)
+{
+    LONG ret = SCARD_S_SUCCESS;
+    WCHAR *card_typeW;
+    WCHAR *providerW;
+    DWORD provider_lenW;
+    int converted_len;
+
+    TRACE("%Ix, %s, %lu, %p, %p\n", context, debugstr_a(card_type), provider_id, out_provider, inout_provider_len);
+
+    if (!card_type || !out_provider || !inout_provider_len) return SCARD_E_INVALID_PARAMETER;
+    if (ansi_to_utf16(card_type, &card_typeW) < 0) return ERROR_NOT_ENOUGH_MEMORY;
+
+    if (*inout_provider_len == SCARD_AUTOALLOCATE)
+    {
+        char **new_output;
+        provider_lenW = SCARD_AUTOALLOCATE;
+        providerW = NULL;
+        ret = SCardGetCardTypeProviderNameW(context, card_typeW, provider_id, (LPWSTR)&providerW, &provider_lenW);
+        if (ret != ERROR_SUCCESS) goto end;
+
+        /* determine the size that we need to allocate */
+        converted_len = WideCharToMultiByte(CP_ACP, 0, providerW, provider_lenW, NULL, 0, NULL, NULL);
+        if (converted_len == 0)
+        {
+            FIXME("can't convert %s to ANSI codepage\n", debugstr_w(providerW));
+            ret = SCARD_F_INTERNAL_ERROR;
+            goto end;
+        }
+        new_output = (char**)out_provider;
+        *new_output = malloc(converted_len);
+        if (*new_output == NULL)
+        {
+            ret = ERROR_NOT_ENOUGH_MEMORY;
+            goto end;
+        }
+
+        /* convert */
+        WideCharToMultiByte(CP_ACP, 0, providerW, provider_lenW, *new_output, converted_len, NULL, NULL);
+        *inout_provider_len = converted_len;
+        SCardFreeMemory(context, providerW);
+    } else {
+        provider_lenW = *inout_provider_len;
+        providerW = calloc(provider_lenW, sizeof(WCHAR));
+
+        ret = SCardGetCardTypeProviderNameW(context, card_typeW, provider_id, providerW, &provider_lenW);
+        if (ret != ERROR_SUCCESS) {
+            free(providerW);
+            goto end;
+        }
+
+        /* determine the size after conversion and check it */
+        converted_len = WideCharToMultiByte(CP_ACP, 0, providerW, provider_lenW, NULL, 0, NULL, NULL);
+        if (converted_len == 0)
+        {
+            FIXME("can't convert %s to ANSI codepage\n", debugstr_w(providerW));
+            ret = SCARD_F_INTERNAL_ERROR;
+            goto end;
+        }
+
+        if (converted_len > *inout_provider_len)
+        {
+            ret = SCARD_E_INSUFFICIENT_BUFFER;
+            goto end;
+        }
+
+        /* convert */
+        WideCharToMultiByte(CP_ACP, 0, providerW, provider_lenW, out_provider, converted_len, NULL, NULL);
+        *inout_provider_len = converted_len;
+        free(providerW);
+    }
+
+    end:
+    free(card_typeW);
+    if (ret != SCARD_S_SUCCESS) TRACE("returning %#lx\n", ret);
+    else TRACE("returning %#lx: %s\n", ret, debugstr_an(out_provider, *inout_provider_len));
+    return ret;
+}
+
+/**
+ * Parses an ATR string and returns its length, or -1 if the ATR is invalid.
+ *
+ * See https://en.wikipedia.org/wiki/Answer_to_reset.
+ */
+static int parse_atr_length(const BYTE *atr)
+{
+    int length = 2; /* TS and T0 are always present */
+    BYTE ts = atr[0];
+    BYTE t0 = atr[1];
+    BYTE k = t0 & 0x0f; /* number of historical bytes */
+    BOOL has_tck = FALSE;
+    BYTE presence;
+
+    if (ts != 0x3b && ts != 0x3f)
+    {
+        /* invalid TS */
+        return -1;
+    }
+
+    /* read T{A,B,C,D}i */
+    presence = (t0 & 0xf0) >> 4; /* presence of T{A,B,C,D}(1) */
+    while (presence != 0)
+    {
+        BYTE td_i;
+        if (presence & 0b0001) length++; /* TAi */
+        if (presence & 0b0010) length++; /* TBi */
+        if (presence & 0b0100) length++; /* TCi */
+        if (presence & 0b1000)
+        {
+            /* TDi is present, use it to determine whether T{A,B,C,D}(i+1) are present */
+            td_i = atr[length++];
+            presence = (td_i & 0xf0) >> 4;
+            has_tck |= (td_i & 0x0f) != 0; /* TCK is present if any T is non-zero */
+        } else {
+            presence = 0;
+        }
+
+        if (length > ATR_N_BYTES) return -1;
+    }
+
+    length += k;
+    if (has_tck) length++;
+    if (length > ATR_N_BYTES) return -1;
+    return length;
+}
+
+static const char *debug_atr_n(const BYTE *atr, int n)
+{
+    static const char hex[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
+    char buffer[ATR_N_BYTES*3];
+
+    if (!atr) return "(null)";
+    if (n < 0 || n > ATR_N_BYTES || IsBadReadPtr(atr, n)) return "(invalid)";
+    for (int i = 0; i < n; i++)
+    {
+        BYTE b = atr[i];
+        buffer[i*3] = hex[(b >> 4) & 0x0f];
+        buffer[i*3 + 1] = hex[b & 0x0f];
+        buffer[i*3 + 2] = (i < n-1) ? ' ' : '\0';
+    }
+    return strdup(buffer);
+}
+
+static const char *debug_atr(const BYTE *atr)
+{
+    if (!atr) return "(null)";
+    return debug_atr_n(atr, parse_atr_length(atr));
+}
+
+static BOOL card_atr_matches(const HKEY db_key, const WCHAR *card_subkey_name, const BYTE *atr, LONG atr_len)
+{
+    HKEY card_subkey;
+    BYTE search_atr[ATR_N_BYTES] = {0};
+    BYTE card_atr[ATR_N_BYTES] = {0};
+    BYTE card_atr_mask[ATR_N_BYTES];
+    DWORD card_atr_size = ATR_N_BYTES;
+    DWORD card_atr_mask_size = ATR_N_BYTES;
+    LONG ret;
+    BOOL matches = TRUE;
+
+    /* pad the given ATR to ATR_N_BYTES */
+    for (int i = 0; i < atr_len; i++)
+    {
+        search_atr[i] = atr[i];
+    }
+
+    /* fill the default mask */
+    for (int i = 0; i < ATR_N_BYTES; i++)
+    {
+        card_atr_mask[i] = 0xff;
+    }
+
+    ret = RegOpenKeyExW(db_key, card_subkey_name, 0, KEY_READ, &card_subkey);
+    if (ret != ERROR_SUCCESS)
+    {
+        /* ignore this sub-key, others may work */
+        WARN("failed to open registry key HKLM\\%S\\%S: %#lx\n", SUBKEY_SMARTCARDS_DATABASE, card_subkey_name, ret);
+        return FALSE;
+    }
+
+    ret = RegGetValueW(card_subkey, NULL, L"ATR", RRF_RT_REG_BINARY, NULL, card_atr, &card_atr_size);
+    if (ret != ERROR_SUCCESS)
+    {
+        /* ignore this sub-key, others may work */
+        WARN("failed to read registry value HKLM\\%S\\%S\\ATR: %#lx\n",
+                SUBKEY_SMARTCARDS_DATABASE,
+                card_subkey_name,
+                ret);
+        RegCloseKey(card_subkey);
+        return FALSE;
+    }
+
+    ret = RegGetValueW(card_subkey, NULL, L"ATRMask", RRF_RT_REG_BINARY, NULL, card_atr_mask, &card_atr_mask_size);
+    switch (ret)
+    {
+        case ERROR_SUCCESS:
+            break;
+        case ERROR_FILE_NOT_FOUND:
+            /* the mask is optional in the db, use the default */
+            break;
+        default:
+            WARN("failed to read registry value HKLM\\%S\\%S\\ATRMask: %#lx\n",
+                    SUBKEY_SMARTCARDS_DATABASE,
+                    card_subkey_name,
+                    ret);
+            RegCloseKey(card_subkey);
+            return FALSE;
+    }
+    TRACE("got from db: ATR=%s, ATRMask=%s\n",
+            debug_atr_n(card_atr, card_atr_size),
+            debug_atr_n(card_atr_mask, card_atr_size));
+
+    /* use the ATR and ATR mask to check whether this card matches the caller's request */
+    for (DWORD i = 0; i < ATR_N_BYTES; i++)
+    {
+        if ((search_atr[i] & card_atr_mask[i]) != card_atr[i])
+        {
+            matches = FALSE;
+            break;
+        }
+    }
+    RegCloseKey(card_subkey);
+    TRACE("returning %d\n", matches);
+    return matches;
+}
+
+/** Look up known cards in the smart card database. */
+LONG WINAPI SCardListCardsW(SCARDCONTEXT context,
+        const BYTE *atr,
+        const GUID *interfaces,
+        DWORD interface_count,
+        WCHAR *out_cards,
+        DWORD *inout_cards_len)
+{
+    struct handle *handle = (struct handle *)context;
+    HKEY db_key;
+    LSTATUS ret;
+    BYTE **new_output;
+    DWORD res_len_wchars = 0;
+
+    DWORD i_subkey = 0;
+    WCHAR card_subkey_name[256];
+    DWORD card_subkey_name_len_wchars = 256;
+    DWORD new_len = 0;
+    int atr_len = 0;
+
+    TRACE("%Ix, %s, %p, %lu, %p, %p\n", context, debug_atr(atr), interfaces, interface_count, out_cards, inout_cards_len);
+
+    if (!inout_cards_len) return SCARD_E_INVALID_PARAMETER;
+
+    if (handle != NULL)
+    {
+        if (handle->magic != CONTEXT_MAGIC)
+        {
+            return ERROR_INVALID_HANDLE;
+        }
+        FIXME("card scopes not implemented\n");
+        /* continue anyway */
+    }
+
+    if (interfaces != NULL)
+    {
+        FIXME("card services identifiers not implemented\n");
+        /* continue anyway, it's usually better to try to return at least one card */
+    }
+
+    if (atr != NULL)
+    {
+        atr_len = parse_atr_length(atr);
+        if (atr_len < 0) return SCARD_E_INVALID_ATR;
+    }
+
+    /*
+    According to the docs, we have 3 cases for the result:
+    - out_cards == null => return (in inout_cards_len) the length of the buffer that would have been returned if it existed
+    - out_cards != null && *inout_cards_len == SCARD_AUTOALLOCATE => allocate a buffer ourselves
+    - out_cards != null && *inout_cards_len != SCARD_AUTOALLOCATE => fill the provided buffer (out_cards)
+    */
+
+    /* handle the auto-allocate flag in two passes */
+    if (out_cards != NULL && *inout_cards_len == SCARD_AUTOALLOCATE)
+    {
+        /* get the buffer size, including the NUL terminator */
+        SCardListCardsW(context, atr, interfaces, interface_count, NULL,  &res_len_wchars);
+
+        /* allocate and fill */
+        new_output = (BYTE**)out_cards;
+        *new_output = calloc(res_len_wchars, sizeof(WCHAR));
+        if (*new_output == NULL) return ERROR_NOT_ENOUGH_MEMORY;
+        *inout_cards_len = res_len_wchars;
+        return SCardListCardsW(context, atr, interfaces, interface_count, (WCHAR*)*new_output, inout_cards_len);
+    }
+
+    ret = RegOpenKeyExW(HKEY_LOCAL_MACHINE, SUBKEY_SMARTCARDS_DATABASE, 0, KEY_READ, &db_key);
+
+    if (ret == ERROR_FILE_NOT_FOUND) {
+        WARN("the smartcard db does not exist: HKLM\\%S not found\n", SUBKEY_SMARTCARDS_DATABASE);
+        /* return an empty list of cards */
+        goto end;
+    }
+    else if (ret != ERROR_SUCCESS)
+    {
+        return SCARD_F_INTERNAL_ERROR;
+    }
+
+    /* look at each subkey and try to find a matching card type */
+    while ((ret = RegEnumKeyExW(db_key, i_subkey, card_subkey_name, &card_subkey_name_len_wchars, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS)
+    {
+        TRACE("found key HKLM\\%S\\%S\n", SUBKEY_SMARTCARDS_DATABASE, card_subkey_name);
+
+        if (atr == NULL || card_atr_matches(db_key, card_subkey_name, atr, atr_len))
+        {
+            /* match found => append to the multi-string (or just increase the length if out_cards is null) */
+            card_subkey_name_len_wchars++; /* +1 for the trailing \0, which is not included in the count by RegEnumKeyExW */
+            new_len = res_len_wchars + card_subkey_name_len_wchars;
+            if (new_len < res_len_wchars)
+            {
+                /* overflow */
+                return ERROR_NOT_ENOUGH_MEMORY;
+            }
+            if (out_cards != NULL)
+            {
+                if (*inout_cards_len < new_len) return SCARD_E_INSUFFICIENT_BUFFER;
+                lstrcpynW(&out_cards[res_len_wchars], card_subkey_name, card_subkey_name_len_wchars);
+            }
+            res_len_wchars = new_len;
+        }
+
+        /* prepare for the next call of RegEnumKeyExW */
+        i_subkey++;
+        card_subkey_name_len_wchars = 256;
+    }
+
+    end:
+    /* terminate the multi-string */
+    if (out_cards != NULL)
+    {
+        if (*inout_cards_len < res_len_wchars + 1) return SCARD_E_INSUFFICIENT_BUFFER;
+        out_cards[res_len_wchars] = '\0';
+    }
+    *inout_cards_len = res_len_wchars + 1;
+    TRACE("returning %s, length %ld\n", debugstr_wn(out_cards, *inout_cards_len), *inout_cards_len);
+    return SCARD_S_SUCCESS;
+}
+
+/** Look up known cards in the smart card database. */
+LONG WINAPI SCardListCardsA(SCARDCONTEXT context,
+        const BYTE *atr,
+        const GUID *interfaces,
+        DWORD interface_count,
+        char *cards,
+        DWORD *cards_len)
+{
+    WCHAR *cardsW;
+    DWORD cards_lenW;
+    LONG ret;
+    int converted_len;
+
+    TRACE("%Ix, %s, %p, %lu, %p, %p\n", context, debug_atr(atr), interfaces, interface_count, cards, cards_len);
+
+    if (!cards_len) return SCARD_E_INVALID_PARAMETER;
+    if (!cards) return SCardListCardsW(context, atr, interfaces, interface_count, NULL, cards_len);
+
+    if (*cards_len == SCARD_AUTOALLOCATE)
+    {
+        char **new_output;
+        cards_lenW = SCARD_AUTOALLOCATE;
+        cardsW = NULL;
+        ret = SCardListCardsW(context, atr, interfaces, interface_count, (LPWSTR)&cardsW, &cards_lenW);
+        if (ret != ERROR_SUCCESS) return ret;
+
+        /* determine the size that we need to allocate */
+        converted_len = WideCharToMultiByte(CP_ACP, 0, cardsW, cards_lenW, NULL, 0, NULL, NULL);
+        if (converted_len == 0)
+        {
+            FIXME("can't convert %s to ANSI codepage\n", debugstr_w(cardsW));
+            return SCARD_F_INTERNAL_ERROR;
+        }
+        new_output = (char**)cards;
+        *new_output = malloc(converted_len);
+        if (*new_output == NULL) return ERROR_NOT_ENOUGH_MEMORY;
+
+        /* convert */
+        WideCharToMultiByte(CP_ACP, 0, cardsW, cards_lenW, *new_output, converted_len, NULL, NULL);
+        *cards_len = converted_len;
+        SCardFreeMemory(context, cardsW);
+
+        TRACE("returning %s at %p, length %lu\n", debugstr_an(*new_output, *cards_len), *new_output, *cards_len);
+    }
+    else
+    {
+        cards_lenW = *cards_len; /* includes trailing NUL */
+        cardsW = calloc(cards_lenW, sizeof(WCHAR));
+
+        ret = SCardListCardsW(context, atr, interfaces, interface_count, cardsW, &cards_lenW);
+        if (ret != ERROR_SUCCESS)
+        {
+            free(cardsW);
+            return ret;
+        }
+
+        /* determine the size after conversion and check it */
+        converted_len = WideCharToMultiByte(CP_ACP, 0, cardsW, cards_lenW, NULL, 0, NULL, NULL);
+        if (converted_len == 0)
+        {
+            FIXME("can't convert %s to ANSI codepage\n", debugstr_w(cardsW));
+            return SCARD_F_INTERNAL_ERROR;
+        }
+
+        if (converted_len > *cards_len)
+        {
+            return SCARD_E_INSUFFICIENT_BUFFER;
+        }
+
+        /* convert */
+        WideCharToMultiByte(CP_ACP, 0, cardsW, cards_lenW, cards, converted_len, NULL, NULL);
+        *cards_len = converted_len;
+        free(cardsW);
+
+        TRACE("returning %s, length %lu\n", debugstr_an(cards, *cards_len), *cards_len);
+    }
+    return ERROR_SUCCESS;
 }
 
 BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, void *reserved )

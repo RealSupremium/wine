@@ -28,11 +28,6 @@
 #define WINSCARDAPI DECLSPEC_IMPORT
 #endif
 
-/* Valid scopes for contexts */
-#define SCARD_SCOPE_USER     0
-#define SCARD_SCOPE_TERMINAL 1
-#define SCARD_SCOPE_SYSTEM   2
-
 #ifndef _LPCBYTE_DEFINED
 #define _LPCBYTE_DEFINED
 typedef const BYTE *LPCBYTE;
@@ -97,6 +92,12 @@ DECL_WINELIB_TYPE_AW(LPSCARD_READERSTATE)
 #define SCARD_RESET_CARD   1
 #define SCARD_UNPOWER_CARD 2
 #define SCARD_EJECT_CARD   3
+
+/* constants for SCard{Get,Set}CardTypeProviderName */
+#define SCARD_PROVIDER_PRIMARY 1
+#define SCARD_PROVIDER_CSP 2
+#define SCARD_PROVIDER_KSP 3
+#define SCARD_PROVIDER_CARD_MODULE 0x80000001
 
 #ifdef __cplusplus
 extern "C" {

@@ -21,8 +21,8 @@
 @ stub SCardForgetReaderW
 @ stdcall SCardFreeMemory(long ptr)
 @ stdcall SCardGetAttrib(long long ptr ptr)
-@ stub SCardGetCardTypeProviderNameA
-@ stub SCardGetCardTypeProviderNameW
+@ stdcall SCardGetCardTypeProviderNameA(long str long str ptr)
+@ stdcall SCardGetCardTypeProviderNameW(long wstr long wstr ptr)
 @ stub SCardGetProviderIdA
 @ stub SCardGetProviderIdW
 @ stdcall SCardGetStatusChangeA(long long ptr long)
@@ -35,7 +35,7 @@
 @ stub SCardIntroduceReaderW
 @ stdcall SCardIsValidContext(long)
 @ stdcall SCardListCardsA(long ptr ptr long str ptr)
-@ stub SCardListCardsW
+@ stdcall SCardListCardsW(long ptr ptr long wstr ptr)
 @ stub SCardListInterfacesA
 @ stub SCardListInterfacesW
 @ stdcall SCardListReaderGroupsA(long ptr ptr)
