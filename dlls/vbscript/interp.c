@@ -3118,9 +3118,22 @@ HRESULT exec_script(script_ctx_t *ctx, BOOL extern_caller, function_t *func, vbd
                 continue;
             }else {
                 if(!ctx->error_loc_code) {
+                    unsigned line = exec.code->start_line + 1;
+                    const WCHAR *nl;
+                    for(nl = exec.code->source; nl < exec.code->source + exec.instr->loc; nl++)
+                        if(*nl == '\n') line++;
+                    WARN("error 0x%08lx in %s, line %u\n", hres,
+                         exec.func->name ? debugstr_w(exec.func->name) : "<global>", line);
                     grab_vbscode(exec.code);
                     ctx->error_loc_code = exec.code;
                     ctx->error_loc_offset = exec.instr->loc;
+                }else {
+                    unsigned line = exec.code->start_line + 1;
+                    const WCHAR *nl;
+                    for(nl = exec.code->source; nl < exec.code->source + exec.instr->loc; nl++)
+                        if(*nl == '\n') line++;
+                    WARN("  called from %s, line %u\n",
+                         exec.func->name ? debugstr_w(exec.func->name) : "<global>", line);
                 }
                 stack_popn(&exec, exec.top);
                 break;
