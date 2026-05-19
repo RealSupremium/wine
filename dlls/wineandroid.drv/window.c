@@ -1077,6 +1077,42 @@ void ANDROID_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UI
 
 
 /***********************************************************************
+ *           ANDROID_ActivateWindow
+ */
+void ANDROID_ActivateWindow( HWND hwnd, HWND previous )
+{
+    struct android_win_data *data;
+    struct window_rects rects;
+    UINT style, flags;
+    HWND owner = 0, insert_after;
+
+    if (!hwnd) return;
+    if (!(data = get_win_data( hwnd ))) return;
+
+    rects = data->rects;
+    if (!data->parent) owner = NtUserGetWindowRelative( hwnd, GW_OWNER );
+    release_win_data( data );
+
+    style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
+    if (!(style & WS_VISIBLE) || (style & WS_CHILD)) return;
+
+    /* A dialog can become active while it is still hidden and before it becomes
+     * the foreground window. In that path win32u sends WM_NCACTIVATE(FALSE),
+     * then later calls the driver with hwnd == previous when foreground catches
+     * up, so the positive non-client activation would otherwise be skipped.
+     */
+    if (hwnd == previous)
+        NtUserMessageCall( hwnd, WM_NCACTIVATE, TRUE, (LPARAM)previous, 0, NtUserSendMessage, FALSE );
+
+    insert_after = 0;
+    flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOCLIENTMOVE | SWP_NOCLIENTSIZE | SWP_NOACTIVATE;
+
+    TRACE( "win %p previous %p owner %p after %p flags %08x\n", hwnd, previous, owner, insert_after, flags );
+    ioctl_window_pos_changed( hwnd, &rects, style, flags, insert_after, owner );
+}
+
+
+/***********************************************************************
  *           ANDROID_ShowWindow
  */
 UINT ANDROID_ShowWindow( HWND hwnd, INT cmd, RECT *rect, UINT swp )
