@@ -631,30 +631,6 @@ BOOL WINAPI ImageGetCertificateHeader(
     return TRUE;
 }
 
-/* Finds the section named section in the array of IMAGE_SECTION_HEADERs hdr.  If
- * found, returns the offset to the section.  Otherwise returns 0.  If the section
- * is found, optionally returns the size of the section (in size) and the base
- * address of the section (in base.)
- */
-static DWORD IMAGEHLP_GetSectionOffset( IMAGE_SECTION_HEADER *hdr,
-    DWORD num_sections, LPCSTR section, PDWORD size, PDWORD base )
-{
-    DWORD i, offset = 0;
-
-    for( i = 0; !offset && i < num_sections; i++, hdr++ )
-    {
-        if( !memcmp( hdr->Name, section, strlen(section) ) )
-        {
-            offset = hdr->PointerToRawData;
-            if( size )
-                *size = hdr->SizeOfRawData;
-            if( base )
-                *base = hdr->VirtualAddress;
-        }
-    }
-    return offset;
-}
-
 /* Calls DigestFunction e bytes at offset offset from the file mapped at map.
  * Returns the return value of DigestFunction, or FALSE if the data is not available.
  */
@@ -667,79 +643,6 @@ static BOOL IMAGEHLP_ReportSectionFromOffset( DWORD offset, DWORD size,
         return FALSE;
     }
     return DigestFunction( DigestHandle, map + offset, size );
-}
-
-/* Finds the section named section among the IMAGE_SECTION_HEADERs in
- * section_headers and calls DigestFunction for this section.  Returns
- * the return value from DigestFunction, or FALSE if the data could not be read.
- */
-static BOOL IMAGEHLP_ReportSection( IMAGE_SECTION_HEADER *section_headers,
-    DWORD num_sections, LPCSTR section, BYTE *map, DWORD fileSize,
-    DIGEST_FUNCTION DigestFunction, DIGEST_HANDLE DigestHandle )
-{
-    DWORD offset, size = 0;
-
-    offset = IMAGEHLP_GetSectionOffset( section_headers, num_sections, section,
-        &size, NULL );
-    if( !offset )
-        return FALSE;
-    return IMAGEHLP_ReportSectionFromOffset( offset, size, map, fileSize,
-            DigestFunction, DigestHandle );
-}
-
-/* Calls DigestFunction for all sections with the IMAGE_SCN_CNT_CODE flag set.
- * Returns the return value from * DigestFunction, or FALSE if a section could not be read.
- */
-static BOOL IMAGEHLP_ReportCodeSections( IMAGE_SECTION_HEADER *hdr, DWORD num_sections,
-    BYTE *map, DWORD fileSize, DIGEST_FUNCTION DigestFunction, DIGEST_HANDLE DigestHandle )
-{
-    DWORD i;
-    BOOL ret = TRUE;
-
-    for( i = 0; ret && i < num_sections; i++, hdr++ )
-    {
-        if( hdr->Characteristics & IMAGE_SCN_CNT_CODE )
-            ret = IMAGEHLP_ReportSectionFromOffset( hdr->PointerToRawData,
-                hdr->SizeOfRawData, map, fileSize, DigestFunction, DigestHandle );
-    }
-    return ret;
-}
-
-/* Reports the import section from the file FileHandle.  If
- * CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO is set in DigestLevel, reports the entire
- * import section.
- * FIXME: if it's not set, the function currently fails.
- */
-static BOOL IMAGEHLP_ReportImportSection( IMAGE_SECTION_HEADER *hdr,
-    DWORD num_sections, BYTE *map, DWORD fileSize, DWORD DigestLevel,
-    DIGEST_FUNCTION DigestFunction, DIGEST_HANDLE DigestHandle )
-{
-    BOOL ret = FALSE;
-    DWORD offset, size, base;
-
-    /* Get import data */
-    offset = IMAGEHLP_GetSectionOffset( hdr, num_sections, ".idata", &size,
-        &base );
-    if( !offset )
-        return FALSE;
-
-    /* If CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO is set, the entire
-     * section is reported.  Otherwise, the debug info section is
-     * decoded and reported piecemeal.  See tests.  However, I haven't been
-     * able to figure out how the native implementation decides which values
-     * to report.  Either it's buggy or my understanding is flawed.
-     */
-    if( DigestLevel & CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO )
-        ret = IMAGEHLP_ReportSectionFromOffset( offset, size, map, fileSize,
-                DigestFunction, DigestHandle );
-    else
-    {
-        FIXME("not supported except for CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO\n");
-        SetLastError(ERROR_INVALID_PARAMETER);
-        ret = FALSE;
-    }
-
-    return ret;
 }
 
 /***********************************************************************
@@ -785,15 +688,25 @@ BOOL WINAPI ImageGetDigestStream(
 {
     DWORD error = 0;
     BOOL ret = FALSE;
-    DWORD offset, size, num_sections, fileSize;
+    DWORD offset, num_sections, fileSize, hdrSize, sectSize;
     HANDLE hMap = INVALID_HANDLE_VALUE;
-    BYTE *map = NULL;
+    BYTE *map = NULL, *mod = NULL;
     IMAGE_DOS_HEADER *dos_hdr;
-    IMAGE_NT_HEADERS *nt_hdr;
-    IMAGE_SECTION_HEADER *section_headers;
+    IMAGE_NT_HEADERS32 *nthdr32, *mod_nthdr32;
+    IMAGE_NT_HEADERS64 *nthdr64;
+    DWORD NumberOfRvaAndSizes;
+    IMAGE_DATA_DIRECTORY *DataDirectory, *mod_DataDirectory;
+    IMAGE_SECTION_HEADER *section_headers, *mod_section_headers;
+    int i;
 
     TRACE("(%p, %ld, %p, %p)\n", FileHandle, DigestLevel, DigestFunction,
         DigestHandle);
+
+    if ((DigestLevel & CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO) == 0)
+    {
+        FIXME("DigestLevel must have CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO.\n");
+        goto invalid_parameter;
+    }
 
     /* Get the file size */
     if( !FileHandle )
@@ -827,45 +740,113 @@ BOOL WINAPI ImageGetDigestStream(
     /* Read the NT header */
     if( offset + sizeof(IMAGE_NT_HEADERS) > fileSize )
         goto invalid_parameter;
-    nt_hdr = (IMAGE_NT_HEADERS *)(map + offset);
-    if( nt_hdr->Signature != IMAGE_NT_SIGNATURE )
+    nthdr32 = (IMAGE_NT_HEADERS32 *)(map + offset);
+    if( nthdr32->Signature != IMAGE_NT_SIGNATURE )
         goto invalid_parameter;
-    /* It's clear why the checksum is cleared, but why only these size headers?
-     */
-    nt_hdr->OptionalHeader.SizeOfInitializedData = 0;
-    nt_hdr->OptionalHeader.SizeOfImage = 0;
-    nt_hdr->OptionalHeader.CheckSum = 0;
-    size = sizeof(nt_hdr->Signature) + sizeof(nt_hdr->FileHeader) +
-        nt_hdr->FileHeader.SizeOfOptionalHeader;
-    ret = DigestFunction( DigestHandle, map + offset, size );
+    NumberOfRvaAndSizes = nthdr32->OptionalHeader.NumberOfRvaAndSizes;
+    DataDirectory = nthdr32->OptionalHeader.DataDirectory;
+    if( nthdr32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC )
+    {
+        nthdr64 = (IMAGE_NT_HEADERS64 *)nthdr32;
+        NumberOfRvaAndSizes = nthdr64->OptionalHeader.NumberOfRvaAndSizes;
+        DataDirectory = nthdr64->OptionalHeader.DataDirectory;
+        /* NOTE: Fields up to SizeOfStackCommit are the same size/offset, except for ImageBase */
+    }
+
+    hdrSize = sizeof(nthdr32->Signature) + sizeof(nthdr32->FileHeader) +
+        nthdr32->FileHeader.SizeOfOptionalHeader;
+    num_sections = nthdr32->FileHeader.NumberOfSections;
+    sectSize = num_sections * sizeof(IMAGE_SECTION_HEADER);
+    if( offset + hdrSize + sectSize > fileSize )
+        goto invalid_parameter;
+    section_headers = (IMAGE_SECTION_HEADER *)(map + offset + hdrSize);
+
+    /* Do all modifications in this copy */
+    mod = HeapAlloc(GetProcessHeap(), 0, hdrSize + sectSize);
+    if( !mod )
+        goto invalid_parameter;
+    memcpy(mod, map + offset, hdrSize + sectSize);
+    mod_nthdr32 = (IMAGE_NT_HEADERS32 *)mod;
+    mod_DataDirectory = (IMAGE_DATA_DIRECTORY *)((BYTE *)DataDirectory - (map + offset) + mod);
+    mod_section_headers = (IMAGE_SECTION_HEADER *)(mod + hdrSize);
+
+    /* Set the IMAGE_FILE_SECURITY_DIRECTORY values to zero as Windows does not include them. */
+    if( NumberOfRvaAndSizes > IMAGE_FILE_SECURITY_DIRECTORY )
+    {
+        mod_DataDirectory[IMAGE_FILE_SECURITY_DIRECTORY].Size = 0;
+        mod_DataDirectory[IMAGE_FILE_SECURITY_DIRECTORY].VirtualAddress = 0;
+    }
+
+    /* Other zeros */
+    mod_nthdr32->OptionalHeader.CheckSum = 0;
+    if( (DigestLevel & CERT_PE_IMAGE_DIGEST_RESOURCES) == 0 )
+    {
+        mod_nthdr32->OptionalHeader.SizeOfInitializedData = 0;
+        mod_nthdr32->OptionalHeader.SizeOfImage = 0;
+        if( NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_RESOURCE )
+        {
+            mod_DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress = 0;
+            mod_DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size = 0;
+        }
+        if( NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_BASERELOC )
+        {
+            mod_DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress = 0;
+        }
+    }
+
+    ret = DigestFunction( DigestHandle, mod, hdrSize );
     if( !ret )
         goto end;
 
-    /* Read the section headers */
-    offset += size;
-    num_sections = nt_hdr->FileHeader.NumberOfSections;
-    size = num_sections * sizeof(IMAGE_SECTION_HEADER);
-    if( offset + size > fileSize )
-        goto invalid_parameter;
-    ret = DigestFunction( DigestHandle, map + offset, size );
+    if( (DigestLevel & CERT_PE_IMAGE_DIGEST_RESOURCES) == 0 )
+    {
+        /* Zero out some sections */
+        for( i = 0; i < num_sections; i++ )
+        {
+            IMAGE_SECTION_HEADER *hdr = &mod_section_headers[i];
+            if( NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_RESOURCE &&
+                hdr->VirtualAddress == DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress )
+            {
+                hdr->Misc.VirtualSize = 0;
+                hdr->VirtualAddress = 0;
+                hdr->SizeOfRawData = 0;
+                hdr->PointerToRawData = 0;
+            }
+            if( NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_BASERELOC &&
+                hdr->VirtualAddress == DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress )
+            {
+                hdr->VirtualAddress = 0;
+                hdr->PointerToRawData = 0;
+            }
+        }
+    }
+
+    ret = DigestFunction( DigestHandle, (PBYTE)mod_section_headers, sectSize );
     if( !ret )
         goto end;
 
-    section_headers = (IMAGE_SECTION_HEADER *)(map + offset);
-    IMAGEHLP_ReportCodeSections( section_headers, num_sections,
-        map, fileSize, DigestFunction, DigestHandle );
-    IMAGEHLP_ReportSection( section_headers, num_sections, ".data",
-        map, fileSize, DigestFunction, DigestHandle );
-    IMAGEHLP_ReportSection( section_headers, num_sections, ".rdata",
-        map, fileSize, DigestFunction, DigestHandle );
-    IMAGEHLP_ReportImportSection( section_headers, num_sections,
-        map, fileSize, DigestLevel, DigestFunction, DigestHandle );
-    if( DigestLevel & CERT_PE_IMAGE_DIGEST_DEBUG_INFO )
-        IMAGEHLP_ReportSection( section_headers, num_sections, ".debug",
-            map, fileSize, DigestFunction, DigestHandle );
-    if( DigestLevel & CERT_PE_IMAGE_DIGEST_RESOURCES )
-        IMAGEHLP_ReportSection( section_headers, num_sections, ".rsrc",
-            map, fileSize, DigestFunction, DigestHandle );
+    for( i = 0; i < num_sections; i++ )
+    {
+        IMAGE_SECTION_HEADER *hdr = &section_headers[i];
+        if( (DigestLevel & CERT_PE_IMAGE_DIGEST_RESOURCES) == 0 &&
+             NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_RESOURCE &&  
+             hdr->VirtualAddress == DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].VirtualAddress )
+        {
+            if( DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size < hdr->SizeOfRawData )
+            {
+                ret = IMAGEHLP_ReportSectionFromOffset( hdr->PointerToRawData + DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size,
+                    hdr->SizeOfRawData - DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size, map, fileSize, DigestFunction, DigestHandle );
+                if( !ret )
+                    goto end;
+            }
+            continue;
+        }
+        if (hdr->SizeOfRawData == 0)
+            continue;
+        ret = IMAGEHLP_ReportSectionFromOffset( hdr->PointerToRawData, hdr->SizeOfRawData, map, fileSize, DigestFunction, DigestHandle );
+        if( !ret )
+            goto end;
+    }
 
 end:
     if( map )
@@ -874,9 +855,11 @@ end:
         CloseHandle( hMap );
     if( error )
         SetLastError(error);
+    HeapFree(GetProcessHeap(), 0, mod);
     return ret;
 
 invalid_parameter:
+    ret = FALSE;
     error = ERROR_INVALID_PARAMETER;
     goto end;
 }

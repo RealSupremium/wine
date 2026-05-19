@@ -223,6 +223,245 @@ bin64 =
     /* final alignment */
     {0}
 };
+
+#define FILE_TEXT_2 0x300
+#define NUM_SECTIONS_2 5
+#define FILE_RSRC 0x600
+#define RVA_RSRC 0x4000
+#define FILE_RELOC 0x800
+#define RVA_RELOC 0x5000
+#define FILE_TOTAL_2 0xA00
+#define RVA_TOTAL_2 0x6000
+
+static struct image_with_rsrc_and_reloc
+{
+    IMAGE_DOS_HEADER dos_header;
+    char __alignment1[FILE_PE_START - sizeof(IMAGE_DOS_HEADER)];
+    IMAGE_NT_HEADERS32 nt_headers;
+    IMAGE_SECTION_HEADER sections[NUM_SECTIONS_2];
+    char __alignment2[FILE_TEXT_2 - FILE_PE_START - sizeof(IMAGE_NT_HEADERS32) -
+        NUM_SECTIONS_2 * sizeof(IMAGE_SECTION_HEADER)];
+    unsigned char text_section[FILE_IDATA-FILE_TEXT_2];
+    struct imports idata_section;
+    char __alignment3[FILE_RSRC - FILE_IDATA - sizeof(struct imports)];
+    unsigned char rsrc_section[FILE_RELOC-FILE_RSRC];
+    unsigned char reloc_section[FILE_TOTAL_2-FILE_RELOC];
+}
+bin_with_rsrc_and_reloc =
+{
+    /* dos header */
+    {IMAGE_DOS_SIGNATURE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0}, 0, 0, {0}, FILE_PE_START},
+    /* alignment before PE header */
+    {0},
+    /* nt headers */
+    {IMAGE_NT_SIGNATURE,
+        /* basic headers - 5 sections, no symbols, EXE file */
+        {IMAGE_FILE_MACHINE_I386, NUM_SECTIONS_2, 0, 0, 0, sizeof(IMAGE_OPTIONAL_HEADER32),
+            IMAGE_FILE_32BIT_MACHINE | IMAGE_FILE_EXECUTABLE_IMAGE},
+        /* optional header */
+        {IMAGE_NT_OPTIONAL_HDR32_MAGIC, 4, 0, FILE_IDATA-FILE_TEXT_2,
+            FILE_RELOC-FILE_IDATA + FILE_IDATA-FILE_TEXT_2, 0x400,
+            RVA_TEXT, RVA_TEXT, RVA_BSS, VA_START, 0x1000, 0x200, 4, 0, 1, 0, 4, 0, 0,
+            RVA_TOTAL_2, FILE_TEXT_2, 0, IMAGE_SUBSYSTEM_WINDOWS_GUI, 0,
+            0x200000, 0x1000, 0x100000, 0x1000, 0, 0x10,
+            {{0, 0},
+             {RVA_IDATA, sizeof(struct imports)},
+             {RVA_RSRC, 0x100},
+             {0, 0},
+             {0, 0},
+             {RVA_RELOC, 0x120},
+             {0, 0}
+            }
+        }
+    },
+    /* sections */
+    {
+        {".text", {0x100}, RVA_TEXT, FILE_IDATA-FILE_TEXT_2, FILE_TEXT_2,
+            0, 0, 0, 0, IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ},
+        {".bss", {0x400}, RVA_BSS, 0, 0, 0, 0, 0, 0,
+            IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE},
+        {".idata", {sizeof(struct imports)}, RVA_IDATA, FILE_RSRC-FILE_IDATA, FILE_IDATA, 0,
+            0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE},
+        {".rsrc", {0x100}, RVA_RSRC, FILE_RELOC-FILE_RSRC, FILE_RSRC, 0,
+            0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ},
+        {".reloc", {0x200}, RVA_RELOC, FILE_TOTAL_2-FILE_RELOC, FILE_RELOC, 0,
+            0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_MEM_READ},
+    },
+    /* alignment before first section */
+    {0},
+    /* .text section */
+    {
+        0x31, 0xC0, /* xor eax, eax */
+        0xFF, 0x25, EXIT_PROCESS&0xFF, (EXIT_PROCESS>>8)&0xFF, (EXIT_PROCESS>>16)&0xFF,
+            (EXIT_PROCESS>>24)&0xFF, /* jmp ExitProcess */
+        0
+    },
+    /* .idata section */
+    {
+        {
+            {{RVA_IDATA + FIELD_OFFSET(struct imports, original_thunks)}, 0, 0,
+            RVA_IDATA + FIELD_OFFSET(struct imports, dllname),
+            RVA_IDATA + FIELD_OFFSET(struct imports, thunks)
+            },
+            {{0}, 0, 0, 0, 0}
+        },
+        {{{RVA_IDATA+FIELD_OFFSET(struct imports, ibn)}}, {{0}}},
+        {{{RVA_IDATA+FIELD_OFFSET(struct imports, ibn)}}, {{0}}},
+        {0,"ExitProcess"},
+        "KERNEL32.DLL"
+    },
+    /* .rsrc section */
+    {
+        0
+    },
+    /* .reloc section */
+    {
+        0
+    }
+};
+
+IMAGE_NT_HEADERS32 bin_with_rsrc_and_reloc_nt_headers_zeroed =
+{
+    IMAGE_NT_SIGNATURE,
+    /* basic headers - 5 sections, no symbols, EXE file */
+    {IMAGE_FILE_MACHINE_I386, NUM_SECTIONS_2, 0, 0, 0, sizeof(IMAGE_OPTIONAL_HEADER32),
+        IMAGE_FILE_32BIT_MACHINE | IMAGE_FILE_EXECUTABLE_IMAGE},
+    /* optional header */
+    {IMAGE_NT_OPTIONAL_HDR32_MAGIC, 4, 0, FILE_IDATA-FILE_TEXT_2,
+        0, 0x400,
+        RVA_TEXT, RVA_TEXT, RVA_BSS, VA_START, 0x1000, 0x200, 4, 0, 1, 0, 4, 0, 0,
+        0, FILE_TEXT_2, 0, IMAGE_SUBSYSTEM_WINDOWS_GUI, 0,
+        0x200000, 0x1000, 0x100000, 0x1000, 0, 0x10,
+        {{0, 0},
+            {RVA_IDATA, sizeof(struct imports)},
+            {0, 0}, /* was RVA_RSRC, 0x100 */
+            {0, 0},
+            {0, 0},
+            {0, 0x120},
+            {0, 0}
+        }
+    }
+};
+
+IMAGE_SECTION_HEADER bin_with_rsrc_and_reloc_sections_zeroed[NUM_SECTIONS_2] =
+{
+    {".text", {0x100}, RVA_TEXT, FILE_IDATA-FILE_TEXT_2, FILE_TEXT_2,
+        0, 0, 0, 0, IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ},
+    {".bss", {0x400}, RVA_BSS, 0, 0, 0, 0, 0, 0,
+        IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE},
+    {".idata", {sizeof(struct imports)}, RVA_IDATA, FILE_RSRC-FILE_IDATA, FILE_IDATA, 0,
+        0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE},
+    {".rsrc", {0}, 0, 0, 0, 0,
+        0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ},
+    {".reloc", {0x200}, 0, FILE_TOTAL_2-FILE_RELOC, 0, 0,
+        0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_MEM_READ}
+};
+
+static struct image64_with_rsrc_and_reloc
+{
+    IMAGE_DOS_HEADER dos_header;
+    char __alignment1[FILE_PE_START - sizeof(IMAGE_DOS_HEADER)];
+    IMAGE_NT_HEADERS64 nt_headers;
+    IMAGE_SECTION_HEADER sections[NUM_SECTIONS_2];
+    char __alignment2[FILE_TEXT_2 - FILE_PE_START - sizeof(IMAGE_NT_HEADERS64) -
+        NUM_SECTIONS_2 * sizeof(IMAGE_SECTION_HEADER)];
+    unsigned char text_section[FILE_IDATA-FILE_TEXT_2];
+    struct imports64 idata_section;
+    char __alignment3[FILE_RSRC - FILE_IDATA - sizeof(struct imports)];
+    unsigned char rsrc_section[FILE_RELOC-FILE_RSRC];
+    unsigned char reloc_section[FILE_TOTAL_2-FILE_RELOC];
+}
+bin64_with_rsrc_and_reloc =
+{
+    /* dos header */
+    {IMAGE_DOS_SIGNATURE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0}, 0, 0, {0}, FILE_PE_START},
+    /* alignment before PE header */
+    {0},
+    /* nt headers */
+    {IMAGE_NT_SIGNATURE,
+        /* basic headers - 5 sections, no symbols, EXE file */
+        {IMAGE_FILE_MACHINE_AMD64, NUM_SECTIONS_2, 0, 0, 0, sizeof(IMAGE_OPTIONAL_HEADER64),
+            IMAGE_FILE_EXECUTABLE_IMAGE},
+        /* optional header */
+        {IMAGE_NT_OPTIONAL_HDR64_MAGIC, 6, 0, FILE_IDATA-FILE_TEXT_2,
+            FILE_RELOC-FILE_IDATA + FILE_IDATA-FILE_TEXT_2, 0x400,
+            RVA_TEXT, RVA_TEXT, VA_START, 0x1000, 0x200, 4, 0, 1, 0, 5, 2, 0,
+            RVA_TOTAL_2, FILE_TEXT_2, 0, IMAGE_SUBSYSTEM_WINDOWS_GUI, 0,
+            0x200000, 0x1000, 0x100000, 0x1000, 0, 0x10,
+            {{0, 0},
+             {RVA_IDATA, sizeof(struct imports64)},
+             {RVA_RSRC, 0x100},
+             {0, 0},
+             {0, 0},
+             {RVA_RELOC, 0x120}
+            }
+        }
+    },
+    /* sections */
+    {
+        {".text", {0x100}, RVA_TEXT, FILE_IDATA-FILE_TEXT_2, FILE_TEXT_2,
+            0, 0, 0, 0, IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ},
+        {".bss", {0x400}, RVA_BSS, 0, 0, 0, 0, 0, 0,
+            IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE},
+        {".idata", {sizeof(struct imports)}, RVA_IDATA, FILE_RSRC-FILE_IDATA, FILE_IDATA, 0,
+            0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE},
+        {".rsrc", {0x100}, RVA_RSRC, FILE_RELOC-FILE_RSRC, FILE_RSRC, 0,
+            0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ},
+        {".reloc", {0x200}, RVA_RELOC, FILE_TOTAL_2-FILE_RELOC, FILE_RELOC, 0,
+            0, 0, 0, IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_DISCARDABLE | IMAGE_SCN_MEM_READ},
+    },
+    /* alignment before first section */
+    {0},
+    /* .text section */
+    {
+        0x31, 0xC0, /* xor eax, eax */
+        0xFF, 0x25, EXIT_PROCESS&0xFF, (EXIT_PROCESS>>8)&0xFF, (EXIT_PROCESS>>16)&0xFF,
+            (EXIT_PROCESS>>24)&0xFF, /* jmp ExitProcess */
+        0
+    },
+    /* .idata section */
+    {
+        { {{RVA_IDATA + FIELD_OFFSET(struct imports64, original_thunks)}, 0, 0,
+            RVA_IDATA + FIELD_OFFSET(struct imports64, dllname),
+            RVA_IDATA + FIELD_OFFSET(struct imports64, thunks)},
+          {{0}, 0, 0, 0, 0} },
+        { {{RVA_IDATA + FIELD_OFFSET(struct imports64, ibn)}}, {{0}} },
+        { {{RVA_IDATA + FIELD_OFFSET(struct imports64, ibn)}}, {{0}} },
+        { 0, "ExitProcess" },
+        "KERNEL32.DLL"
+    },
+    /* .rsrc section */
+    {
+        0
+    },
+    /* .reloc section */
+    {
+        0
+    }
+};
+
+IMAGE_NT_HEADERS64 bin64_with_rsrc_and_reloc_nt_headers_zeroed =
+{
+    IMAGE_NT_SIGNATURE,
+    /* basic headers - 5 sections, no symbols, EXE file */
+    {IMAGE_FILE_MACHINE_AMD64, NUM_SECTIONS_2, 0, 0, 0, sizeof(IMAGE_OPTIONAL_HEADER64),
+        IMAGE_FILE_EXECUTABLE_IMAGE},
+    /* optional header */
+    {IMAGE_NT_OPTIONAL_HDR64_MAGIC, 6, 0, FILE_IDATA-FILE_TEXT_2,
+        0, 0x400,
+        RVA_TEXT, RVA_TEXT, VA_START, 0x1000, 0x200, 4, 0, 1, 0, 5, 2, 0,
+        0, FILE_TEXT_2, 0, IMAGE_SUBSYSTEM_WINDOWS_GUI, 0,
+        0x200000, 0x1000, 0x100000, 0x1000, 0, 0x10,
+        {{0, 0},
+            {RVA_IDATA, sizeof(struct imports64)},
+            {0, 0}, /* was RVA_RSRC, 0x100 */
+            {0, 0},
+            {0, 0},
+            {0, 0x120},
+            {0, 0}
+        }
+    }
+};
 #pragma pack(pop)
 
 struct blob
@@ -358,6 +597,54 @@ static const struct expected_blob b4[] = {
 };
 static const struct expected_update_accum a4 = { ARRAY_SIZE(b4), b4, FALSE };
 
+static const struct expected_blob b5[] = {
+    {FILE_PE_START,  &bin_with_rsrc_and_reloc},
+    /* with zeroed Checksum/SizeOfInitializedData/SizeOfImage fields */
+    {sizeof(bin_with_rsrc_and_reloc.nt_headers), &bin_with_rsrc_and_reloc_nt_headers_zeroed},
+    {sizeof(bin_with_rsrc_and_reloc.sections),  &bin_with_rsrc_and_reloc_sections_zeroed},
+    {FILE_IDATA-FILE_TEXT_2, &bin_with_rsrc_and_reloc.text_section},
+    {FILE_RSRC-FILE_IDATA, &bin_with_rsrc_and_reloc.idata_section},
+    {FILE_RELOC-FILE_RSRC-0x100, &bin_with_rsrc_and_reloc.rsrc_section + 0x100},
+    {FILE_TOTAL_2-FILE_RELOC, &bin_with_rsrc_and_reloc.reloc_section}
+};
+static struct expected_update_accum a5 = { ARRAY_SIZE(b5), b5, FALSE };
+
+static const struct expected_blob b6[] = {
+    {FILE_PE_START,  &bin_with_rsrc_and_reloc},
+    /* with zeroed Checksum but not SizeOfInitializedData/SizeOfImage fields */
+    {sizeof(bin_with_rsrc_and_reloc.nt_headers), &bin_with_rsrc_and_reloc.nt_headers},
+    {sizeof(bin_with_rsrc_and_reloc.sections),  &bin_with_rsrc_and_reloc.sections},
+    {FILE_IDATA-FILE_TEXT_2, &bin_with_rsrc_and_reloc.text_section},
+    {FILE_RSRC-FILE_IDATA, &bin_with_rsrc_and_reloc.idata_section},
+    {FILE_RELOC-FILE_RSRC, &bin_with_rsrc_and_reloc.rsrc_section},
+    {FILE_TOTAL_2-FILE_RELOC, &bin_with_rsrc_and_reloc.reloc_section}
+};
+static struct expected_update_accum a6 = { ARRAY_SIZE(b6), b6, FALSE };
+
+static const struct expected_blob b7[] = {
+    {FILE_PE_START,  &bin64_with_rsrc_and_reloc},
+    /* with zeroed Checksum/SizeOfInitializedData/SizeOfImage fields */
+    {sizeof(bin64_with_rsrc_and_reloc.nt_headers), &bin64_with_rsrc_and_reloc_nt_headers_zeroed},
+    {sizeof(bin64_with_rsrc_and_reloc.sections),  &bin_with_rsrc_and_reloc_sections_zeroed},
+    {FILE_IDATA-FILE_TEXT_2, &bin64_with_rsrc_and_reloc.text_section},
+    {FILE_RSRC-FILE_IDATA, &bin64_with_rsrc_and_reloc.idata_section},
+    {FILE_RELOC-FILE_RSRC-0x100, &bin64_with_rsrc_and_reloc.rsrc_section + 0x100},
+    {FILE_TOTAL_2-FILE_RELOC, &bin64_with_rsrc_and_reloc.reloc_section},
+};
+static struct expected_update_accum a7 = { ARRAY_SIZE(b7), b7, FALSE };
+
+static const struct expected_blob b8[] = {
+    {FILE_PE_START,  &bin64_with_rsrc_and_reloc},
+    /* with zeroed Checksum but not SizeOfInitializedData/SizeOfImage fields */
+    {sizeof(bin64_with_rsrc_and_reloc.nt_headers), &bin64_with_rsrc_and_reloc.nt_headers},
+    {sizeof(bin64_with_rsrc_and_reloc.sections),  &bin64_with_rsrc_and_reloc.sections},
+    {FILE_IDATA-FILE_TEXT_2, &bin64_with_rsrc_and_reloc.text_section},
+    {FILE_RSRC-FILE_IDATA, &bin64_with_rsrc_and_reloc.idata_section},
+    {FILE_RELOC-FILE_RSRC, &bin64_with_rsrc_and_reloc.rsrc_section},
+    {FILE_TOTAL_2-FILE_RELOC, &bin64_with_rsrc_and_reloc.reloc_section}
+};
+static struct expected_update_accum a8 = { ARRAY_SIZE(b8), b8, FALSE };
+
 /* Creates a test file and returns a handle to it.  The file's path is returned
  * in temp_file, which must be at least MAX_PATH characters in length.
  */
@@ -438,7 +725,7 @@ static void test_get_digest_stream(void)
     bin.nt_headers.OptionalHeader.SizeOfImage = 0;
 
     ret = ImageGetDigestStream(file, 0, accumulating_stream_output, &accum);
-    ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
+    todo_wine ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
     check_updates("flags = 0", &a1, &accum);
     free_updates(&accum);
     ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO,
@@ -449,6 +736,7 @@ static void test_get_digest_stream(void)
     CloseHandle(file);
     DeleteFileA(temp_file);
 
+    /* 64 bit */
     file = create_temp_file(temp_file);
     if (file == INVALID_HANDLE_VALUE)
     {
@@ -468,13 +756,71 @@ static void test_get_digest_stream(void)
     bin64.nt_headers.OptionalHeader.SizeOfImage = 0;
 
     ret = ImageGetDigestStream(file, 0, accumulating_stream_output, &accum);
-    ok(ret, "ImageGetDigestStream failed: %lu\n", GetLastError());
-    check_updates("flags = 0", &a3, &accum);
+    todo_wine ok(ret, "ImageGetDigestStream failed: %lu\n", GetLastError());
+    check_updates("64 flags = 0", &a3, &accum);
     free_updates(&accum);
     ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO,
                                accumulating_stream_output, &accum);
     ok(ret, "ImageGetDigestStream failed: %lu\n", GetLastError());
-    check_updates("flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO", &a4, &accum);
+    check_updates("64 flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO", &a4, &accum);
+    free_updates(&accum);
+    CloseHandle(file);
+    DeleteFileA(temp_file);
+
+    /* with rsrc and reloc */
+    file = create_temp_file(temp_file);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        skip("couldn't create temp file\n");
+        return;
+    }
+    bin_with_rsrc_and_reloc.nt_headers.OptionalHeader.CheckSum = 0;
+    checksum = compute_checksum((const WORD *)&bin_with_rsrc_and_reloc, sizeof(bin_with_rsrc_and_reloc));
+    bin_with_rsrc_and_reloc.nt_headers.OptionalHeader.CheckSum = checksum;
+    WriteFile(file, &bin_with_rsrc_and_reloc, sizeof(bin_with_rsrc_and_reloc), &count, NULL);
+    FlushFileBuffers(file);
+
+    ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO,
+        accumulating_stream_output, &accum);
+    ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
+    check_updates("wrsrc flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO", &a5, &accum);
+    free_updates(&accum);
+
+    bin_with_rsrc_and_reloc.nt_headers.OptionalHeader.CheckSum = 0;
+
+    ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO|CERT_PE_IMAGE_DIGEST_RESOURCES,
+        accumulating_stream_output, &accum);
+    ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
+    check_updates("wrsrc flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO|CERT_PE_IMAGE_DIGEST_RESOURCES", &a6, &accum);
+    free_updates(&accum);
+    CloseHandle(file);
+    DeleteFileA(temp_file);
+
+    /* 64 bit with rsrc and reloc */
+    file = create_temp_file(temp_file);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        skip("couldn't create temp file\n");
+        return;
+    }
+    bin64_with_rsrc_and_reloc.nt_headers.OptionalHeader.CheckSum = 0;
+    checksum = compute_checksum((const WORD *)&bin64_with_rsrc_and_reloc, sizeof(bin64_with_rsrc_and_reloc));
+    bin64_with_rsrc_and_reloc.nt_headers.OptionalHeader.CheckSum = checksum;
+    WriteFile(file, &bin64_with_rsrc_and_reloc, sizeof(bin64_with_rsrc_and_reloc), &count, NULL);
+    FlushFileBuffers(file);
+
+    ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO,
+        accumulating_stream_output, &accum);
+    ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
+    check_updates("64 wrsrc flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO", &a7, &accum);
+    free_updates(&accum);
+
+    bin64_with_rsrc_and_reloc.nt_headers.OptionalHeader.CheckSum = 0;
+
+    ret = ImageGetDigestStream(file, CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO|CERT_PE_IMAGE_DIGEST_RESOURCES,
+        accumulating_stream_output, &accum);
+    ok(ret, "ImageGetDigestStream failed: %ld\n", GetLastError());
+    check_updates("64 wrsrc flags = CERT_PE_IMAGE_DIGEST_ALL_IMPORT_INFO|CERT_PE_IMAGE_DIGEST_RESOURCES", &a8, &accum);
     free_updates(&accum);
     CloseHandle(file);
     DeleteFileA(temp_file);
