@@ -41,6 +41,12 @@
 #include "unix_private.h"
 #include "wine/debug.h"
 
+#ifdef __ANDROID__
+#include <dlfcn.h>
+#include <android/log.h>
+static __typeof__(__android_log_print) *android_log_print;
+#endif
+
 WINE_DECLARE_DEBUG_CHANNEL(pid);
 WINE_DECLARE_DEBUG_CHANNEL(timestamp);
 WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
@@ -207,7 +213,9 @@ static void init_options(void)
         st1.st_rdev == st2.st_rdev)
     {
         default_flags = 0;
+#ifndef __ANDROID__
         return;
+#endif
     }
     if (!wine_debug) return;
     if (!strcmp( wine_debug, "help" )) debug_usage();
@@ -273,6 +281,9 @@ const char * __cdecl __wine_dbg_strdup( const char *str )
 NTSTATUS unixcall_wine_dbg_write( void *args )
 {
     struct wine_dbg_write_params *params = args;
+#ifdef __ANDROID__
+    if (android_log_print) android_log_print( ANDROID_LOG_VERBOSE, "WineOut", "%.*s", params->len, params->str);
+#endif
 
     return write( 2, params->str, params->len );
 }
@@ -289,6 +300,9 @@ NTSTATUS wow64_wine_dbg_write( void *args )
         unsigned int len;
     } const *params32 = args;
 
+#ifdef __ANDROID__
+    if (android_log_print) android_log_print( ANDROID_LOG_VERBOSE, "WineOut", "%.*s", params32->len, ULongToPtr(params32->str));
+#endif
     return write( 2, ULongToPtr(params32->str), params32->len );
 }
 #endif
@@ -305,6 +319,9 @@ int __cdecl __wine_dbg_output( const char *str )
     if (end)
     {
         ret += append_output( info, str, end + 1 - str );
+#ifdef __ANDROID__
+        if (android_log_print) android_log_print( ANDROID_LOG_VERBOSE, "WineOut", "%.*s", info->out_pos, info->output);
+#endif
         write( 2, info->output, info->out_pos );
         info->out_pos = 0;
         str = end + 1;
@@ -351,6 +368,12 @@ int __cdecl __wine_dbg_header( enum __wine_debug_class cls, struct __wine_debug_
 void dbg_init(void)
 {
     struct __wine_debug_channel *options, default_option = { default_flags };
+#ifdef __ANDROID__
+    void *liblog = NULL;
+    liblog = dlopen("liblog.so", RTLD_NOW | RTLD_LOCAL);
+    if (liblog)
+        android_log_print = (__typeof__(__android_log_print) *) dlsym(liblog, "__android_log_print");
+#endif
 
     setbuf( stdout, NULL );
     setbuf( stderr, NULL );
