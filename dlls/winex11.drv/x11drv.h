@@ -473,6 +473,8 @@ extern BOOL grab_fullscreen;
 extern BOOL usexcomposite;
 extern BOOL managed_mode;
 extern BOOL private_color_map;
+extern BOOL clamp_x_cursor_to_best_size;
+extern BOOL fit_w_cursor_to_best_size;
 extern int primary_monitor;
 extern int copy_default_colors;
 extern int alloc_system_colors;
