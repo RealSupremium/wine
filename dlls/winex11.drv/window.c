@@ -1161,6 +1161,7 @@ static void set_initial_wm_hints( Display *display, Window window )
     Atom protocols[3];
     Atom dndVersion = WINE_XDND_VERSION;
     XClassHint *class_hints;
+    char *wine_wm_class;
 
     /* wm protocols */
     i = 0;
@@ -1173,8 +1174,9 @@ static void set_initial_wm_hints( Display *display, Window window )
     /* class hints */
     if ((class_hints = XAllocClassHint()))
     {
+        wine_wm_class = getenv( "WINEWMCLASS" );
         class_hints->res_name = process_name;
-        class_hints->res_class = process_name;
+        class_hints->res_class = wine_wm_class ? wine_wm_class : process_name;
         XSetClassHint( display, window, class_hints );
         XFree( class_hints );
     }
