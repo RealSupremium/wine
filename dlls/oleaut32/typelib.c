@@ -4234,61 +4234,66 @@ static void SLTG_DoFuncs(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI,
 	pFuncDesc->funcdesc.callconv = pFunc->nacc & 0x7;
 	pFuncDesc->funcdesc.cParams = pFunc->nacc >> 3;
 	pFuncDesc->funcdesc.cParamsOpt = (pFunc->retnextopt & 0x7e) >> 1;
-	if (pFuncDesc->funcdesc.funckind == FUNC_DISPATCH)
-	    pFuncDesc->funcdesc.oVft = 0;
+
+    /* SLTG encodes vararg as 63 (max 6-bit value); normalize to -1 (MSFT convention) */
+    if (pFuncDesc->funcdesc.cParamsOpt == 0x3f)
+        pFuncDesc->funcdesc.cParamsOpt = -1;
+
+    if (pFuncDesc->funcdesc.funckind == FUNC_DISPATCH)
+        pFuncDesc->funcdesc.oVft = 0;
         else
-	    pFuncDesc->funcdesc.oVft = (unsigned short)(pFunc->vtblpos & ~1) * sizeof(void *) / pTI->pTypeLib->ptr_size;
+        pFuncDesc->funcdesc.oVft = (unsigned short)(pFunc->vtblpos & ~1) * sizeof(void *) / pTI->pTypeLib->ptr_size;
 
-	if (pFunc->helpstring != 0xffff)
-	    pFuncDesc->HelpString = decode_string(hlp_strings, pBlk + pFunc->helpstring, pNameTable - pBlk, pTI->pTypeLib);
+    if (pFunc->helpstring != 0xffff)
+        pFuncDesc->HelpString = decode_string(hlp_strings, pBlk + pFunc->helpstring, pNameTable - pBlk, pTI->pTypeLib);
 
-	if(pFunc->magic & SLTG_FUNCTION_FLAGS_PRESENT)
-	    pFuncDesc->funcdesc.wFuncFlags = pFunc->funcflags;
+    if(pFunc->magic & SLTG_FUNCTION_FLAGS_PRESENT)
+        pFuncDesc->funcdesc.wFuncFlags = pFunc->funcflags;
 
-	if(pFunc->retnextopt & 0x80)
-	    pType = &pFunc->rettype;
-	else
-	    pType = (WORD*)(pBlk + pFunc->rettype);
+    if(pFunc->retnextopt & 0x80)
+        pType = &pFunc->rettype;
+    else
+        pType = (WORD*)(pBlk + pFunc->rettype);
 
-	SLTG_DoElem(pType, pBlk, &pFuncDesc->funcdesc.elemdescFunc, ref_lookup);
+    SLTG_DoElem(pType, pBlk, &pFuncDesc->funcdesc.elemdescFunc, ref_lookup);
 
-	pFuncDesc->funcdesc.lprgelemdescParam =
-	  calloc(pFuncDesc->funcdesc.cParams, sizeof(ELEMDESC));
-	pFuncDesc->pParamDesc = TLBParDesc_Constructor(pFuncDesc->funcdesc.cParams);
+    pFuncDesc->funcdesc.lprgelemdescParam =
+      calloc(pFuncDesc->funcdesc.cParams, sizeof(ELEMDESC));
+    pFuncDesc->pParamDesc = TLBParDesc_Constructor(pFuncDesc->funcdesc.cParams);
 
-	pArg = (WORD*)(pBlk + pFunc->arg_off);
+    pArg = (WORD*)(pBlk + pFunc->arg_off);
 
-	for(param = 0; param < pFuncDesc->funcdesc.cParams; param++) {
-	    char *paramName = (*pArg & ~1) == 0xfffe ? NULL : pNameTable + (*pArg & ~1);
-	    BOOL HaveOffs = !(*pArg & 1);
+    for(param = 0; param < pFuncDesc->funcdesc.cParams; param++) {
+        char *paramName = (*pArg & ~1) == 0xfffe ? NULL : pNameTable + (*pArg & ~1);
+        BOOL HaveOffs = !(*pArg & 1);
 
-	    pArg++;
+        pArg++;
 
             TRACE_(typelib)("param %d: paramName %s, *pArg %#x\n",
                 param, debugstr_a(paramName), *pArg);
 
-	    if(HaveOffs) { /* the next word is an offset to type */
-	        pType = (WORD*)(pBlk + *pArg);
-		SLTG_DoElem(pType, pBlk,
-			    &pFuncDesc->funcdesc.lprgelemdescParam[param], ref_lookup);
-		pArg++;
-	    } else {
-		pArg = SLTG_DoElem(pArg, pBlk,
+        if(HaveOffs) { /* the next word is an offset to type */
+            pType = (WORD*)(pBlk + *pArg);
+        SLTG_DoElem(pType, pBlk,
+                &pFuncDesc->funcdesc.lprgelemdescParam[param], ref_lookup);
+        pArg++;
+        } else {
+        pArg = SLTG_DoElem(pArg, pBlk,
                                    &pFuncDesc->funcdesc.lprgelemdescParam[param], ref_lookup);
-	    }
+        }
 
-	    /* Are we an optional param ? */
-	    if(pFuncDesc->funcdesc.cParams - param <=
-	       pFuncDesc->funcdesc.cParamsOpt)
-	      pFuncDesc->funcdesc.lprgelemdescParam[param].paramdesc.wParamFlags |= PARAMFLAG_FOPT;
+        /* Are we an optional param ? */
+        if(pFuncDesc->funcdesc.cParams - param <=
+           pFuncDesc->funcdesc.cParamsOpt)
+          pFuncDesc->funcdesc.lprgelemdescParam[param].paramdesc.wParamFlags |= PARAMFLAG_FOPT;
 
-	    if(paramName) {
-	        pFuncDesc->pParamDesc[param].Name = SLTG_ReadName(pNameTable,
-	                paramName - pNameTable, pTI->pTypeLib);
-	    } else {
-	        pFuncDesc->pParamDesc[param].Name = pFuncDesc->Name;
-	    }
-	}
+        if(paramName) {
+            pFuncDesc->pParamDesc[param].Name = SLTG_ReadName(pNameTable,
+                    paramName - pNameTable, pTI->pTypeLib);
+        } else {
+            pFuncDesc->pParamDesc[param].Name = pFuncDesc->Name;
+        }
+    }
     }
     pTI->typeattr.cFuncs = cFuncs;
 }
