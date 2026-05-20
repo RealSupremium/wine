@@ -813,7 +813,7 @@ void OpenType_GDEF_UpdateGlyphProps(ScriptCache *psc, const WORD *pwGlyphs, cons
 /**********
  * GSUB
  **********/
-static INT GSUB_apply_lookup(const OT_LookupList* lookup, INT lookup_index, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count);
+static INT GSUB_apply_lookup(const OT_LookupList* lookup, INT lookup_index, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count, INT max_glyphs);
 
 static int GSUB_is_glyph_covered(const void *table, unsigned int glyph)
 {
@@ -924,7 +924,7 @@ static INT GSUB_apply_SingleSubst(const OT_LookupTable *look, WORD *glyphs, INT 
     return GSUB_E_NOGLYPH;
 }
 
-static INT GSUB_apply_MultipleSubst(const OT_LookupTable *look, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count)
+static INT GSUB_apply_MultipleSubst(const OT_LookupTable *look, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count, INT max_glyphs)
 {
     int j;
     TRACE("Multiple Substitution Subtable\n");
@@ -1070,7 +1070,7 @@ static INT GSUB_apply_LigatureSubst(const OT_LookupTable *look, WORD *glyphs, IN
     return GSUB_E_NOGLYPH;
 }
 
-static INT GSUB_apply_ContextSubst(const OT_LookupList* lookup, const OT_LookupTable *look, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count)
+static INT GSUB_apply_ContextSubst(const OT_LookupList* lookup, const OT_LookupTable *look, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count, INT max_glyphs)
 {
     int j;
     TRACE("Context Substitution Subtable\n");
@@ -1137,7 +1137,7 @@ static INT GSUB_apply_ContextSubst(const OT_LookupList* lookup, const OT_LookupT
                         }
 
                         TRACE("   SUBST: %u -> %u %u.\n", l, sequence_index, lookup_index);
-                        newIndex = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count);
+                        newIndex = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count, max_glyphs);
                         if (newIndex == GSUB_E_NOGLYPH)
                         {
                             ERR("   Chain failed to generate a glyph\n");
@@ -1224,7 +1224,7 @@ static INT GSUB_apply_ContextSubst(const OT_LookupList* lookup, const OT_LookupT
                         }
 
                         TRACE("   SUBST: %u -> %u %u.\n", l, sequence_index, lookup_index);
-                        newIndex = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count);
+                        newIndex = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count, max_glyphs);
                         if (newIndex == GSUB_E_NOGLYPH)
                         {
                             ERR("   Chain failed to generate a glyph\n");
@@ -1241,7 +1241,7 @@ static INT GSUB_apply_ContextSubst(const OT_LookupList* lookup, const OT_LookupT
     return GSUB_E_NOGLYPH;
 }
 
-static INT GSUB_apply_ChainContextSubst(const OT_LookupList* lookup, const OT_LookupTable *look, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count)
+static INT GSUB_apply_ChainContextSubst(const OT_LookupList* lookup, const OT_LookupTable *look, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count, INT max_glyphs)
 {
     int j;
 
@@ -1384,7 +1384,7 @@ static INT GSUB_apply_ChainContextSubst(const OT_LookupList* lookup, const OT_Lo
                     }
 
                     TRACE("SUBST: %u -> %u %u.\n", k, sequence_index, lookup_index);
-                    new_index = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count);
+                    new_index = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count, max_glyphs);
                     if (new_index == GSUB_E_NOGLYPH)
                         ERR("Chain failed to generate a glyph.\n");
                 }
@@ -1471,7 +1471,7 @@ static INT GSUB_apply_ChainContextSubst(const OT_LookupList* lookup, const OT_Lo
                 }
 
                 TRACE("SUBST: %u -> %u %u.\n", k, sequence_index, lookup_index);
-                new_index = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count);
+                new_index = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count, max_glyphs);
                 if (new_index == GSUB_E_NOGLYPH)
                     ERR("Chain failed to generate a glyph.\n");
             }
@@ -1481,7 +1481,7 @@ static INT GSUB_apply_ChainContextSubst(const OT_LookupList* lookup, const OT_Lo
     return GSUB_E_NOGLYPH;
 }
 
-static INT GSUB_apply_lookup(const OT_LookupList* lookup, INT lookup_index, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count)
+static INT GSUB_apply_lookup(const OT_LookupList* lookup, INT lookup_index, WORD *glyphs, INT glyph_index, INT write_dir, INT *glyph_count, INT max_glyphs)
 {
     int offset;
     enum gsub_lookup_type type;
@@ -1518,15 +1518,15 @@ static INT GSUB_apply_lookup(const OT_LookupList* lookup, INT lookup_index, WORD
         case GSUB_LOOKUP_SINGLE:
             return GSUB_apply_SingleSubst(look, glyphs, glyph_index, write_dir, glyph_count);
         case GSUB_LOOKUP_MULTIPLE:
-            return GSUB_apply_MultipleSubst(look, glyphs, glyph_index, write_dir, glyph_count);
+            return GSUB_apply_MultipleSubst(look, glyphs, glyph_index, write_dir, glyph_count, max_glyphs);
         case GSUB_LOOKUP_ALTERNATE:
             return GSUB_apply_AlternateSubst(look, glyphs, glyph_index, write_dir, glyph_count);
         case GSUB_LOOKUP_LIGATURE:
             return GSUB_apply_LigatureSubst(look, glyphs, glyph_index, write_dir, glyph_count);
         case GSUB_LOOKUP_CONTEXT:
-            return GSUB_apply_ContextSubst(lookup, look, glyphs, glyph_index, write_dir, glyph_count);
+            return GSUB_apply_ContextSubst(lookup, look, glyphs, glyph_index, write_dir, glyph_count, max_glyphs);
         case GSUB_LOOKUP_CONTEXT_CHAINED:
-            return GSUB_apply_ChainContextSubst(lookup, look, glyphs, glyph_index, write_dir, glyph_count);
+            return GSUB_apply_ChainContextSubst(lookup, look, glyphs, glyph_index, write_dir, glyph_count, max_glyphs);
         case GSUB_LOOKUP_EXTENSION:
             FIXME("Extension Substitution types not valid here\n");
             break;
@@ -1537,12 +1537,12 @@ static INT GSUB_apply_lookup(const OT_LookupList* lookup, INT lookup_index, WORD
 }
 
 int OpenType_apply_GSUB_lookup(const void *table, unsigned int lookup_index, WORD *glyphs,
-        unsigned int glyph_index, int write_dir, int *glyph_count)
+        unsigned int glyph_index, int write_dir, int *glyph_count, int max_glyphs)
 {
     const GSUB_Header *header = (const GSUB_Header *)table;
     const OT_LookupList *lookup = (const OT_LookupList*)((const BYTE*)header + GET_BE_WORD(header->LookupList));
 
-    return GSUB_apply_lookup(lookup, lookup_index, glyphs, glyph_index, write_dir, glyph_count);
+    return GSUB_apply_lookup(lookup, lookup_index, glyphs, glyph_index, write_dir, glyph_count, max_glyphs);
 }
 
 /**********

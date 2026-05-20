@@ -297,7 +297,7 @@ DWORD OpenType_CMAP_GetGlyphIndex(HDC hdc, ScriptCache *psc, DWORD utf32c, LPWOR
 void OpenType_GDEF_UpdateGlyphProps(ScriptCache *psc, const WORD *pwGlyphs, const WORD cGlyphs,
                                     WORD *pwLogClust, const WORD cChars, SCRIPT_GLYPHPROP *pGlyphProp);
 int OpenType_apply_GSUB_lookup(const void *table, unsigned int lookup_index, WORD *glyphs,
-                               unsigned int glyph_index, int write_dir, int *glyph_count);
+                               unsigned int glyph_index, int write_dir, int *glyph_count, int max_glyphs);
 unsigned int OpenType_apply_GPOS_lookup(const ScriptCache *psc, const OUTLINETEXTMETRICW *otm,
         const LOGFONTW *logfont, const SCRIPT_ANALYSIS *analysis, int *advance, unsigned int lookup_index,
         const WORD *glyphs, unsigned int glyph_index, unsigned int glyph_count, GOFFSET *goffset);
