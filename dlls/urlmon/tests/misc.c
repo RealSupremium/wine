@@ -1768,13 +1768,64 @@ static void test_IsValidURL(void)
     hr = IsValidURL(NULL, 0, 0);
     ok(hr == E_INVALIDARG, "Expected E_INVALIDARG, got %08lx\n", hr);
 
-    hr = IsValidURL(NULL, wszHttpWineHQ, 0);
-    ok(hr == S_OK, "Expected S_OK, got %08lx\n", hr);
-
     CreateBindCtx(0, &bctx);
 
+    hr = IsValidURL(bctx, NULL, 0);
+    ok(hr == E_INVALIDARG, "Expected E_INVALIDARG, got %08lx\n", hr);
+
+    /* valid schemas */
+
+    hr = IsValidURL(NULL, wszHttpWineHQ, 0);
+    ok(hr == S_OK, "Expected S_OK for http URL, got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, url3, 0);
+    ok(hr == S_OK, "Expected S_OK for file URL, got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, url6, 0);
+    ok(hr == S_OK, "Expected S_OK for about URL, got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, url7, 0);
+    ok(hr == S_OK, "Expected S_OK for ftp URL, got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, url1, 0);
+    ok(hr == S_OK, "Expected S_OK for res URL, got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, L"https://www.winehq.org", 0);
+    ok(hr == S_OK, "Expected S_OK for https URL, got %08lx\n", hr);
+
+    /* unregistered schemas */
+
+    hr = IsValidURL(NULL, url8, 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for unknown schema 'test:', got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, L"xxxxxxxxunknown://foo", 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for unknown schema, got %08lx\n", hr);
+
+    /* no schema */
+
+    hr = IsValidURL(NULL, url2, 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for relative URL, got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, L"", 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for empty string, got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, L"not a url at all", 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for non-URL string, got %08lx\n", hr);
+
+    hr = IsValidURL(NULL, L"://missingschema", 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for missing schema, got %08lx\n", hr);
+
     hr = IsValidURL(bctx, wszHttpWineHQ, 0);
-    ok(hr == S_OK, "Expected S_OK, got %08lx\n", hr);
+    ok(hr == S_OK, "Expected S_OK for http URL with bctx, got %08lx\n", hr);
+
+    hr = IsValidURL(bctx, url8, 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for unknown schema with bctx, got %08lx\n", hr);
+
+    hr = IsValidURL(bctx, url2, 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for relative URL with bctx, got %08lx\n", hr);
+
+    hr = IsValidURL(bctx, L"", 0);
+    ok(hr == S_FALSE, "Expected S_FALSE for empty string with bctx, got %08lx\n", hr);
 
     IBindCtx_Release(bctx);
 }
