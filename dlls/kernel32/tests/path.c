@@ -1255,6 +1255,8 @@ static void test_GetLongPathNameW(void)
     static const WCHAR prefix[] = { '\\','\\','?','\\', 0};
     static const WCHAR backslash[] = { '\\', 0};
     static const WCHAR letterX[] = { 'X', 0};
+    WCHAR shortpath2[MAX_PATH];
+    WCHAR longpath[MAX_PATH];
 
     SetLastError(0xdeadbeef); 
     length = GetLongPathNameW(NULL,NULL,0);
@@ -1298,12 +1300,9 @@ static void test_GetLongPathNameW(void)
     /* With prefix */
     SetLastError(0xdeadbeef);
     length = GetLongPathNameW(shortpath, NULL, 0);
-    todo_wine
-    {
     ok(length == 0, "Expected 0, got %ld\n", length);
     ok(GetLastError() == ERROR_FILE_NOT_FOUND,
        "Expected ERROR_PATH_NOT_FOUND, got %ld\n", GetLastError());
-    }
 
     file = CreateFileW(shortpath, GENERIC_READ|GENERIC_WRITE, 0, NULL,
                        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -1326,6 +1325,18 @@ static void test_GetLongPathNameW(void)
     SetLastError(0xdeadbeef);
     length = GetLongPathNameW(shortpath, NULL, 0);
     ok(length == expanded, "Expected %ld, got %ld\n", expanded, length);
+
+    /* Test that extended prefix is preserved in output when converting from
+     * short to long path */
+    shortpath2[0] = 0;
+    length = GetShortPathNameW(dirpath, shortpath2, ARRAY_SIZE(shortpath2));
+    ok(length > 0, "GetShortPathNameW failed: %lu\n", GetLastError());
+    ok(lstrcmpiW(dirpath, shortpath2) != 0, "short path name isn't created, got %s\n", debugstr_w(shortpath2));
+
+    SetLastError(0xdeadbeef);
+    length = GetLongPathNameW(shortpath2, longpath, ARRAY_SIZE(longpath));
+    ok(length > 0, "GetLongPathNameW failed: %lu\n", GetLastError());
+    ok(lstrcmpiW(longpath, dirpath) == 0, "Expected path: %s, got: %s\n", wine_dbgstr_w(dirpath), wine_dbgstr_w(longpath));
 
     /* NULL buffer with length crashes on Windows */
     if (0)

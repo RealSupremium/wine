@@ -2132,7 +2132,31 @@ DWORD WINAPI DECLSPEC_HOTPATCH GetLongPathNameW( LPCWSTR shortpath, LPWSTR longp
         return 0;
     }
 
-    if (shortpath[0] == '\\' && shortpath[1] == '\\')
+    /* Handle \\?\ prefix (Extended Length Path) */
+    if (lstrlenW(shortpath) >= 4 && shortpath[0] == '\\' && shortpath[1] == '\\'
+        && shortpath[2] == '?' && shortpath[3] == '\\')
+    {
+        if (wcsnicmp(shortpath + 4, L"UNC\\", 4) == 0)
+        {
+            FIXME("UNC Extended pathname %s\n", debugstr_w(shortpath));
+            tmplen = lstrlenW(shortpath);
+            if (tmplen < longlen)
+            {
+                if (longpath != shortpath) lstrcpyW(longpath, shortpath);
+                return tmplen;
+            }
+            return tmplen + 1;
+        }
+        else if (((shortpath[4] | 0x20) >= 'a' && (shortpath[4] | 0x20) <= 'z')
+            && shortpath[5] == ':')
+        {
+            lstrcpynW(tmplongpath, shortpath, 7);
+            lp = 6;
+            sp = 6;
+        }
+    }
+
+    if (sp == 0 && shortpath[0] == '\\' && shortpath[1] == '\\')
     {
         FIXME( "UNC pathname %s\n", debugstr_w(shortpath) );
         tmplen = lstrlenW( shortpath );
