@@ -58,6 +58,7 @@ static HFONT g_customdraw_font;
 static BOOL g_v6;
 static int g_reject_tvn_itemexpanding = 0;
 static int g_click_delete_test = 0;
+static BOOL g_skip_paint_messages = FALSE;
 
 #define NUM_MSG_SEQUENCES   3
 #define TREEVIEW_SEQ_INDEX  0
@@ -102,6 +103,32 @@ static const struct message rootnone_select_seq[] = {
     { TVM_SELECTITEM, sent|wparam, 9 },
     { TVM_SELECTITEM, sent|wparam, 9 },
     { 0 }
+};
+
+/*
+ * TVN_ITEMCHANGINGW and TVN_ITEMCHANGEDW intended!
+ * TVN_ITEMCHANGINGA and TVN_ITEMCHANGEDA are never actually sent!
+ */
+static const struct message select_previous_item_v6[] = {
+    { WM_NOTIFY, sent|id, 0, 0, TVN_SELCHANGINGA },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMCHANGINGW },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMCHANGEDW },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_SELCHANGEDA },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_SELCHANGINGA },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMCHANGINGW },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMCHANGEDW },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMCHANGINGW },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMCHANGEDW },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_SELCHANGEDA },
+    { 0 },
+};
+
+static const struct message select_previous_item[] = {
+    { WM_NOTIFY, sent|id, 0, 0, TVN_SELCHANGINGA },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_SELCHANGEDA },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_SELCHANGINGA },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_SELCHANGEDA },
+    { 0 },
 };
 
 static const struct message rootchild_select_seq[] = {
@@ -425,7 +452,8 @@ static const struct message parent_right_click_seq[] = {
 
 static HWND hMainWnd;
 
-static HTREEITEM hRoot, hChild;
+static HTREEITEM hRoot, hChild, hBlockChange;
+static BOOL bSelectPreviousItem = FALSE;
 
 static int pos = 0;
 static char sequence[256];
@@ -459,20 +487,29 @@ static void IdentifyItem(HTREEITEM hItem)
     AddItem('?');
 }
 
+static BOOL IsPaintMessage(UINT message)
+{
+    return message == WM_PAINT || message == WM_NCPAINT || message == WM_ERASEBKGND;
+}
+
 /* This function hooks in and records all messages to the treeview control */
 static LRESULT WINAPI TreeviewWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     static LONG defwndproc_counter = 0;
     LRESULT ret;
     WNDPROC lpOldProc = (WNDPROC)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
-    struct message msg = { 0 };
 
-    msg.message = message;
-    msg.flags = sent|wparam|lparam;
-    if (defwndproc_counter) msg.flags |= defwinproc;
-    msg.wParam = wParam;
-    msg.lParam = lParam;
-    add_message(sequences, TREEVIEW_SEQ_INDEX, &msg);
+    if (!(g_skip_paint_messages && IsPaintMessage(message)))
+    {
+        struct message msg = { 0 };
+
+        msg.message = message;
+        msg.flags = sent|wparam|lparam;
+        if (defwndproc_counter) msg.flags |= defwinproc;
+        msg.wParam = wParam;
+        msg.lParam = lParam;
+        add_message(sequences, TREEVIEW_SEQ_INDEX, &msg);
+    }
 
     defwndproc_counter++;
     ret = CallWindowProcA(lpOldProc, hwnd, message, wParam, lParam);
@@ -743,6 +780,61 @@ static void test_select(void)
                 "root-child select seq", FALSE);
 
     DestroyWindow(hTree);
+}
+
+static void test_itemchanging(void)
+{
+    BOOL r;
+    HWND hTree;
+
+    /* suppress logging of painting related messages in this test */
+    g_skip_paint_messages = TRUE;
+
+    hTree = create_treeview_control(0);
+    fill_tree(hTree);
+
+    /* Test if we can prevent item being selected; TVN_ITEMCHANGING logic only in v6 */
+    r = SendMessageA(hTree, TVM_SELECTITEM, TVGN_CARET, (LPARAM)hRoot);
+    expect(TRUE, r);
+    r = SendMessageA(hTree, TVM_GETITEMSTATE, (WPARAM)hRoot, TVIS_SELECTED) & TVIS_SELECTED;
+    expect(TVIS_SELECTED, r);
+    hBlockChange = hChild;
+    r = SendMessageA(hTree, TVM_SELECTITEM, TVGN_CARET, (LPARAM)hChild);
+    expect(TRUE, r);
+    r = SendMessageA(hTree, TVM_GETITEMSTATE, (WPARAM)hChild, TVIS_SELECTED) & TVIS_SELECTED;
+    if (g_v6)
+        expect(0, r);
+    else
+        expect(TVIS_SELECTED, r);
+
+    r = SendMessageA(hTree, TVM_GETITEMSTATE, (WPARAM)hRoot, TVIS_SELECTED) & TVIS_SELECTED;
+    expect(0, r);
+    hBlockChange = NULL;
+    r = SendMessageA(hTree, TVM_SELECTITEM, TVGN_CARET, (LPARAM)hChild);
+    expect(TRUE, r);
+    r = SendMessageA(hTree, TVM_GETITEMSTATE, (WPARAM)hChild, TVIS_SELECTED) & TVIS_SELECTED;
+    if (g_v6)
+        expect(0, r);
+    else
+        expect(TVIS_SELECTED, r);
+    r = SendMessageA(hTree, TVM_GETITEMSTATE, (WPARAM)hRoot, TVIS_SELECTED) & TVIS_SELECTED;
+    expect(0, r);
+
+    /* Test altering selection from TVN_ITEMCHANGING */
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    SendMessageA(hTree, TVM_SELECTITEM, TVGN_CARET, (WPARAM)hRoot);
+    bSelectPreviousItem = TRUE;
+    SendMessageA(hTree, TVM_SELECTITEM, TVGN_CARET, (WPARAM)hChild);
+    bSelectPreviousItem = FALSE;
+
+    if (g_v6)
+        ok_sequence(sequences, PARENT_SEQ_INDEX, select_previous_item_v6, "select previous item seq", FALSE);
+    else
+        ok_sequence(sequences, PARENT_SEQ_INDEX, select_previous_item, "select previous item seq", FALSE);
+
+    DestroyWindow(hTree);
+
+    g_skip_paint_messages = FALSE;
 }
 
 static void test_getitemtext(void)
@@ -1271,6 +1363,25 @@ static void test_get_set_unicodeformat(void)
     DestroyWindow(hTree);
 }
 
+static BOOL IsParentPaintMessage(UINT message, WPARAM wParam, LPARAM lParam)
+{
+    if (message >= WM_CTLCOLORMSGBOX && message <= WM_CTLCOLORSTATIC) return TRUE;
+    else if (message == WM_NOTIFY)
+    {
+        return ((LPNMHDR)lParam)->code == NM_CUSTOMDRAW;
+    }
+    else return FALSE;
+}
+
+static void HandleSelectPreviousItem(NMTREEVIEWA *nmtv)
+{
+    TVITEMA item = {0};
+    item.mask = TVIF_STATE;
+    item.hItem = nmtv->itemOld.hItem;
+    item.stateMask = TVIS_SELECTED;
+    SendMessageA(nmtv->hdr.hwndFrom, TVM_SETITEMA, 0, (LPARAM)&item);
+}
+
 static LRESULT CALLBACK parent_wnd_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     static LONG defwndproc_counter = 0;
@@ -1295,7 +1406,9 @@ static LRESULT CALLBACK parent_wnd_proc(HWND hWnd, UINT message, WPARAM wParam, 
         message != WM_NCHITTEST &&
         message != WM_GETTEXT &&
         message != WM_GETICON &&
-        message != WM_DEVICECHANGE)
+        message != WM_DEVICECHANGE &&
+        !(g_skip_paint_messages && IsParentPaintMessage(message, wParam, lParam))
+    )
     {
         add_message(sequences, PARENT_SEQ_INDEX, &msg);
     }
@@ -1318,7 +1431,19 @@ static LRESULT CALLBACK parent_wnd_proc(HWND hWnd, UINT message, WPARAM wParam, 
             NMTREEVIEWA *pTreeView = (LPNMTREEVIEWA) lParam;
             switch(pHdr->code)
             {
+                /*
+                 * TVN_ITEMCHANGINGW (not TVN_ITEMCHANGINGA) intended.
+                 * MS implementation appears to send TVN_ITEMCHANGINGW only.
+                 * Available only in comctl32 v6.
+                 */
+            case TVN_ITEMCHANGINGW:
+                {
+                    NMTVITEMCHANGE * pChange = (NMTVITEMCHANGE*) lParam;
+                    if (pChange->hItem == hBlockChange) return TRUE;
+                }
+                break;
             case TVN_SELCHANGINGA:
+                if (bSelectPreviousItem) HandleSelectPreviousItem(pTreeView);
                 AddItem('(');
                 IdentifyItem(pTreeView->itemOld.hItem);
                 IdentifyItem(pTreeView->itemNew.hItem);
@@ -3411,6 +3536,7 @@ START_TEST(treeview)
     test_TVM_SORTCHILDREN();
     test_right_click();
     test_treeview_delete_midclick();
+    test_itemchanging();
 
     if (!load_v6_module(&ctx_cookie, &hCtx))
     {
@@ -3447,6 +3573,7 @@ START_TEST(treeview)
     test_TVS_FULLROWSELECT();
     test_TVM_SORTCHILDREN();
     test_treeview_delete_midclick();
+    test_itemchanging();
 
     unload_v6_module(ctx_cookie, hCtx);
 }
