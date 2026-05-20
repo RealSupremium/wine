@@ -208,15 +208,37 @@ static HRESULT lookup_identifier(exec_ctx_t *ctx, BSTR name, vbdisp_invoke_type_
             return S_OK;
     }
 
-    if(ctx->func->code_ctx->named_item && ctx->func->code_ctx->named_item->disp &&
+    if(ctx->func->code_ctx->named_item &&
        !(ctx->func->code_ctx->named_item->flags & SCRIPTITEM_CODEONLY))
     {
-        hres = disp_get_id(ctx->func->code_ctx->named_item->disp, name, invoke_type, TRUE, &id);
-        if(SUCCEEDED(hres)) {
-            ref->type = REF_DISP;
-            ref->u.d.disp = ctx->func->code_ctx->named_item->disp;
-            ref->u.d.id = id;
-            return S_OK;
+        named_item_t *ni = ctx->func->code_ctx->named_item;
+        BOOL cached = FALSE;
+        DISPID cached_id = lookup_probed_name(ni, name, &cached);
+
+        if(cached) {
+            /* Probe ran for this name during parse. Reuse the cached
+             * dispid (or skip the host route if the host didn't claim
+             * it) instead of issuing another GetIDsOfNames. */
+            if(cached_id != DISPID_UNKNOWN) {
+                ensure_named_item_disp(ctx->script, ni);
+                if(ni->disp) {
+                    ref->type = REF_DISP;
+                    ref->u.d.disp = ni->disp;
+                    ref->u.d.id = cached_id;
+                    return S_OK;
+                }
+            }
+        }else {
+            ensure_named_item_disp(ctx->script, ni);
+            if(ni->disp) {
+                hres = disp_get_id(ni->disp, name, invoke_type, TRUE, &id);
+                if(SUCCEEDED(hres)) {
+                    ref->type = REF_DISP;
+                    ref->u.d.disp = ni->disp;
+                    ref->u.d.id = id;
+                    return S_OK;
+                }
+            }
         }
     }
 
@@ -1930,6 +1952,8 @@ static HRESULT interp_me(exec_ctx_t *ctx)
     if(ctx->vbthis) {
         disp = (IDispatch*)&ctx->vbthis->IDispatchEx_iface;
     }else if(ctx->code->named_item) {
+        if(!(ctx->code->named_item->flags & SCRIPTITEM_CODEONLY))
+            ensure_named_item_disp(ctx->script, ctx->code->named_item);
         disp = (ctx->code->named_item->flags & SCRIPTITEM_CODEONLY)
                ? (IDispatch*)&ctx->code->named_item->script_obj->IDispatchEx_iface
                : ctx->code->named_item->disp;

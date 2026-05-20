@@ -108,6 +108,12 @@ DEFINE_EXPECT(testCall);
 DEFINE_EXPECT(host_shadow_method);
 DEFINE_EXPECT(host_shadow_propput);
 DEFINE_EXPECT(host_shadow_propget);
+DEFINE_EXPECT(GetItemInfo_rotating);
+DEFINE_EXPECT(GetIDsOfNames_rotating);
+DEFINE_EXPECT(testCall_rotating_a);
+DEFINE_EXPECT(testCall_rotating_b);
+
+static int rotating_get_item_idx;
 
 DEFINE_GUID(CLSID_VBScript, 0xb54f3741, 0x5b07, 0x11cf, 0xa4,0xb0, 0x00,0xaa,0x00,0x4a,0x55,0xe8);
 DEFINE_GUID(CLSID_VBScriptRegExp, 0x3f4daca4, 0x160d, 0x11d2, 0xa8,0xe9, 0x00,0x10,0x4b,0x36,0x5c,0x9f);
@@ -351,6 +357,57 @@ static const IDispatchVtbl shadowing_named_item_vtbl = {
 
 static IDispatch shadowing_named_item = { &shadowing_named_item_vtbl };
 
+static HRESULT WINAPI rotating_GetIDsOfNames(IDispatch *iface, REFIID riid, LPOLESTR *names, UINT name_cnt,
+                                              LCID lcid, DISPID *ids)
+{
+    ok(name_cnt == 1, "name_cnt = %u\n", name_cnt);
+    if(!wcscmp(names[0], L"testCall")) {
+        *ids = 1;
+        return S_OK;
+    }
+    CHECK_EXPECT2(GetIDsOfNames_rotating);
+    return DISP_E_UNKNOWNNAME;
+}
+
+static HRESULT WINAPI rotating_a_Invoke(IDispatch *iface, DISPID id, REFIID riid, LCID lcid, WORD flags,
+                                         DISPPARAMS *dp, VARIANT *res, EXCEPINFO *ei, UINT *err)
+{
+    CHECK_EXPECT(testCall_rotating_a);
+    ok(id == 1, "id = %lu\n", id);
+    return S_OK;
+}
+
+static HRESULT WINAPI rotating_b_Invoke(IDispatch *iface, DISPID id, REFIID riid, LCID lcid, WORD flags,
+                                         DISPPARAMS *dp, VARIANT *res, EXCEPINFO *ei, UINT *err)
+{
+    CHECK_EXPECT(testCall_rotating_b);
+    ok(id == 1, "id = %lu\n", id);
+    return S_OK;
+}
+
+static const IDispatchVtbl rotating_a_vtbl = {
+    Dispatch_QueryInterface,
+    Dispatch_AddRef,
+    Dispatch_Release,
+    Dispatch_GetTypeInfoCount,
+    Dispatch_GetTypeInfo,
+    rotating_GetIDsOfNames,
+    rotating_a_Invoke
+};
+
+static const IDispatchVtbl rotating_b_vtbl = {
+    Dispatch_QueryInterface,
+    Dispatch_AddRef,
+    Dispatch_Release,
+    Dispatch_GetTypeInfoCount,
+    Dispatch_GetTypeInfo,
+    rotating_GetIDsOfNames,
+    rotating_b_Invoke
+};
+
+static IDispatch rotating_a_named_item = { &rotating_a_vtbl };
+static IDispatch rotating_b_named_item = { &rotating_b_vtbl };
+
 static HRESULT WINAPI ActiveScriptSite_QueryInterface(IActiveScriptSite *iface, REFIID riid, void **ppv)
 {
     *ppv = NULL;
@@ -419,6 +476,17 @@ static HRESULT WINAPI ActiveScriptSite_GetItemInfo(IActiveScriptSite *iface, LPC
     if(!wcscmp(name, L"shadowingItem")) {
         IDispatch_AddRef(&shadowing_named_item);
         *item_unk = (IUnknown*)&shadowing_named_item;
+        return S_OK;
+    }
+    if(!wcscmp(name, L"rotatingItem")) {
+        CHECK_EXPECT2(GetItemInfo_rotating);
+        if(rotating_get_item_idx++ == 0) {
+            IDispatch_AddRef(&rotating_a_named_item);
+            *item_unk = (IUnknown*)&rotating_a_named_item;
+        } else {
+            IDispatch_AddRef(&rotating_b_named_item);
+            *item_unk = (IUnknown*)&rotating_b_named_item;
+        }
         return S_OK;
     }
     ok(0, "unexpected call %s\n", wine_dbgstr_w(name));
@@ -2414,8 +2482,8 @@ static void test_named_items(void)
     hres = IActiveScriptParse_ParseScriptText(parse, L"dim abc\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
     ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
     CHECK_CALLED(OnEnterScript);
-    todo_wine CHECK_CALLED(GetItemInfo_visible);
-    todo_wine CHECK_CALLED(GetIDsOfNames_visible);
+    CHECK_CALLED(GetItemInfo_visible);
+    CHECK_CALLED(GetIDsOfNames_visible);
     CHECK_CALLED(OnLeaveScript);
     SET_EXPECT(OnEnterScript);
     SET_EXPECT(OnLeaveScript);
@@ -2437,6 +2505,80 @@ static void test_named_items(void)
     hres = IActiveScriptParse_ParseScriptText(parse, L"dim abc\ntestVar_global = 5\n", L"visibleCodeItem", NULL, NULL, 0, 0, 0, NULL, NULL);
     ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
     CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(OnLeaveScript);
+
+    /* Probe: multiple names in a single Dim statement. */
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT_MULTI(GetIDsOfNames_visible, 3);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"dim probe_a, probe_b, probe_c\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED_MULTI(GetIDsOfNames_visible, 3);
+    CHECK_CALLED(OnLeaveScript);
+
+    /* Probe: Dim with explicit array bounds. */
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetIDsOfNames_visible);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"dim probe_arr(5)\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetIDsOfNames_visible);
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetIDsOfNames_visible);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"sub probe_sub\ndim probe_local\nend sub\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetIDsOfNames_visible);
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetIDsOfNames_visible);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"class probe_cls\npublic probe_prop\nend class\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetIDsOfNames_visible);
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetIDsOfNames_visible);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"sub probe_named_sub\nend sub\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetIDsOfNames_visible);
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetIDsOfNames_visible);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"function probe_fn\nend function\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetIDsOfNames_visible);
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT_MULTI(GetIDsOfNames_visible, 2);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"dim probe_top\nsub probe_s3\nend sub\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED_MULTI(GetIDsOfNames_visible, 2);
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetIDsOfNames_visible);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"dim probe_second\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetIDsOfNames_visible);
     CHECK_CALLED(OnLeaveScript);
 
     SET_EXPECT(OnEnterScript);
@@ -3296,6 +3438,198 @@ static void test_cross_parse_name_redef(void)
     cross_parse_err     (func,  cls,   1041);
 }
 
+static void test_named_item_dim_first_use_no_double_fetch(void)
+{
+    IActiveScriptParse *parse;
+    IActiveScript *script;
+    HRESULT hres;
+    LONG ref;
+
+    script = create_vbscript();
+
+    hres = IActiveScript_QueryInterface(script, &IID_IActiveScriptParse, (void**)&parse);
+    ok(hres == S_OK, "Could not get IActiveScriptParse: %08lx\n", hres);
+
+    SET_EXPECT(GetLCID);
+    hres = IActiveScript_SetScriptSite(script, &ActiveScriptSite);
+    ok(hres == S_OK, "SetScriptSite failed: %08lx\n", hres);
+    CHECK_CALLED(GetLCID);
+
+    hres = IActiveScript_AddNamedItem(script, L"visibleItem", SCRIPTITEM_ISVISIBLE);
+    ok(hres == S_OK, "AddNamedItem failed: %08lx\n", hres);
+
+    SET_EXPECT(OnStateChange_INITIALIZED);
+    hres = IActiveScriptParse_InitNew(parse);
+    ok(hres == S_OK, "InitNew failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_INITIALIZED);
+
+    SET_EXPECT(OnStateChange_CONNECTED);
+    hres = IActiveScript_SetScriptState(script, SCRIPTSTATE_CONNECTED);
+    ok(hres == S_OK, "SetScriptState(SCRIPTSTATE_CONNECTED) failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_CONNECTED);
+
+    SET_EXPECT_MULTI(GetItemInfo_visible, 2);
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetIDsOfNames_visible);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"dim foo\n", L"visibleItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetIDsOfNames_visible);
+    CHECK_CALLED(OnLeaveScript);
+    ok(called_GetItemInfo_visible == 1,
+       "GetItemInfo_visible called %d times, expected 1\n", called_GetItemInfo_visible);
+    expect_GetItemInfo_visible = 0;
+    called_GetItemInfo_visible = 0;
+
+    SET_EXPECT(OnStateChange_DISCONNECTED);
+    SET_EXPECT(OnStateChange_INITIALIZED);
+    SET_EXPECT(OnStateChange_CLOSED);
+    hres = IActiveScript_Close(script);
+    ok(hres == S_OK, "Close failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_DISCONNECTED);
+    CHECK_CALLED(OnStateChange_INITIALIZED);
+    CHECK_CALLED(OnStateChange_CLOSED);
+
+    IActiveScriptParse_Release(parse);
+    ref = IActiveScript_Release(script);
+    ok(!ref, "ref = %ld\n", ref);
+}
+
+static void test_named_item_dim_two_slot_rotating(void)
+{
+    IActiveScriptParse *parse;
+    IActiveScript *script;
+    HRESULT hres;
+    LONG ref;
+
+    rotating_get_item_idx = 0;
+
+    script = create_vbscript();
+    hres = IActiveScript_QueryInterface(script, &IID_IActiveScriptParse, (void**)&parse);
+    ok(hres == S_OK, "Could not get IActiveScriptParse: %08lx\n", hres);
+
+    SET_EXPECT(GetLCID);
+    hres = IActiveScript_SetScriptSite(script, &ActiveScriptSite);
+    ok(hres == S_OK, "SetScriptSite failed: %08lx\n", hres);
+    CHECK_CALLED(GetLCID);
+
+    hres = IActiveScript_AddNamedItem(script, L"rotatingItem", SCRIPTITEM_ISVISIBLE);
+    ok(hres == S_OK, "AddNamedItem failed: %08lx\n", hres);
+
+    SET_EXPECT(OnStateChange_INITIALIZED);
+    hres = IActiveScriptParse_InitNew(parse);
+    ok(hres == S_OK, "InitNew failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_INITIALIZED);
+
+    SET_EXPECT(OnStateChange_CONNECTED);
+    hres = IActiveScript_SetScriptState(script, SCRIPTSTATE_CONNECTED);
+    ok(hres == S_OK, "SetScriptState failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_CONNECTED);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetItemInfo_rotating);
+    SET_EXPECT(testCall_rotating_a);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"rotatingItem.testCall\n", NULL, NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetItemInfo_rotating);
+    CHECK_CALLED(testCall_rotating_a);
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(GetItemInfo_rotating);
+    SET_EXPECT(GetIDsOfNames_rotating);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"dim foo\n", L"rotatingItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(GetItemInfo_rotating);
+    CHECK_CALLED(GetIDsOfNames_rotating);
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(testCall_rotating_a);
+    SET_EXPECT(testCall_rotating_b);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"rotatingItem.testCall\n", NULL, NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    ok(called_testCall_rotating_a, "expected testCall on the runtime-cached (first) dispatch\n");
+    ok(!called_testCall_rotating_b, "wine routed testCall to the dim-refetched dispatch\n");
+    expect_testCall_rotating_a = 0; called_testCall_rotating_a = 0;
+    expect_testCall_rotating_b = 0; called_testCall_rotating_b = 0;
+    CHECK_CALLED(OnLeaveScript);
+
+    SET_EXPECT(OnStateChange_DISCONNECTED);
+    SET_EXPECT(OnStateChange_INITIALIZED);
+    SET_EXPECT(OnStateChange_CLOSED);
+    hres = IActiveScript_Close(script);
+    ok(hres == S_OK, "Close failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_DISCONNECTED);
+    CHECK_CALLED(OnStateChange_INITIALIZED);
+    CHECK_CALLED(OnStateChange_CLOSED);
+
+    IActiveScriptParse_Release(parse);
+    ref = IActiveScript_Release(script);
+    ok(!ref, "ref = %ld\n", ref);
+}
+
+static void test_named_item_globalmembers_dim_no_refetch(void)
+{
+    IActiveScriptParse *parse;
+    IActiveScript *script;
+    HRESULT hres;
+    LONG ref;
+
+    script = create_vbscript();
+
+    hres = IActiveScript_QueryInterface(script, &IID_IActiveScriptParse, (void**)&parse);
+    ok(hres == S_OK, "Could not get IActiveScriptParse: %08lx\n", hres);
+
+    SET_EXPECT(GetLCID);
+    hres = IActiveScript_SetScriptSite(script, &ActiveScriptSite);
+    ok(hres == S_OK, "SetScriptSite failed: %08lx\n", hres);
+    CHECK_CALLED(GetLCID);
+
+    SET_EXPECT(GetItemInfo_global);
+    hres = IActiveScript_AddNamedItem(script, L"globalItem", SCRIPTITEM_GLOBALMEMBERS);
+    ok(hres == S_OK, "AddNamedItem failed: %08lx\n", hres);
+    CHECK_CALLED(GetItemInfo_global);
+
+    SET_EXPECT(OnStateChange_INITIALIZED);
+    hres = IActiveScriptParse_InitNew(parse);
+    ok(hres == S_OK, "InitNew failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_INITIALIZED);
+
+    SET_EXPECT(OnStateChange_CONNECTED);
+    hres = IActiveScript_SetScriptState(script, SCRIPTSTATE_CONNECTED);
+    ok(hres == S_OK, "SetScriptState failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_CONNECTED);
+
+    SET_EXPECT(OnEnterScript);
+    SET_EXPECT(OnLeaveScript);
+    hres = IActiveScriptParse_ParseScriptText(parse, L"dim foo\n", L"globalItem", NULL, NULL, 0, 0, 0, NULL, NULL);
+    ok(hres == S_OK, "ParseScriptText failed: %08lx\n", hres);
+    CHECK_CALLED(OnEnterScript);
+    CHECK_CALLED(OnLeaveScript);
+    ok(!called_GetItemInfo_global, "GetItemInfo refetched on GLOBALMEMBERS dim parse\n");
+
+    SET_EXPECT(OnStateChange_DISCONNECTED);
+    SET_EXPECT(OnStateChange_INITIALIZED);
+    SET_EXPECT(OnStateChange_CLOSED);
+    hres = IActiveScript_Close(script);
+    ok(hres == S_OK, "Close failed: %08lx\n", hres);
+    CHECK_CALLED(OnStateChange_DISCONNECTED);
+    CHECK_CALLED(OnStateChange_INITIALIZED);
+    CHECK_CALLED(OnStateChange_CLOSED);
+
+    IActiveScriptParse_Release(parse);
+    ref = IActiveScript_Release(script);
+    ok(!ref, "ref = %ld\n", ref);
+}
+
 static void test_RegExp(void)
 {
     IRegExp2 *regexp;
@@ -3523,6 +3857,9 @@ START_TEST(vbscript)
         test_named_item_no_dim_routes_to_host();
         test_const_at_top_level();
         test_cross_parse_name_redef();
+        test_named_item_dim_first_use_no_double_fetch();
+        test_named_item_dim_two_slot_rotating();
+        test_named_item_globalmembers_dim_no_refetch();
         test_scriptdisp();
         test_code_persistence();
         test_script_typeinfo();
