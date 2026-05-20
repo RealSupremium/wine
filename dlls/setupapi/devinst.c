@@ -5281,7 +5281,7 @@ BOOL WINAPI SetupDiGetCustomDevicePropertyW(HDEVINFO devinfo, SP_DEVINFO_DATA *d
 /***********************************************************************
  *              SetupDiGetDriverInstallParamsA (SETUPAPI.@)
  */
-BOOL SetupDiGetDriverInstallParamsA(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data,
+BOOL WINAPI SetupDiGetDriverInstallParamsA(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data,
         SP_DRVINFO_DATA_A *driver_data, SP_DRVINSTALL_PARAMS *driver_install)
 {
     FIXME("%p %p %p %p\n", devinfo, device_data, driver_data, driver_install);
@@ -5292,7 +5292,7 @@ BOOL SetupDiGetDriverInstallParamsA(HDEVINFO devinfo, SP_DEVINFO_DATA *device_da
 /***********************************************************************
  *              SetupDiGetDriverInstallParamsW (SETUPAPI.@)
  */
-BOOL SetupDiGetDriverInstallParamsW(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data,
+BOOL WINAPI SetupDiGetDriverInstallParamsW(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data,
         SP_DRVINFO_DATA_W *driver_data, SP_DRVINSTALL_PARAMS *driver_install)
 {
     FIXME("%p %p %p %p\n", devinfo, device_data, driver_data, driver_install);
