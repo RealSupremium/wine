@@ -6135,7 +6135,7 @@ GpStatus WINGDIPAPI GdipMeasureString(GpGraphics *graphics,
     if(!graphics || !string || !font || !rect || !bounds)
         return InvalidParameter;
 
-    if(!has_gdi_dc(graphics))
+    if(!has_gdi_dc(graphics) || (graphics->owndc && !IsWindow(graphics->hwnd)))
     {
         hdc = temp_hdc = CreateCompatibleDC(0);
         if (!temp_hdc) return OutOfMemory;

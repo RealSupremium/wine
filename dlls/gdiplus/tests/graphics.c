@@ -35,6 +35,7 @@ static GpStatus (WINAPI *pGdipGraphicsSetAbort)(GpGraphics*,GdiplusAbort*);
 static const REAL mm_per_inch = 25.4;
 static const REAL point_per_inch = 72.0;
 static HWND hwnd;
+static HWND hwnd2;
 
 static void set_rect_empty(RectF *rc)
 {
@@ -4629,6 +4630,7 @@ static void test_measure_string(void)
     CharacterRange range;
     GpRegion *region;
     GpGraphics *graphics;
+    GpGraphics *graphics2;
     GpFontFamily *family;
     GpFont *font;
     GpStatus status;
@@ -4649,6 +4651,7 @@ static void test_measure_string(void)
 
     hdc = CreateCompatibleDC(0);
     status = GdipCreateFromHDC(hdc, &graphics);
+    status = GdipCreateFromHWND(hwnd2, &graphics2);
 
     status = GdipCreateFont(family, 20, FontStyleRegular, UnitPixel, &font);
     expect(Ok, status);
@@ -5083,6 +5086,21 @@ static void test_measure_string(void)
     expectf_(width_M_M, bounds.Width, 0.1);
     expect(3, glyphs);
     expect(1, lines);
+
+    DestroyWindow(hwnd2);
+    hwnd2 = NULL;
+    rect.X = 5.0;
+    rect.Y = 5.0;
+    rect.Width = width_M_M;
+    rect.Height = 32000.0;
+    status = GdipMeasureString(graphics2, string2, -1, font, &rect, format_no_wrap, &bounds, &glyphs, &lines);
+    expect(Ok, status);
+    if (status == Ok)
+    {
+        expectf_(width_M_M, bounds.Width, 0.1);
+        expect(3, glyphs);
+        expect(1, lines);
+    }
 
     status = GdipDeleteFont(font);
     expect(Ok, status);
@@ -7549,6 +7567,9 @@ START_TEST(graphics)
     hwnd = CreateWindowA( "gdiplus_test", "graphics test", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                           CW_USEDEFAULT, CW_USEDEFAULT, 200, 200, 0, 0, GetModuleHandleA(0), 0 );
     ok(hwnd != NULL, "Expected window to be created\n");
+    hwnd2 = CreateWindowA( "gdiplus_test", "test graphics after window destroy", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                          CW_USEDEFAULT, CW_USEDEFAULT, 200, 200, 0, 0, GetModuleHandleA(0), 0 );
+    ok(hwnd2 != NULL, "Expected window to be created\n");
 
     gdiplusStartupInput.GdiplusVersion              = 1;
     gdiplusStartupInput.DebugEventCallback          = NULL;
