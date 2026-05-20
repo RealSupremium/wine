@@ -26,6 +26,7 @@
 #include <stdbool.h>
 #include <gst/gst.h>
 #include <gst/audio/audio.h>
+#include <gst/video/video.h>
 
 /* unixlib.c */
 
@@ -111,5 +112,14 @@ extern void wg_allocator_release_sample(GstAllocator *allocator, struct wg_sampl
         bool discard_data);
 
 extern gboolean gst_element_register_winegstreamerstepper(GstPlugin *plugin);
+
+void buffer_add_video_meta(GstBuffer *buffer, GstVideoInfo *info);
+
+G_BEGIN_DECLS
+G_DECLARE_FINAL_TYPE(WgVideoBufferPool, wg_video_buffer_pool, WG, VIDEO_BUFFER_POOL,
+                     GstVideoBufferPool);
+extern WgVideoBufferPool *wg_video_buffer_pool_create(GstCaps *caps, GstVideoInfo *info,
+        gsize max_size, GstAllocator *allocator, GstVideoAlignment *align);
+G_END_DECLS
 
 #endif /* __WINE_WINEGSTREAMER_UNIX_PRIVATE_H */

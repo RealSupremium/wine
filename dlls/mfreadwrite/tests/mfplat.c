@@ -2045,6 +2045,158 @@ static void test_interfaces(void)
         IMFStreamDescriptor_Release(audio_streams[i]);
 }
 
+static void test_source_reader_stride(void)
+{
+    IMFAttributes *attributes;
+    IMFMediaType *mediatype;
+    IMFSourceReader *reader;
+    IMFByteStream *stream;
+    UINT32 compressed;
+    UINT64 framesize;
+    UINT32 stride;
+    GUID subtype;
+    HRESULT hr;
+
+    if (!pMFCreateMFByteStreamOnStream)
+    {
+        win_skip("MFCreateMFByteStreamOnStream() not found\n");
+        return;
+    }
+
+    winetest_push_context("%s", "test_align.mp4");
+
+    /* test_align.mp4 is a video of solid red, so it has predictable YUV values:
+     * Y = 0x51, U = 0x5A, V = 0xF0
+     *
+     * we can then use these values to check if all planes are at the expected offset. */
+    stream = get_resource_stream("test_align.mp4");
+    /* Create the source reader with video processing enabled. This allows
+     * outputting RGB formats. */
+    MFCreateAttributes(&attributes, 1);
+    hr = IMFAttributes_SetUINT32(attributes, &MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = MFCreateSourceReaderFromByteStream(stream, attributes, &reader);
+    if (FAILED(hr))
+    {
+        skip("MFCreateSourceReaderFromByteStream() failed, is G-Streamer missing?\n");
+        IMFByteStream_Release(stream);
+        IMFAttributes_Release(attributes);
+        winetest_pop_context();
+        return;
+    }
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IMFAttributes_Release(attributes);
+
+    hr = IMFSourceReader_SetStreamSelection(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    /* Current media type. */
+    hr = IMFSourceReader_GetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, &mediatype);
+    hr = IMFMediaType_GetGUID(mediatype, &MF_MT_SUBTYPE, &subtype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    todo_wine ok(IsEqualGUID(&subtype, &MFVideoFormat_H264), "Got subtype %s.\n", debugstr_guid(&subtype));
+
+    hr = IMFMediaType_GetUINT64(mediatype, &MF_MT_FRAME_SIZE, &framesize);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(framesize == ((UINT64)162 << 32 | 120), "Got frame size %ux%u.\n",
+            (unsigned int)(framesize >> 32), (unsigned int)framesize);
+    hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_DEFAULT_STRIDE, &stride);
+    todo_wine ok(hr == MF_E_ATTRIBUTENOTFOUND, "Unexpected hr %#lx.\n", hr);
+
+    IMFMediaType_Release(mediatype);
+
+    winetest_push_context("NV12");
+
+    hr = MFCreateMediaType(&mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_SetGUID(mediatype, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_SetGUID(mediatype, &MF_MT_SUBTYPE, &MFVideoFormat_NV12);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, NULL, mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFMediaType_Release(mediatype);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, &mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_GetGUID(mediatype, &MF_MT_SUBTYPE, &subtype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(IsEqualGUID(&subtype, &MFVideoFormat_NV12), "Got subtype %s.\n", debugstr_guid(&subtype));
+    hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_DEFAULT_STRIDE, &stride);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(stride == 162, "Got stride %u.\n", stride);
+    compressed = 0;
+    hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_COMPRESSED, &compressed);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!compressed, "Unexpected compressed\n");
+    IMFMediaType_Release(mediatype);
+
+    winetest_pop_context();
+
+    winetest_push_context("YV12");
+
+    hr = MFCreateMediaType(&mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_SetGUID(mediatype, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_SetGUID(mediatype, &MF_MT_SUBTYPE, &MFVideoFormat_YV12);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, NULL, mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFMediaType_Release(mediatype);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, &mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_GetGUID(mediatype, &MF_MT_SUBTYPE, &subtype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(IsEqualGUID(&subtype, &MFVideoFormat_YV12), "Got subtype %s.\n", debugstr_guid(&subtype));
+    hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_DEFAULT_STRIDE, &stride);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(stride == 162, "Got stride %u.\n", stride);
+    compressed = 0;
+    hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_COMPRESSED, &compressed);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!compressed, "Unexpected compressed\n");
+    IMFMediaType_Release(mediatype);
+
+    winetest_pop_context();
+
+    winetest_push_context("I420");
+
+    hr = MFCreateMediaType(&mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_SetGUID(mediatype, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_SetGUID(mediatype, &MF_MT_SUBTYPE, &MFVideoFormat_I420);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFSourceReader_SetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, NULL, mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFMediaType_Release(mediatype);
+
+    hr = IMFSourceReader_GetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, &mediatype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_GetGUID(mediatype, &MF_MT_SUBTYPE, &subtype);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(IsEqualGUID(&subtype, &MFVideoFormat_I420), "Got subtype %s.\n", debugstr_guid(&subtype));
+    hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_DEFAULT_STRIDE, &stride);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(stride == 162, "Got stride %u.\n", stride);
+    compressed = 0;
+    hr = IMFMediaType_GetUINT32(mediatype, &MF_MT_COMPRESSED, &compressed);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!compressed, "Unexpected compressed\n");
+    IMFMediaType_Release(mediatype);
+
+    winetest_pop_context();
+
+    IMFSourceReader_Release(reader);
+    IMFByteStream_Release(stream);
+
+    winetest_pop_context();
+}
+
 static void test_source_reader_transforms(BOOL enable_processing, BOOL enable_advanced)
 {
     static const struct attribute_desc h264_stream_type_desc[] =
@@ -3901,6 +4053,7 @@ START_TEST(mfplat)
     test_interfaces();
     test_source_reader("test.wav", false);
     test_source_reader("test.mp4", true);
+    test_source_reader_stride();
     test_source_reader_from_media_source();
     test_source_reader_transforms(FALSE, FALSE);
     test_source_reader_transforms(TRUE, FALSE);

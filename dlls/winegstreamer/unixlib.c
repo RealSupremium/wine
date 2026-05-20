@@ -339,3 +339,105 @@ void set_max_threads(GstElement *element)
         g_object_set(element, "max-threads", max_threads, NULL);
     }
 }
+
+typedef struct _WgVideoBufferPool
+{
+    GstVideoBufferPool parent;
+    GstVideoInfo *info;
+} WgVideoBufferPool;
+
+G_DEFINE_TYPE(WgVideoBufferPool, wg_video_buffer_pool, GST_TYPE_VIDEO_BUFFER_POOL);
+
+void buffer_add_video_meta(GstBuffer *buffer, GstVideoInfo *info)
+{
+    GstVideoMeta *meta;
+
+    if (!(meta = gst_buffer_get_video_meta(buffer)))
+        meta = gst_buffer_add_video_meta(buffer, GST_VIDEO_FRAME_FLAG_NONE,
+                        info->finfo->format, info->width, info->height);
+
+    if (!meta)
+        GST_ERROR("Failed to add video meta to buffer %"GST_PTR_FORMAT, buffer);
+    else
+    {
+        memcpy(meta->offset, info->offset, sizeof(info->offset));
+        memcpy(meta->stride, info->stride, sizeof(info->stride));
+    }
+}
+
+static GstFlowReturn wg_video_buffer_pool_alloc_buffer(GstBufferPool *gst_pool, GstBuffer **buffer,
+        GstBufferPoolAcquireParams *params)
+{
+    GstBufferPoolClass *parent_class = GST_BUFFER_POOL_CLASS(wg_video_buffer_pool_parent_class);
+    WgVideoBufferPool *pool = (WgVideoBufferPool *)gst_pool;
+    GstFlowReturn ret;
+
+    GST_LOG("%"GST_PTR_FORMAT", buffer %p, params %p", pool, buffer, params);
+
+    if (!(ret = parent_class->alloc_buffer(gst_pool, buffer, params)))
+    {
+        buffer_add_video_meta(*buffer, pool->info);
+        GST_INFO("%"GST_PTR_FORMAT" allocated buffer %"GST_PTR_FORMAT, pool, *buffer);
+    }
+
+    return ret;
+}
+
+static void wg_video_buffer_pool_init(WgVideoBufferPool *pool)
+{
+}
+
+static void wg_video_buffer_pool_dispose(GObject *obj)
+{
+    WgVideoBufferPool *pool = (WgVideoBufferPool *)(obj);
+    if (pool->info)
+    {
+        gst_video_info_free(pool->info);
+        pool->info = NULL;
+    }
+    G_OBJECT_CLASS(wg_video_buffer_pool_parent_class)->dispose(obj);
+}
+
+static void wg_video_buffer_pool_class_init(WgVideoBufferPoolClass *klass)
+{
+    GObjectClass *base_class;
+    GstBufferPoolClass *pool_class = GST_BUFFER_POOL_CLASS(klass);
+    pool_class->alloc_buffer = wg_video_buffer_pool_alloc_buffer;
+
+    base_class = G_OBJECT_CLASS(klass);
+    base_class->dispose = wg_video_buffer_pool_dispose;
+}
+
+WgVideoBufferPool *wg_video_buffer_pool_create(GstCaps *caps, GstVideoInfo *info,
+        gsize max_size, GstAllocator *allocator, GstVideoAlignment *align)
+{
+    WgVideoBufferPool *pool;
+    GstStructure *config;
+
+    if (!(pool = g_object_new(wg_video_buffer_pool_get_type(), NULL)))
+        return NULL;
+
+    pool->info = info;
+    if (!(config = gst_buffer_pool_get_config(GST_BUFFER_POOL(pool))))
+        GST_ERROR("Failed to get %"GST_PTR_FORMAT" config.", pool);
+    else
+    {
+        gst_buffer_pool_config_add_option(config, GST_BUFFER_POOL_OPTION_VIDEO_META);
+        gst_buffer_pool_config_add_option(config, GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT);
+        gst_buffer_pool_config_set_video_alignment(config, align);
+
+        gst_buffer_pool_config_set_params(config, caps, max_size, 0, 0);
+        if (allocator) gst_buffer_pool_config_set_allocator(config, allocator, NULL);
+        else
+        {
+            GstAllocationParams alloc_params;
+            gst_allocation_params_init(&alloc_params);
+            gst_buffer_pool_config_set_allocator(config, NULL, &alloc_params);
+        }
+        if (!gst_buffer_pool_set_config(GST_BUFFER_POOL(pool), config))
+            GST_ERROR("Failed to set %"GST_PTR_FORMAT" config.", pool);
+    }
+
+    GST_INFO("Created %"GST_PTR_FORMAT, pool);
+    return pool;
+}
