@@ -462,6 +462,7 @@ NTSTATUS WINAPI RtlSetTimeZoneInformation( const RTL_TIME_ZONE_INFORMATION *tzin
 BOOL WINAPI RtlQueryUnbiasedInterruptTime(ULONGLONG *time)
 {
     ULONG high, low;
+    ULONGLONG bias;
 
     if (!time)
     {
@@ -473,9 +474,9 @@ BOOL WINAPI RtlQueryUnbiasedInterruptTime(ULONGLONG *time)
     {
         high = user_shared_data->InterruptTime.High1Time;
         low = user_shared_data->InterruptTime.LowPart;
+        bias = user_shared_data->InterruptTimeBias;
     }
     while (high != user_shared_data->InterruptTime.High2Time);
-    /* FIXME: should probably subtract InterruptTimeBias */
-    *time = (ULONGLONG)high << 32 | low;
+    *time = ((ULONGLONG)high << 32 | low) - bias;
     return TRUE;
 }
