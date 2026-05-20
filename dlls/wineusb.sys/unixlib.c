@@ -253,13 +253,14 @@ static int LIBUSB_CALL hotplug_cb(libusb_context *context, libusb_device *device
 static NTSTATUS usb_main_loop(void *args)
 {
     const struct usb_main_loop_params *params = args;
+    struct timeval tv = { .tv_sec = 0, .tv_usec = 0 };
     int ret;
 
     while (!thread_shutdown)
     {
         if (get_event(params->event)) return STATUS_PENDING;
 
-        if ((ret = libusb_handle_events(NULL)))
+        if ((ret = libusb_handle_events_timeout(NULL, &tv)))
             ERR("Error handling events: %s\n", libusb_strerror(ret));
     }
 
@@ -361,11 +362,25 @@ static void LIBUSB_CALL transfer_cb(struct libusb_transfer *transfer)
                 break;
             }
 
+            case URB_FUNCTION_CLASS_DEVICE:
+            case URB_FUNCTION_CLASS_INTERFACE:
+            case URB_FUNCTION_CLASS_ENDPOINT:
+            case URB_FUNCTION_CLASS_OTHER:
             case URB_FUNCTION_VENDOR_DEVICE:
             case URB_FUNCTION_VENDOR_INTERFACE:
             case URB_FUNCTION_VENDOR_ENDPOINT:
+            case URB_FUNCTION_VENDOR_OTHER:
             {
                 struct _URB_CONTROL_VENDOR_OR_CLASS_REQUEST *req = &urb->UrbControlVendorClassRequest;
+                req->TransferBufferLength = transfer->actual_length;
+                if (req->TransferFlags & USBD_TRANSFER_DIRECTION_IN)
+                    memcpy(transfer_buffer, libusb_control_transfer_get_data(transfer), transfer->actual_length);
+                break;
+            }
+
+            case URB_FUNCTION_CONTROL_TRANSFER:
+            {
+                struct _URB_CONTROL_TRANSFER *req = &urb->UrbControlTransfer;
                 req->TransferBufferLength = transfer->actual_length;
                 if (req->TransferFlags & USBD_TRANSFER_DIRECTION_IN)
                     memcpy(transfer_buffer, libusb_control_transfer_get_data(transfer), transfer->actual_length);
@@ -540,12 +555,96 @@ static NTSTATUS usb_submit_urb(void *args)
             return STATUS_SUCCESS;
         }
 
+        case URB_FUNCTION_SELECT_INTERFACE:
+        {
+            struct _URB_SELECT_INTERFACE *req = &urb->UrbSelectInterface;
+            struct libusb_config_descriptor *config_desc;
+            const struct libusb_interface *interface;
+            const struct libusb_interface_descriptor *iface_desc;
+            int i;
+
+            // Log interface number and alt setting
+            ERR("Interface %u, Alt Setting %u.\n", req->Interface.InterfaceNumber, req->Interface.AlternateSetting);
+
+            // Detach from kernel
+            if ((ret = libusb_kernel_driver_active(handle, req->Interface.InterfaceNumber)) < 0)
+            {
+                WARN("Failed to check kernel driver: %s\n", libusb_strerror(ret));
+            }
+            else if (ret == 1)
+            {
+                if ((ret = libusb_detach_kernel_driver(handle, req->Interface.InterfaceNumber)) < 0)
+                {
+                    WARN("Failed to detach kernel driver: %s\n", libusb_strerror(ret));
+                    return USBD_STATUS_REQUEST_FAILED;
+                }
+            }
+
+            if ((ret = libusb_claim_interface(handle, req->Interface.InterfaceNumber)) < 0 && ret != LIBUSB_ERROR_BUSY)
+                WARN("Failed to claim interface %u: %s\n", req->Interface.InterfaceNumber, libusb_strerror(ret));
+
+            if ((ret = libusb_set_interface_alt_setting(handle, req->Interface.InterfaceNumber, req->Interface.AlternateSetting)) < 0)
+            {
+                ERR("Failed to set interface alt setting %u: %s\n", req->Interface.AlternateSetting, libusb_strerror(ret));
+                return USBD_STATUS_REQUEST_FAILED;
+            }
+
+            if ((ret = libusb_get_active_config_descriptor(libusb_get_device(handle), &config_desc)) < 0)
+            {
+                ERR("Failed to get config descriptor: %s\n", libusb_strerror(ret));
+                return USBD_STATUS_REQUEST_FAILED;
+            }
+
+            if (req->Interface.InterfaceNumber >= config_desc->bNumInterfaces)
+            {
+                libusb_free_config_descriptor(config_desc);
+                return USBD_STATUS_REQUEST_FAILED;
+            }
+
+            interface = &config_desc->interface[req->Interface.InterfaceNumber];
+            iface_desc = NULL;
+            for (i = 0; i < interface->num_altsetting; i++)
+            {
+                if (interface->altsetting[i].bAlternateSetting == req->Interface.AlternateSetting)
+                {
+                    iface_desc = &interface->altsetting[i];
+                    break;
+                }
+            }
+
+            if (!iface_desc)
+            {
+                libusb_free_config_descriptor(config_desc);
+                return USBD_STATUS_REQUEST_FAILED;
+            }
+
+            req->Interface.NumberOfPipes = iface_desc->bNumEndpoints;
+            for (i = 0; i < iface_desc->bNumEndpoints; i++)
+            {
+                const struct libusb_endpoint_descriptor *endpoint = &iface_desc->endpoint[i];
+                req->Interface.Pipes[i].MaximumPacketSize = endpoint->wMaxPacketSize;
+                req->Interface.Pipes[i].EndpointAddress = endpoint->bEndpointAddress;
+                req->Interface.Pipes[i].Interval = endpoint->bInterval;
+                req->Interface.Pipes[i].PipeType = (endpoint->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK);
+                req->Interface.Pipes[i].PipeHandle = make_pipe_handle(endpoint->bEndpointAddress, req->Interface.Pipes[i].PipeType);
+            }
+
+            libusb_free_config_descriptor(config_desc);
+            ERR("SUCCESS\n");
+            return STATUS_SUCCESS;
+        }
+
+        case URB_FUNCTION_CLASS_DEVICE:
+        case URB_FUNCTION_CLASS_INTERFACE:
+        case URB_FUNCTION_CLASS_ENDPOINT:
+        case URB_FUNCTION_CLASS_OTHER:
         case URB_FUNCTION_VENDOR_DEVICE:
         case URB_FUNCTION_VENDOR_INTERFACE:
         case URB_FUNCTION_VENDOR_ENDPOINT:
+        case URB_FUNCTION_VENDOR_OTHER:
         {
             struct _URB_CONTROL_VENDOR_OR_CLASS_REQUEST *req = &urb->UrbControlVendorClassRequest;
-            uint8_t req_type = LIBUSB_REQUEST_TYPE_VENDOR;
+            uint8_t req_type = req->RequestTypeReservedBits;
             struct transfer_ctx *transfer_ctx;
             unsigned char *buffer;
 
@@ -554,17 +653,25 @@ static NTSTATUS usb_submit_urb(void *args)
             transfer_ctx->irp = irp;
             transfer_ctx->transfer_buffer = params->transfer_buffer;
 
-            if (urb->UrbHeader.Function == URB_FUNCTION_VENDOR_DEVICE)
-                req_type |= LIBUSB_RECIPIENT_DEVICE;
-            else if (urb->UrbHeader.Function == URB_FUNCTION_VENDOR_INTERFACE)
-                req_type |= LIBUSB_RECIPIENT_INTERFACE;
-            else
-                req_type |= LIBUSB_RECIPIENT_ENDPOINT;
+            if (!req_type)
+            {
+                if (urb->UrbHeader.Function >= URB_FUNCTION_VENDOR_DEVICE && urb->UrbHeader.Function <= URB_FUNCTION_VENDOR_OTHER)
+                    req_type = LIBUSB_REQUEST_TYPE_VENDOR;
+                else
+                    req_type = LIBUSB_REQUEST_TYPE_CLASS;
 
-            if (req->TransferFlags & USBD_TRANSFER_DIRECTION_IN)
-                req_type |= LIBUSB_ENDPOINT_IN;
-            if (req->TransferFlags & ~USBD_TRANSFER_DIRECTION_IN)
-                FIXME("Unhandled flags %#x.\n", (int)req->TransferFlags);
+                if (urb->UrbHeader.Function == URB_FUNCTION_VENDOR_DEVICE || urb->UrbHeader.Function == URB_FUNCTION_CLASS_DEVICE)
+                    req_type |= LIBUSB_RECIPIENT_DEVICE;
+                else if (urb->UrbHeader.Function == URB_FUNCTION_VENDOR_INTERFACE || urb->UrbHeader.Function == URB_FUNCTION_CLASS_INTERFACE)
+                    req_type |= LIBUSB_RECIPIENT_INTERFACE;
+                else if (urb->UrbHeader.Function == URB_FUNCTION_VENDOR_ENDPOINT || urb->UrbHeader.Function == URB_FUNCTION_CLASS_ENDPOINT)
+                    req_type |= LIBUSB_RECIPIENT_ENDPOINT;
+                else
+                    req_type |= LIBUSB_RECIPIENT_OTHER;
+
+                if (req->TransferFlags & USBD_TRANSFER_DIRECTION_IN)
+                    req_type |= LIBUSB_ENDPOINT_IN;
+            }
 
             if (!(transfer = libusb_alloc_transfer(0)))
             {
@@ -589,6 +696,44 @@ static NTSTATUS usb_submit_urb(void *args)
             ret = libusb_submit_transfer(transfer);
             if (ret < 0)
                 ERR("Failed to submit vendor-specific interface transfer: %s\n", libusb_strerror(ret));
+
+            return STATUS_PENDING;
+        }
+
+        case URB_FUNCTION_CONTROL_TRANSFER:
+        {
+            struct _URB_CONTROL_TRANSFER *req = &urb->UrbControlTransfer;
+            struct transfer_ctx *transfer_ctx;
+            unsigned char *buffer;
+
+            if (!(transfer_ctx = calloc(1, sizeof(*transfer_ctx))))
+                return STATUS_NO_MEMORY;
+            transfer_ctx->irp = irp;
+            transfer_ctx->transfer_buffer = params->transfer_buffer;
+
+            if (!(transfer = libusb_alloc_transfer(0)))
+            {
+                free(transfer_ctx);
+                return STATUS_NO_MEMORY;
+            }
+            irp->Tail.Overlay.DriverContext[0] = transfer;
+
+            if (!(buffer = malloc(sizeof(struct libusb_control_setup) + req->TransferBufferLength)))
+            {
+                free(transfer_ctx);
+                libusb_free_transfer(transfer);
+                return STATUS_NO_MEMORY;
+            }
+
+            memcpy(buffer, req->SetupPacket, 8);
+            ((uint16_t *)buffer)[3] = libusb_cpu_to_le16(req->TransferBufferLength);
+            if (!(req->TransferFlags & USBD_TRANSFER_DIRECTION_IN))
+                memcpy(buffer + LIBUSB_CONTROL_SETUP_SIZE, params->transfer_buffer, req->TransferBufferLength);
+            libusb_fill_control_transfer(transfer, handle, buffer, transfer_cb, transfer_ctx, 0);
+            transfer->flags = LIBUSB_TRANSFER_FREE_BUFFER | LIBUSB_TRANSFER_FREE_TRANSFER;
+            ret = libusb_submit_transfer(transfer);
+            if (ret < 0)
+                ERR("Failed to submit control transfer: %s\n", libusb_strerror(ret));
 
             return STATUS_PENDING;
         }

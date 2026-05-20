@@ -265,6 +265,7 @@ static NTSTATUS fdo_pnp(IRP *irp)
 
         case IRP_MN_START_DEVICE:
             event_thread = CreateThread(NULL, 0, event_thread_proc, NULL, 0, NULL);
+            SetThreadPriority(event_thread, THREAD_PRIORITY_TIME_CRITICAL);
 
             irp->IoStatus.Status = STATUS_SUCCESS;
             break;
@@ -408,6 +409,7 @@ static void get_compatible_ids(const struct usb_device *device, struct string_bu
 static NTSTATUS query_id(struct usb_device *device, IRP *irp, BUS_QUERY_ID_TYPE type)
 {
     struct string_buffer buffer = {0};
+    WCHAR *ptr;
 
     TRACE("type %#x.\n", type);
 
@@ -429,6 +431,9 @@ static NTSTATUS query_id(struct usb_device *device, IRP *irp, BUS_QUERY_ID_TYPE 
             get_compatible_ids(device, &buffer);
             break;
 
+        case BusQueryContainerID:
+            return STATUS_NOT_SUPPORTED;
+
         default:
             FIXME("Unhandled ID query type %#x.\n", type);
             return irp->IoStatus.Status;
@@ -436,6 +441,9 @@ static NTSTATUS query_id(struct usb_device *device, IRP *irp, BUS_QUERY_ID_TYPE 
 
     if (!buffer.string)
         return STATUS_NO_MEMORY;
+
+    for (ptr = buffer.string; *ptr; ptr += wcslen(ptr) + 1)
+        TRACE("returning ID %s\n", debugstr_w(ptr));
 
     irp->IoStatus.Information = (ULONG_PTR)buffer.string;
     return STATUS_SUCCESS;
@@ -561,10 +569,17 @@ static NTSTATUS usb_submit_urb(struct usb_device *device, IRP *irp)
         case URB_FUNCTION_SYNC_RESET_PIPE_AND_CLEAR_STALL:
         case URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER:
         case URB_FUNCTION_GET_DESCRIPTOR_FROM_DEVICE:
+        case URB_FUNCTION_SELECT_INTERFACE:
         case URB_FUNCTION_SELECT_CONFIGURATION:
+        case URB_FUNCTION_CLASS_DEVICE:
+        case URB_FUNCTION_CLASS_INTERFACE:
+        case URB_FUNCTION_CLASS_ENDPOINT:
+        case URB_FUNCTION_CLASS_OTHER:
         case URB_FUNCTION_VENDOR_DEVICE:
         case URB_FUNCTION_VENDOR_INTERFACE:
         case URB_FUNCTION_VENDOR_ENDPOINT:
+        case URB_FUNCTION_VENDOR_OTHER:
+        case URB_FUNCTION_CONTROL_TRANSFER:
         {
             struct usb_submit_urb_params params =
             {
@@ -594,11 +609,26 @@ static NTSTATUS usb_submit_urb(struct usb_device *device, IRP *irp)
                     break;
                 }
 
+                case URB_FUNCTION_CLASS_DEVICE:
+                case URB_FUNCTION_CLASS_INTERFACE:
+                case URB_FUNCTION_CLASS_ENDPOINT:
+                case URB_FUNCTION_CLASS_OTHER:
                 case URB_FUNCTION_VENDOR_DEVICE:
                 case URB_FUNCTION_VENDOR_INTERFACE:
                 case URB_FUNCTION_VENDOR_ENDPOINT:
+                case URB_FUNCTION_VENDOR_OTHER:
                 {
                     struct _URB_CONTROL_VENDOR_OR_CLASS_REQUEST *req = &urb->UrbControlVendorClassRequest;
+                    if (req->TransferBufferMDL)
+                        params.transfer_buffer = MmGetSystemAddressForMdlSafe(req->TransferBufferMDL, NormalPagePriority);
+                    else
+                        params.transfer_buffer = req->TransferBuffer;
+                    break;
+                }
+
+                case URB_FUNCTION_CONTROL_TRANSFER:
+                {
+                    struct _URB_CONTROL_TRANSFER *req = &urb->UrbControlTransfer;
                     if (req->TransferBufferMDL)
                         params.transfer_buffer = MmGetSystemAddressForMdlSafe(req->TransferBufferMDL, NormalPagePriority);
                     else

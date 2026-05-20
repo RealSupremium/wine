@@ -1,22 +1,37 @@
-@ stub WinUsb_AbortPipe
-@ stub WinUsb_ControlTransfer
-@ stub WinUsb_FlushPipe
-@ stdcall WinUsb_Free(ptr)
-@ stub WinUsb_GetAssociatedInterface
-@ stub WinUsb_GetCurrentAlternateSetting
-@ stub WinUsb_GetDescriptor
-@ stub WinUsb_GetOverlappedResult
-@ stub WinUsb_GetPipePolicy
-@ stub WinUsb_GetPowerPolicy
-@ stub WinUsb_Initialize
-@ stub WinUsb_ParseConfigurationDescriptor
-@ stub WinUsb_ParseDescriptors
-@ stub WinUsb_QueryDeviceInformation
-@ stub WinUsb_QueryInterfaceSettings
-@ stub WinUsb_QueryPipe
-@ stub WinUsb_ReadPipe
-@ stub WinUsb_ResetPipe
-@ stub WinUsb_SetCurrentAlternateSetting
-@ stub WinUsb_SetPipePolicy
-@ stub WinUsb_SetPowerPolicy
-@ stub WinUsb_WritePipe
+1 stdcall WinUsb_AbortPipe(ptr long)
+2 stdcall WinUsb_AbortPipeAsync(ptr long)
+3 stdcall WinUsb_ControlTransfer(ptr int64 ptr long ptr ptr)
+4 stdcall WinUsb_FlushPipe(ptr long)
+5 stdcall WinUsb_Free(ptr)
+6 stdcall WinUsb_GetAdjustedFrameNumber(ptr ptr)
+7 stdcall WinUsb_GetAssociatedInterface(ptr long ptr)
+8 stdcall WinUsb_GetCurrentAlternateSetting(ptr ptr)
+9 stdcall WinUsb_GetCurrentFrameNumber(ptr ptr ptr)
+10 stdcall WinUsb_GetCurrentFrameNumberAndQpc(ptr ptr)
+11 stdcall WinUsb_GetDescriptor(ptr long long long ptr long ptr)
+12 stdcall WinUsb_GetOverlappedResult(ptr ptr ptr long)
+13 stdcall WinUsb_GetPipePolicy(ptr long long ptr ptr)
+14 stdcall WinUsb_GetPowerPolicy(ptr long ptr ptr)
+15 stdcall WinUsb_Initialize(ptr ptr)
+16 stdcall WinUsb_ParseConfigurationDescriptor(ptr ptr long long long long long)
+17 stdcall WinUsb_ParseDescriptors(ptr long ptr long)
+18 stdcall WinUsb_QueryDeviceInformation(ptr long ptr ptr)
+19 stdcall WinUsb_QueryInterfaceSettings(ptr long ptr)
+20 stdcall WinUsb_QueryPipe(ptr long long ptr)
+21 stdcall WinUsb_QueryPipeEx(ptr long long ptr)
+22 stdcall WinUsb_ReadIsochPipe(ptr long ptr long ptr ptr)
+23 stdcall WinUsb_ReadIsochPipeAsap(ptr long ptr long ptr ptr)
+24 stdcall WinUsb_ReadPipe(ptr long ptr long ptr ptr)
+25 stdcall WinUsb_RegisterIsochBuffer(ptr long ptr long ptr)
+26 stdcall WinUsb_ResetPipe(ptr long)
+27 stdcall WinUsb_ResetPipeAsync(ptr long)
+28 stdcall WinUsb_SetCurrentAlternateSetting(ptr long)
+29 stdcall WinUsb_SetCurrentAlternateSettingAsync(ptr long)
+30 stdcall WinUsb_SetPipePolicy(ptr long long long ptr)
+31 stdcall WinUsb_SetPowerPolicy(ptr long long ptr)
+32 stdcall WinUsb_StartTrackingForTimeSync(ptr ptr)
+33 stdcall WinUsb_StopTrackingForTimeSync(ptr ptr)
+34 stdcall WinUsb_UnregisterIsochBuffer(ptr)
+35 stdcall WinUsb_WriteIsochPipe(ptr long ptr long ptr ptr)
+36 stdcall WinUsb_WriteIsochPipeAsap(ptr long ptr long ptr ptr)
+37 stdcall WinUsb_WritePipe(ptr long ptr long ptr ptr)

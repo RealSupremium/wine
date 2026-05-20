@@ -365,8 +365,8 @@
 @ stdcall SetupDiGetDeviceRegistryPropertyW(long ptr long ptr ptr long ptr)
 @ stdcall SetupDiGetDriverInfoDetailA(ptr ptr ptr ptr long ptr)
 @ stdcall SetupDiGetDriverInfoDetailW(ptr ptr ptr ptr long ptr)
-@ stub SetupDiGetDriverInstallParamsA
-@ stub SetupDiGetDriverInstallParamsW
+@ stdcall SetupDiGetDriverInstallParamsA(ptr ptr ptr ptr)
+@ stdcall SetupDiGetDriverInstallParamsW(ptr ptr ptr ptr)
 @ stub SetupDiGetHwProfileFriendlyNameA
 @ stub SetupDiGetHwProfileFriendlyNameExA
 @ stub SetupDiGetHwProfileFriendlyNameExW

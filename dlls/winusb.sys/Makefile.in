@@ -1,0 +1,8 @@
+MODULE    = winusb.sys
+IMPORTS   = hidclass ntoskrnl usbd
+
+EXTRADLLFLAGS = -Wl,--subsystem,native
+
+SOURCES = \
+	winusb.c \
+	winusb.rc

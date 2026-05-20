@@ -5279,6 +5279,28 @@ BOOL WINAPI SetupDiGetCustomDevicePropertyW(HDEVINFO devinfo, SP_DEVINFO_DATA *d
 }
 
 /***********************************************************************
+ *              SetupDiGetDriverInstallParamsA (SETUPAPI.@)
+ */
+BOOL SetupDiGetDriverInstallParamsA(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data,
+        SP_DRVINFO_DATA_A *driver_data, SP_DRVINSTALL_PARAMS *driver_install)
+{
+    FIXME("%p %p %p %p\n", devinfo, device_data, driver_data, driver_install);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
+}
+
+/***********************************************************************
+ *              SetupDiGetDriverInstallParamsW (SETUPAPI.@)
+ */
+BOOL SetupDiGetDriverInstallParamsW(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data,
+        SP_DRVINFO_DATA_W *driver_data, SP_DRVINSTALL_PARAMS *driver_install)
+{
+    FIXME("%p %p %p %p\n", devinfo, device_data, driver_data, driver_install);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
+}
+
+/***********************************************************************
  *      SetupCopyOEMInfA  (SETUPAPI.@)
  */
 BOOL WINAPI SetupCopyOEMInfA( PCSTR source, PCSTR location,
