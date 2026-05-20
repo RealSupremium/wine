@@ -1094,14 +1094,14 @@ static void test_empty_key(void)
             V_R4(&b) = 0.0f;
         else
             V_I4(&b) = 0;
-        todo_wine ok(keys_match(&a, &b), "Empty should match zero key vt %d\n", zero_keys[i]);
+        ok(keys_match(&a, &b), "Empty should match zero key vt %d\n", zero_keys[i]);
     }
 
     /* Empty matches the empty string, but not a non-empty one. */
     V_VT(&a) = VT_EMPTY;
     V_VT(&b) = VT_BSTR;
     V_BSTR(&b) = SysAllocString(L"");
-    todo_wine ok(keys_match(&a, &b), "Empty should match empty string\n");
+    ok(keys_match(&a, &b), "Empty should match empty string\n");
     VariantClear(&b);
 
     V_VT(&b) = VT_BSTR;
