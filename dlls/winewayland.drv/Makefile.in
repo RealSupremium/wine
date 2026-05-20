@@ -8,6 +8,7 @@ VER_FILEDESCRIPTION_STR = "Wine Wayland driver"
 
 SOURCES = \
 	cursor-shape-v1.xml \
+	alpha-modifier-v1.xml \
 	display.c \
 	dllmain.c \
 	opengl.c \

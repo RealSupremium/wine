@@ -673,9 +673,25 @@ LRESULT WAYLAND_DesktopWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 void WAYLAND_SetLayeredWindowAttributes(HWND hwnd, COLORREF key, BYTE alpha, DWORD flags)
 {
     struct wayland_win_data *data;
+    struct wayland_surface *surface;
+    uint32_t opacity = UINT32_MAX;
 
     if (!(data = wayland_win_data_get(hwnd))) return;
+
     data->layered_attribs_set = TRUE;
+
+    surface = data->wayland_surface;
+    if (surface && surface->wp_alpha_modifier_surface_v1 && (flags & LWA_ALPHA))
+    {
+        /* Convert BYTE alpha (0-255) to UINT32_MAX range
+         * 0 = fully transparent, UINT32_MAX = fully opaque */
+        opacity = (UINT32_MAX / 255) * alpha;
+
+        wp_alpha_modifier_surface_v1_set_multiplier(surface->wp_alpha_modifier_surface_v1, opacity);
+        wl_surface_commit(surface->wl_surface);
+        wl_display_flush(process_wayland.wl_display);
+    }
+
     wayland_win_data_release(data);
 }
 

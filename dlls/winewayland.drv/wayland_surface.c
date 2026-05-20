@@ -173,6 +173,12 @@ struct wayland_surface *wayland_surface_create(HWND hwnd)
         ERR("Failed to create wp_viewport Wayland surface\n");
         goto err;
     }
+    /* Initialize alpha modifier if supported */
+    if (process_wayland.wp_alpha_modifier_v1)
+    {
+        surface->wp_alpha_modifier_surface_v1 =
+            wp_alpha_modifier_v1_get_surface(process_wayland.wp_alpha_modifier_v1, surface->wl_surface);
+    }
 
     surface->window.scale = 1.0;
 
@@ -351,6 +357,12 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
                 surface->xdg_toplevel, NULL);
             xdg_toplevel_icon_v1_destroy(surface->xdg_toplevel_icon);
             surface->xdg_toplevel_icon = NULL;
+        }
+
+        if (surface->wp_alpha_modifier_surface_v1)
+        {
+            wp_alpha_modifier_surface_v1_destroy(surface->wp_alpha_modifier_surface_v1);
+            surface->wp_alpha_modifier_surface_v1 = NULL;
         }
 
         if (surface->xdg_toplevel)
