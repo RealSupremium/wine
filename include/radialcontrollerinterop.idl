@@ -1,7 +1,5 @@
 /*
- * Runtime Classes for windows.storage.dll
- *
- * Copyright (C) 2025 Mohamad Al-Jaf
+ * Copyright 2025 Ignacy Kuchciński
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -18,21 +16,30 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#pragma makedep register
-#pragma winrt ns_prefix
-
 import "inspectable.idl";
-import "asyncinfo.idl";
-import "eventtoken.idl";
-import "windows.foundation.idl";
-import "windowscontracts.idl";
-import "windows.system.idl";
-import "windows.storage.idl";
 
-namespace Windows.Storage {
-    runtimeclass StorageFile;
+[
+    uuid(1b0535c9-57ad-45c1-9d79-ad5c34360513),
+    object,
+    local
+]
+interface IRadialControllerInterop : IInspectable
+{
+    HRESULT CreateForWindow(
+        [in, annotation("__in")] HWND window,
+        [in, annotation("__in")] REFIID riid,
+        [out, retval, iid_is(riid), annotation("__com_outptr")] void **radialcontroller);
 }
 
-namespace Windows.Storage.Streams {
-    runtimeclass RandomAccessStreamReference;
+[
+    uuid(787cdaac-3186-476d-87e4-b9374a7b9970),
+    object,
+    local
+]
+interface IRadialControllerConfigurationInterop : IInspectable
+{
+    HRESULT GetForWindow(
+        [in, annotation("__in")] HWND window,
+        [in, annotation("__in")] REFIID riid,
+        [out, retval, iid_is(riid), annotation("__com_outptr")] void **radialcontrollerconfiguration);
 }
