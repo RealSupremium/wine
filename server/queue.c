@@ -3211,6 +3211,10 @@ DECL_HANDLER(send_message)
         case MSG_NOTIFY:
             list_add_tail( &recv_queue->msg_list[SEND_MESSAGE], &msg->entry );
             set_queue_bits( recv_queue, QS_SENDMESSAGE );
+            /* Allow the receiver to set foreground window after receiving a notify message.
+             * This is needed for tray icon callbacks where the application needs to
+             * display a popup menu in response to user clicks. */
+            if (recv_queue->input) recv_queue->input->user_time = monotonic_time;
             break;
         case MSG_POSTED:
             list_add_tail( &recv_queue->msg_list[POST_MESSAGE], &msg->entry );
