@@ -52,8 +52,7 @@ struct window_class
 
 C_ASSERT( sizeof(class_shm_t) == offsetof(class_shm_t, extra[0]) );
 
-static struct window_class *create_class( struct process *process, int local, struct unicode_str *name, unsigned int name_offset,
-                                          atom_t atom, mod_handle_t instance, unsigned int style, int cls_extra, int win_extra )
+static struct window_class *create_class( struct process *process, int local, int cls_extra )
 {
     struct window_class *class;
 
@@ -64,19 +63,6 @@ static struct window_class *create_class( struct process *process, int local, st
     class->local = local;
 
     if (!(class->shared = alloc_shared_object( offsetof(class_shm_t, extra[cls_extra]) ))) goto failed;
-    SHARED_WRITE_BEGIN( class->shared, class_shm_t )
-    {
-        memcpy( (void *)shared->name, name->str, name->len );
-        shared->name_offset  = name_offset;
-        shared->name_len     = name->len;
-        shared->atom         = atom;
-        shared->instance     = instance;
-        shared->style        = style;
-        shared->win_extra    = win_extra;
-        shared->cls_extra    = cls_extra;
-        memset( (void *)shared->extra, 0, cls_extra );
-    }
-    SHARED_WRITE_END;
 
     /* other fields are initialized by caller */
 
@@ -195,9 +181,34 @@ DECL_HANDLER(create_class)
     struct window_class *class;
     struct unicode_str name = get_req_unicode_str();
     struct atom_table *table = get_user_atom_table();
+    int local = !!(req->flags & CREATE_CLASS_LOCAL);
+    user_handle_t icon = 0, icon_small = 0;
     atom_t atom = req->atom, base_atom;
-    unsigned int offset = 0;
+    unsigned int name_offset = 0;
+    client_ptr_t menu_name = 0;
     WCHAR buffer[16];
+
+    if (req->flags & CREATE_CLASS_ICON)
+    {
+        if (name.len < sizeof(icon)) return set_error( STATUS_INVALID_PARAMETER );
+        memcpy( &icon, name.str, sizeof(icon) );
+        name.str += sizeof(icon) / sizeof(WCHAR);
+        name.len -= sizeof(icon);
+    }
+    if (req->flags & CREATE_CLASS_ICONSM)
+    {
+        if (name.len < sizeof(icon_small)) return set_error( STATUS_INVALID_PARAMETER );
+        memcpy( &icon_small, name.str, sizeof(icon_small) );
+        name.str += sizeof(icon_small) / sizeof(WCHAR);
+        name.len -= sizeof(icon_small);
+    }
+    if (req->flags & CREATE_CLASS_MENU)
+    {
+        if (name.len < sizeof(menu_name)) return set_error( STATUS_INVALID_PARAMETER );
+        memcpy( &menu_name, name.str, sizeof(menu_name) );
+        name.str += sizeof(menu_name) / sizeof(WCHAR);
+        name.len -= sizeof(menu_name);
+    }
 
     if (atom && !name.len) name = integral_atom_name( buffer, atom );
     if (!atom && !(atom = add_atom( table, &name ))) return;
@@ -206,9 +217,9 @@ DECL_HANDLER(create_class)
     {
         struct unicode_str base = name;
 
-        offset = req->name_offset;
-        base.str += offset;
-        base.len -= offset * sizeof(WCHAR);
+        name_offset = req->name_offset;
+        base.str += name_offset;
+        base.len -= name_offset * sizeof(WCHAR);
 
         if (!(base_atom = add_atom( table, &base )))
         {
@@ -222,7 +233,7 @@ DECL_HANDLER(create_class)
     }
 
     class = find_class( current->process, atom, req->instance );
-    if (class && !class->local == !req->local)
+    if (class && !class->local == !local)
     {
         set_win32_error( ERROR_CLASS_ALREADY_EXISTS );
         release_atom( table, atom );
@@ -238,8 +249,7 @@ DECL_HANDLER(create_class)
         return;
     }
 
-    if (!(class = create_class( current->process, req->local, &name, offset, base_atom,
-                                req->instance, req->style, req->cls_extra, req->win_extra )))
+    if (!(class = create_class( current->process, local, req->cls_extra )))
     {
         release_atom( table, atom );
         release_atom( table, base_atom );
@@ -247,6 +257,27 @@ DECL_HANDLER(create_class)
     }
     class->atom       = atom;
     class->client_ptr = req->client_ptr;
+
+    SHARED_WRITE_BEGIN( class->shared, class_shm_t )
+    {
+        memcpy( (void *)shared->name, name.str, name.len );
+        shared->name_offset  = name_offset;
+        shared->name_len     = name.len;
+        shared->atom         = base_atom;
+        shared->cursor       = req->cursor;
+        shared->background   = req->background;
+        shared->instance     = req->instance;
+        shared->style        = req->style;
+        shared->wndproc      = req->wndproc;
+        shared->win_extra    = req->win_extra;
+        shared->cls_extra    = req->cls_extra;
+        shared->icon         = icon;
+        shared->icon_small   = icon_small;
+        shared->menu_name    = menu_name;
+        memset( (void *)shared->extra, 0, req->cls_extra );
+    }
+    SHARED_WRITE_END;
+
     reply->locator   = get_shared_object_locator( class->shared );
     reply->atom      = base_atom;
 }
@@ -309,6 +340,30 @@ DECL_HANDLER(set_class_info)
         case GCLP_HMODULE:
             reply->old_info = shared->instance;
             shared->instance = req->new_info;
+            break;
+        case GCLP_WNDPROC:
+            reply->old_info = shared->wndproc;
+            shared->wndproc = req->new_info;
+            break;
+        case GCLP_HCURSOR:
+            reply->old_info = shared->cursor;
+            shared->cursor = req->new_info;
+            break;
+        case GCLP_HBRBACKGROUND:
+            reply->old_info = shared->background;
+            shared->background = req->new_info;
+            break;
+        case GCLP_HICON:
+            reply->old_info = shared->icon;
+            shared->icon = req->new_info;
+            break;
+        case GCLP_HICONSM:
+            reply->old_info = shared->icon_small;
+            shared->icon_small = req->new_info;
+            break;
+        case GCLP_MENUNAME:
+            reply->old_info = shared->menu_name;
+            shared->menu_name = req->new_info;
             break;
         default:
             if (req->size > sizeof(req->new_info) || req->offset < 0 ||
