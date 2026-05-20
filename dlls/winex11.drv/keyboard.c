@@ -1046,6 +1046,8 @@ static const struct {
  {0, NULL, NULL, NULL, NULL} /* sentinel */
 };
 static unsigned kbd_layout=0; /* index into above table of layouts */
+static int xkb_event_base, xkb_error_base;
+static unsigned short xkb_device_spec;
 #ifdef SONAME_LIBXKBREGISTRY
 static struct rxkb_context *rxkb_context;
 
@@ -1698,6 +1700,30 @@ static LANGID langid_from_xkb_layout( const char *layout )
     return MAKELANGID(LANG_NEUTRAL, SUBLANG_CUSTOM_UNSPECIFIED);
 };
 
+static struct layout *get_xkb_layout_by_group( int xkb_group )
+{
+    struct layout *layout;
+
+    LIST_FOR_EACH_ENTRY( layout, &xkb_layouts, struct layout, entry )
+        if (layout->xkb_group == xkb_group) return layout;
+
+    WARN( "Failed to find Xkb layout for group %d\n", xkb_group );
+    return NULL;
+}
+
+static const char *x11drv_xkb_layout_from_langid(LANGID langid)
+{
+    unsigned int i;
+
+    /* TODO: precompute a sorted array of pointers to do bsearch here as well? */
+    for (i = 0; i < ARRAY_SIZE(layout_ids); i++)
+    {
+        if (langid == layout_ids[i].langid)
+            return layout_ids[i].name;
+    }
+    return NULL;
+}
+
 static const struct klid_map_entry
 {
     const char *layout;
@@ -1736,9 +1762,9 @@ static DWORD klid_from_xkb_layout( const char *layout, const char *variant )
 }
 
 /* fuzzy layout detection through keysym / keycode matching, kbd_section must be held */
-static void detect_keyboard_layout( Display *display, XModifierKeymap *modmap, unsigned int xkb_group )
+static unsigned int detect_keyboard_layout( Display *display, XModifierKeymap *modmap, unsigned int xkb_group )
 {
-  unsigned current, match, mismatch, seq, i, syms;
+  unsigned current, match, mismatch, seq, i, syms, best_layout = 0;
   int score, keyc, key, pkey, ok;
   KeySym keysym;
   const char (*lkey)[MAIN_LEN][4];
@@ -1843,7 +1869,7 @@ static void detect_keyboard_layout( Display *display, XModifierKeymap *modmap, u
 	   match, mismatch, seq, score);
     if (score + (int)seq > max_score + (int)max_seq) {
       /* best match so far */
-      kbd_layout = current;
+      best_layout = current;
       max_score = score;
       max_seq = seq;
       ismatch = !mismatch;
@@ -1852,9 +1878,10 @@ static void detect_keyboard_layout( Display *display, XModifierKeymap *modmap, u
   /* we're done, report results if necessary */
   if (!ismatch)
     WARN("Using closest match (%s) for scan/virtual codes mapping.\n",
-        main_key_tab[kbd_layout].comment);
+        main_key_tab[best_layout].comment);
 
-  TRACE("detected layout is \"%s\"\n", main_key_tab[kbd_layout].comment);
+  TRACE("detected layout is \"%s\"\n", main_key_tab[best_layout].comment);
+  return best_layout;
 }
 
 
@@ -2094,16 +2121,29 @@ static void init_keycode_mappings( Display *display )
 /* initialize or update keyboard layouts */
 void init_keyboard_layouts( Display *display )
 {
-    unsigned int xkb_group;
+    unsigned int xkb_group, xkb_group_count;
+    unsigned prev_kbd_layout = kbd_layout;
+    unsigned int legacy_layout_idx;
     XkbStateRec xkb_state;
     XModifierKeymap *mmp;
     XkbDescRec *xkb_desc;
     struct layout *entry;
     LANGID xkb_lang = 0;
+    const char *variant;
+    const char *layout;
+    char buffer[1024];
     Status status;
     KeyCode *kcp;
+    DWORD klid;
+    LCID lcid;
 
     pthread_mutex_lock( &kbd_mutex );
+    if (kbd_layout != prev_kbd_layout)
+    {
+        TRACE("Keyboard layout already updated, returning\n");
+        pthread_mutex_unlock( &kbd_mutex );
+        return;
+    }
     XDisplayKeycodes( display, &min_keycode, &max_keycode );
     XFree( XGetKeyboardMapping( display, min_keycode, max_keycode + 1 - min_keycode, &keysyms_per_keycode ) );
 
@@ -2142,6 +2182,7 @@ void init_keyboard_layouts( Display *display )
         char *names[4];
         int count;
 
+        xkb_device_spec = xkb_desc->device_spec;
         XkbGetNames( display, XkbGroupNamesMask, xkb_desc );
         for (count = 0; count < ARRAY_SIZE(xkb_desc->names->groups); count++)
             if (!xkb_desc->names->groups[count]) break;
@@ -2174,25 +2215,64 @@ void init_keyboard_layouts( Display *display )
         XkbFreeKeyboard( xkb_desc, 0, True );
     }
 
-    detect_keyboard_layout( display, mmp, xkb_group );
-    XFreeModifiermap( mmp );
+    kbd_layout = detect_keyboard_layout( display, mmp, xkb_group );
 
     if (xkb_lang && xkb_lang != main_key_tab[kbd_layout].lcid)
         WARN( "Xkb langid %04x differs from detected langid %04x\n",
               xkb_lang, main_key_tab[kbd_layout].lcid );
+
+    if (!xkb_lang)
+    {
+        WARN("Xkb layout enumeration failed, falling back to fuzzy layout detection.\n");
+
+        xkb_group_count = status ? 1 : 4;
+        for (int i = 0; i < xkb_group_count; i++)
+        {
+            legacy_layout_idx = detect_keyboard_layout( display, mmp, i );
+            lcid = main_key_tab[legacy_layout_idx].lcid;
+            layout = x11drv_xkb_layout_from_langid( lcid );
+            if (strstr( main_key_tab[legacy_layout_idx].comment, "dvorak" ))
+            {
+                variant = "dvorak";
+                klid = 0x00010409;
+            }
+            else
+            {
+                variant = "";
+                klid = 0;
+            }
+            snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
+            create_layout_from_xkb( i, buffer, lcid, klid );
+        }
+    }
+    XFreeModifiermap(mmp);
 
     init_keycode_mappings( display );
 
     pthread_mutex_unlock( &kbd_mutex );
 }
 
+static HKL get_hkl( LANGID langid, WORD layout_id )
+{
+    LCID locale = LOWORD(NtUserGetKeyboardLayout(0));
+
+    TRACE( "langid %04x, layout_id %04x\n", langid, layout_id );
+
+    if (layout_id) return ULongToHandle( MAKELONG(locale, 0xf000 | layout_id) );
+    return ULongToHandle( MAKELONG(locale, langid) );
+}
 
 /***********************************************************************
  *		ActivateKeyboardLayout (X11DRV.@)
  */
 BOOL X11DRV_ActivateKeyboardLayout(HKL hkl, UINT flags)
 {
+    struct x11drv_thread_data *thread_data = x11drv_thread_data();
+
     WARN("%p, %04x: semi-stub!\n", hkl, flags);
+
+    if (hkl == thread_data->kbd_layout)
+        return TRUE;
 
     if (flags & KLF_SETFORPROCESS)
     {
@@ -2201,9 +2281,50 @@ BOOL X11DRV_ActivateKeyboardLayout(HKL hkl, UINT flags)
         return FALSE;
     }
 
+    thread_data->kbd_layout = hkl;
+
     return TRUE;
 }
 
+static void x11drv_update_input_lang( Display *display )
+{
+    unsigned old_kbd_layout = kbd_layout;
+    HWND hwnd;
+    HKL hkl;
+
+    init_keyboard_layouts( display );
+    if (kbd_layout != old_kbd_layout)
+    {
+        hwnd = get_focus();
+        if (!hwnd) hwnd = get_active_window();
+        hkl = get_hkl( main_key_tab[kbd_layout].lcid, 0 );
+        NtUserPostMessage( hwnd, WM_INPUTLANGCHANGEREQUEST, 0, (LPARAM)hkl );
+    }
+}
+
+void x11drv_keyboard_init_thread( struct x11drv_thread_data *data )
+{
+    unsigned int xkb_group;
+    XkbStateRec xkb_state;
+    struct layout *layout;
+    Status status;
+
+    XkbUseExtension( data->display, NULL, NULL );
+    XkbSelectEvents( data->display, XkbUseCoreKbd,
+                     XkbMapNotifyMask | XkbStateNotifyMask | XkbNewKeyboardNotifyMask,
+                     XkbMapNotifyMask | XkbStateNotifyMask | XkbNewKeyboardNotifyMask);
+    XkbSetDetectableAutoRepeat( data->display, True, NULL );
+    init_keyboard_layouts( data->display );
+    status = XkbGetState( data->display, XkbUseCoreKbd, &xkb_state );
+    xkb_group = status ? 0 : xkb_state.group;
+    TRACE( "current group %u (status %#x)\n", xkb_group, status );
+
+    layout = get_xkb_layout_by_group( xkb_group );
+
+    data->kbd_layout = get_hkl( layout->lang, layout->layout_id );
+    if (activate_initial_layout)
+        NtUserActivateKeyboardLayout( data->kbd_layout, 0 );
+}
 
 /***********************************************************************
  *           X11DRV_MappingNotify
@@ -2222,6 +2343,34 @@ BOOL X11DRV_MappingNotify( HWND dummy, XEvent *event )
     return TRUE;
 }
 
+BOOL x11drv_xkb_event_handler( HWND dummy, XEvent *event )
+{
+    XkbEvent *e = (XkbEvent *)event;
+
+    switch (e->any.xkb_type)
+    {
+        case XkbStateNotify:
+            TRACE("Received XkbStateNotify event, changed %#x, group %u\n", e->state.changed, e->state.group);
+            if (!(e->state.changed & XkbGroupStateMask))
+                return TRUE;
+            TRACE("Switching to group %u\n", e->state.group);
+            x11drv_update_input_lang( e->state.display );
+            break;
+        case XkbMapNotify:
+            TRACE("Received XkbMapNotify event, changed %#x\n", e->map.changed);
+            XkbRefreshKeyboardMapping( &e->map );
+            x11drv_update_input_lang( e->map.display );
+            break;
+        case XkbNewKeyboardNotify:
+            TRACE("Received XkbNewKeyboardNotify event, changed %#x, device %u\n",
+                  e->new_kbd.changed, e->new_kbd.device);
+            if (!xkb_device_spec || e->new_kbd.device != xkb_device_spec)
+                return TRUE;
+            x11drv_update_input_lang( e->new_kbd.display );
+            break;
+    }
+    return TRUE;
+}
 
 /***********************************************************************
  *           x11drv_init_keyboard
@@ -2229,6 +2378,9 @@ BOOL X11DRV_MappingNotify( HWND dummy, XEvent *event )
 void x11drv_init_keyboard( Display *display )
 {
     XkbUseExtension( display, NULL, NULL );
+    XkbQueryExtension( display, 0, &xkb_event_base, &xkb_error_base, 0, 0 );
+    TRACE("xkb_event_base %u, xkb_error_base %u\n", xkb_event_base, xkb_error_base);
+    X11DRV_register_event_handler( xkb_event_base, x11drv_xkb_event_handler, "Xkb" );
 
 #ifdef SONAME_LIBXKBREGISTRY
     if (!(xkbregistry_handle = dlopen( SONAME_LIBXKBREGISTRY, RTLD_NOW )))

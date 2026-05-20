@@ -404,6 +404,7 @@ struct x11drv_thread_data
     HWND     grab_hwnd;            /* window that currently grabs the mouse */
     HWND     last_focus;           /* last window that had focus */
     HWND     keymapnotify_hwnd;    /* window that should receive modifier release events */
+    HKL      kbd_layout;           /* active keyboard layout */
     XIM      xim;                  /* input method */
     HWND     last_xic_hwnd;        /* last xic window */
     XFontSet font_set;             /* international text drawing font set */
@@ -466,6 +467,7 @@ extern unsigned int screen_bpp;
 extern BOOL usexrandr;
 extern BOOL usexvidmode;
 extern BOOL use_egl;
+extern BOOL activate_initial_layout;
 extern BOOL use_take_focus;
 extern BOOL use_primary_selection;
 extern BOOL use_system_cursors;
@@ -755,6 +757,7 @@ extern void reapply_cursor_clipping(void);
 extern void ungrab_clipping_window(void);
 extern void move_resize_window( HWND hwnd, int dir, POINT pos );
 extern void x11drv_init_keyboard( Display *display );
+extern void x11drv_keyboard_init_thread( struct x11drv_thread_data *data );
 extern BOOL X11DRV_ProcessEvents( DWORD mask );
 
 typedef int (*x11drv_error_callback)( Display *display, XErrorEvent *event, void *arg );
