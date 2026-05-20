@@ -248,6 +248,7 @@ static void TOOLBAR_TooltipAddTool(const TOOLBAR_INFO *infoPtr, const TBUTTON_IN
 static void TOOLBAR_TooltipSetRect(const TOOLBAR_INFO *infoPtr, const TBUTTON_INFO *button);
 static LRESULT TOOLBAR_SetButtonInfo(TOOLBAR_INFO *infoPtr, INT Id,
                                      const TBBUTTONINFOW *lptbbi, BOOL isW);
+static int TOOLBAR_AutoSizeButtonWidth(TOOLBAR_INFO *infoPtr, TBUTTON_INFO *btnPtr, int btnIdx);
 
 
 static inline int default_top_margin(const TOOLBAR_INFO *infoPtr)
@@ -1414,6 +1415,8 @@ TOOLBAR_WrapToolbar(TOOLBAR_INFO *infoPtr)
 	else if ((btnPtr[i].fsStyle & BTNS_SEP) &&
             !(infoPtr->dwStyle & CCS_VERT))
             cx = (btnPtr[i].iBitmap > 0) ? btnPtr[i].iBitmap : SEPARATOR_WIDTH;
+    else if (btnPtr[i].fsStyle & BTNS_AUTOSIZE)
+        cx = TOOLBAR_AutoSizeButtonWidth(infoPtr, &btnPtr[i], i);
 	else
 	    cx = infoPtr->nButtonWidth;
 
@@ -1436,10 +1439,9 @@ TOOLBAR_WrapToolbar(TOOLBAR_INFO *infoPtr)
 	    continue;
 	}
 
-	/* The layout makes sure the bitmap is visible, but not the button. */
 	/* Test added to also wrap after a button that starts a row but     */
 	/* is bigger than the area.  - GA  8/01                             */
-        if ((x + cx - (infoPtr->nButtonWidth - infoPtr->nBitmapWidth) / 2 > width) ||
+        if ((x + cx > width) ||
             ((x == infoPtr->nIndent) && (cx > width)))
 	{
 	    BOOL bFound = FALSE;
@@ -1687,6 +1689,27 @@ static inline SIZE TOOLBAR_MeasureButton(const TOOLBAR_INFO *infoPtr, SIZE sizeS
     return sizeButton;
 }
 
+static int
+TOOLBAR_AutoSizeButtonWidth(TOOLBAR_INFO *infoPtr, TBUTTON_INFO *btnPtr, int btnIdx)
+{
+    SIZE sz, sizeButton;
+    HDC hdc;
+    HFONT hOldFont;
+    BOOL validImageList = TOOLBAR_IsValidImageList(infoPtr, 0);
+
+    hdc = GetDC (infoPtr->hwndSelf);
+    hOldFont = SelectObject (hdc, infoPtr->hFont);
+
+    TOOLBAR_MeasureString(infoPtr, btnPtr, hdc, &sz);
+
+    SelectObject (hdc, hOldFont);
+    ReleaseDC (infoPtr->hwndSelf, hdc);
+
+    sizeButton = TOOLBAR_MeasureButton(infoPtr, sz,
+        TOOLBAR_IsValidBitmapIndex(infoPtr, btnPtr[btnIdx].iBitmap),
+        validImageList);
+    return sizeButton.cx;
+}
 
 /***********************************************************************
 * 		TOOLBAR_CalcToolbar
@@ -1727,11 +1750,9 @@ static void
 TOOLBAR_LayoutToolbar(TOOLBAR_INFO *infoPtr)
 {
     TBUTTON_INFO *btnPtr;
-    SIZE sizeButton;
     INT i, nRows, nSepRows;
     INT x, y, cx, cy;
     BOOL bWrap;
-    BOOL validImageList = TOOLBAR_IsValidImageList(infoPtr, 0);
 
     TOOLBAR_WrapToolbar(infoPtr);
 
@@ -1777,24 +1798,7 @@ TOOLBAR_LayoutToolbar(TOOLBAR_INFO *infoPtr)
             if (btnPtr->cx)
               cx = btnPtr->cx;
             else if (btnPtr->fsStyle & BTNS_AUTOSIZE)
-            {
-              SIZE sz;
-	      HDC hdc;
-	      HFONT hOldFont;
-
-	      hdc = GetDC (infoPtr->hwndSelf);
-	      hOldFont = SelectObject (hdc, infoPtr->hFont);
-
-              TOOLBAR_MeasureString(infoPtr, btnPtr, hdc, &sz);
-
-	      SelectObject (hdc, hOldFont);
-	      ReleaseDC (infoPtr->hwndSelf, hdc);
-
-              sizeButton = TOOLBAR_MeasureButton(infoPtr, sz,
-                  TOOLBAR_IsValidBitmapIndex(infoPtr, infoPtr->buttons[i].iBitmap),
-                  validImageList);
-              cx = sizeButton.cx;
-            }
+                cx = TOOLBAR_AutoSizeButtonWidth(infoPtr, btnPtr, i);
             else
 	      cx = infoPtr->nButtonWidth;
 
