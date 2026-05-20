@@ -71,6 +71,18 @@ AddReg=\
     Services, \
     SessionMgr,\
     ThemeManager
+ProfileItems=\
+    ProfItems.explorer,\
+    ProfItems.notepad,\
+    ProfItems.regedit,\
+    ProfItems.clock,\
+    ProfItems.cmd,\
+    ProfItems.iexplore,\
+    ProfItems.taskmgr,\
+    ProfItems.winecfg,\
+    ProfItems.winefile,\
+    ProfItems.winemine,\
+    ProfItems.wordpad
 
 [DefaultInstall]
 Needs=BaseInstall
@@ -1339,3 +1351,65 @@ InfFiles  = 17
 NlsFiles  = 11
 SortFiles = 10,globalization\sorting
 WinmdFiles = 11,winmetadata
+
+[ProfItems.explorer]
+Name=File Explorer
+Cmdline=10,,explorer.exe
+WorkingDir=11
+
+[ProfItems.notepad]
+Name=Notepad
+Cmdline=10,,notepad.exe
+SubDir=Accessories
+WorkingDir=11
+
+[ProfItems.regedit]
+Name=Registry Editor
+Cmdline=10,,regedit.exe
+SubDir=Accessories\System Tools
+WorkingDir=11
+
+[ProfItems.clock]
+Name=Clock
+Cmdline=11,,clock.exe
+SubDir=Accessories
+WorkingDir=11
+
+[ProfItems.cmd]
+Name=Command Prompt
+Cmdline=11,,cmd.exe
+SubDir=Accessories
+WorkingDir=11
+
+[ProfItems.iexplore]
+Name=Wine Internet Explorer
+Cmdline=11,,iexplore.exe
+WorkingDir=11
+
+[ProfItems.taskmgr]
+Name=Task Manager
+Cmdline=11,,taskmgr.exe
+SubDir=Accessories\System Tools
+WorkingDir=11
+
+[ProfItems.winefile]
+Name=Wine File Manager
+Cmdline=11,,winefile.exe
+WorkingDir=11
+
+[ProfItems.winemine]
+Name=WineMine
+Cmdline=11,,winemine.exe
+SubDir=Accessories\Games
+WorkingDir=11
+
+[ProfItems.wordpad]
+Name=Wine Wordpad
+Cmdline=16422,,Windows NT\Accessories\wordpad.exe
+SubDir=Accessories
+WorkingDir=11
+
+[ProfItems.winecfg]
+Name=Wine configuration
+Cmdline=11,,winecfg.exe
+WorkingDir=11
