@@ -945,6 +945,9 @@ static INT GSUB_apply_MultipleSubst(const OT_LookupTable *look, WORD *glyphs, IN
             offset = GET_BE_WORD(msf1->Sequence[index]);
             seq = (const GSUB_Sequence*)((const BYTE*)msf1+offset);
             sub_count = GET_BE_WORD(seq->GlyphCount);
+            if (sub_count-1 > max_glyphs-*glyph_count)
+                return GSUB_E_OUTOFMEMORY;
+
             TRACE("  Glyph 0x%x (+%i)->",glyphs[glyph_index],(sub_count-1));
 
             for (j = (*glyph_count)+(sub_count-1); j > glyph_index; j--)
@@ -1138,6 +1141,8 @@ static INT GSUB_apply_ContextSubst(const OT_LookupList* lookup, const OT_LookupT
 
                         TRACE("   SUBST: %u -> %u %u.\n", l, sequence_index, lookup_index);
                         newIndex = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count, max_glyphs);
+                        if (newIndex == GSUB_E_OUTOFMEMORY)
+                            return GSUB_E_OUTOFMEMORY;
                         if (newIndex == GSUB_E_NOGLYPH)
                         {
                             ERR("   Chain failed to generate a glyph\n");
@@ -1225,6 +1230,8 @@ static INT GSUB_apply_ContextSubst(const OT_LookupList* lookup, const OT_LookupT
 
                         TRACE("   SUBST: %u -> %u %u.\n", l, sequence_index, lookup_index);
                         newIndex = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count, max_glyphs);
+                        if (newIndex == GSUB_E_OUTOFMEMORY)
+                            return GSUB_E_OUTOFMEMORY;
                         if (newIndex == GSUB_E_NOGLYPH)
                         {
                             ERR("   Chain failed to generate a glyph\n");
@@ -1385,6 +1392,8 @@ static INT GSUB_apply_ChainContextSubst(const OT_LookupList* lookup, const OT_Lo
 
                     TRACE("SUBST: %u -> %u %u.\n", k, sequence_index, lookup_index);
                     new_index = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count, max_glyphs);
+                    if (new_index == GSUB_E_OUTOFMEMORY)
+                        return GSUB_E_OUTOFMEMORY;
                     if (new_index == GSUB_E_NOGLYPH)
                         ERR("Chain failed to generate a glyph.\n");
                 }
@@ -1472,6 +1481,8 @@ static INT GSUB_apply_ChainContextSubst(const OT_LookupList* lookup, const OT_Lo
 
                 TRACE("SUBST: %u -> %u %u.\n", k, sequence_index, lookup_index);
                 new_index = GSUB_apply_lookup(lookup, lookup_index, glyphs, g, write_dir, glyph_count, max_glyphs);
+                if (new_index == GSUB_E_OUTOFMEMORY)
+                    return GSUB_E_OUTOFMEMORY;
                 if (new_index == GSUB_E_NOGLYPH)
                     ERR("Chain failed to generate a glyph.\n");
             }

@@ -135,6 +135,7 @@ enum usp10_script
 
 #define GSUB_E_NOFEATURE -20
 #define GSUB_E_NOGLYPH -10
+#define GSUB_E_OUTOFMEMORY -30
 
 #define FEATURE_ALL_TABLES 0
 #define FEATURE_GSUB_TABLE 1

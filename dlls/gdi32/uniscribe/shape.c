@@ -561,10 +561,12 @@ static int GSUB_apply_feature_all_lookups(const void *header, LoadedFeature *fea
     }
     if (out_index == GSUB_E_NOGLYPH)
         TRACE("lookups found no glyphs\n");
-    else
+    else if (out_index != GSUB_E_OUTOFMEMORY)
     {
         int out2;
         out2 = GSUB_apply_feature_all_lookups(header, feature, glyphs, glyph_index, write_dir, glyph_count, max_glyphs);
+        if (out2==GSUB_E_OUTOFMEMORY)
+            return GSUB_E_OUTOFMEMORY;
         if (out2!=GSUB_E_NOGLYPH)
             out_index = out2;
     }
@@ -850,6 +852,8 @@ static int apply_GSUB_feature(HDC hdc, SCRIPT_ANALYSIS *psa, ScriptCache* psc, W
                 INT prevCount = *pcGlyphs;
 
                 nextIndex = OpenType_apply_GSUB_lookup(psc->GSUB_Table, feature->lookups[lookup_index], pwOutGlyphs, i, write_dir, pcGlyphs, cMaxGlyphs);
+                if (nextIndex == GSUB_E_OUTOFMEMORY)
+                    return GSUB_E_OUTOFMEMORY;
                 if (*pcGlyphs != prevCount)
                 {
                     UpdateClusters(nextIndex, *pcGlyphs - prevCount, write_dir, cChars, pwLogClust);
