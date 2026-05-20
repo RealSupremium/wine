@@ -18,6 +18,7 @@ SOURCES = \
 	handle.c \
 	hook.c \
 	inproc_sync.c \
+	lpc_port.c \
 	mach.c \
 	mailslot.c \
 	main.c \

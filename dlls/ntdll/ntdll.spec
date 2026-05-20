@@ -206,7 +206,7 @@
 @ stdcall -syscall NtCreateToken(ptr long ptr long ptr ptr ptr ptr ptr ptr ptr ptr ptr)
 @ stdcall -syscall NtCreateTransaction(ptr long ptr ptr long long long long ptr ptr)
 @ stdcall -syscall NtCreateUserProcess(ptr ptr long long ptr ptr long long ptr ptr ptr)
-# @ stub NtCreateWaitablePort
+@ stdcall -syscall NtCreateWaitablePort(ptr ptr long long long)
 @ stdcall -arch=i386 NtCurrentTeb()
 @ stdcall -syscall NtDebugActiveProcess(long long)
 @ stdcall -syscall NtDebugContinue(long ptr long)
@@ -370,7 +370,7 @@
 @ stdcall -syscall=0x000b NtReplyWaitReceivePort(ptr ptr ptr ptr)
 @ stdcall -syscall=0x002b NtReplyWaitReceivePortEx(long ptr ptr ptr ptr)
 # @ stub NtReplyWaitReplyPort
-# @ stub NtRequestPort
+@ stdcall -syscall NtRequestPort(ptr ptr)
 @ stdcall -syscall=0x0022 NtRequestWaitReplyPort(ptr ptr ptr)
 @ stdcall -syscall NtResetEvent(long ptr)
 @ stdcall -syscall NtResetWriteWatch(long ptr long)
@@ -1280,7 +1280,7 @@
 @ stdcall -private ZwCreateToken(ptr long ptr long ptr ptr ptr ptr ptr ptr ptr ptr ptr) NtCreateToken
 @ stdcall -private ZwCreateTransaction(ptr long ptr ptr long long long long ptr ptr) NtCreateTransaction
 @ stdcall -private ZwCreateUserProcess(ptr ptr long long ptr ptr long long ptr ptr ptr) NtCreateUserProcess
-# @ stub ZwCreateWaitablePort
+@ stdcall -private ZwCreateWaitablePort(ptr ptr long long long) NtCreateWaitablePort
 @ stdcall -private ZwDebugActiveProcess(long long) NtDebugActiveProcess
 @ stdcall -private ZwDebugContinue(long ptr long) NtDebugContinue
 @ stdcall -private ZwDelayExecution(long ptr) NtDelayExecution
@@ -1442,7 +1442,7 @@
 @ stdcall -private ZwReplyWaitReceivePort(ptr ptr ptr ptr) NtReplyWaitReceivePort
 @ stdcall -private ZwReplyWaitReceivePortEx(long ptr ptr ptr ptr) NtReplyWaitReceivePortEx
 # @ stub ZwReplyWaitReplyPort
-# @ stub ZwRequestPort
+@ stdcall -private ZwRequestPort(ptr ptr) NtRequestPort
 @ stdcall -private ZwRequestWaitReplyPort(ptr ptr ptr) NtRequestWaitReplyPort
 @ stdcall -private ZwResetEvent(long ptr) NtResetEvent
 @ stdcall -private ZwResetWriteWatch(long ptr long) NtResetWriteWatch

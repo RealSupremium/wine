@@ -140,8 +140,12 @@ NTSTATUS WINAPI wow64_NtAcceptConnectPort( UINT *args )
     LPC_SECTION_WRITE *write = get_ptr( &args );
     LPC_SECTION_READ *read = get_ptr( &args );
 
-    FIXME( "%p %lu %p %u %p %p: stub\n", handle_ptr, id, msg, accept, write, read );
-    return STATUS_NOT_IMPLEMENTED;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    status = NtAcceptConnectPort( &handle, id, msg, accept, write, read );
+    put_handle( handle_ptr, handle );
+    return status;
 }
 
 
@@ -205,9 +209,15 @@ NTSTATUS WINAPI wow64_NtConnectPort( UINT *args )
     void *info = get_ptr( &args );
     ULONG *info_len = get_ptr( &args );
 
-    FIXME( "%p %p %p %p %p %p %p %p: stub\n",
-           handle_ptr, name32, qos, write, read, max_len, info, info_len );
-    return STATUS_NOT_IMPLEMENTED;
+    UNICODE_STRING name;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    unicode_str_32to64( &name, name32 );
+
+    status = NtConnectPort( &handle, &name, qos, write, read, max_len, info, info_len );
+    put_handle( handle_ptr, handle );
+    return status;
 }
 
 
@@ -404,6 +414,28 @@ NTSTATUS WINAPI wow64_NtCreateSection( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtCreateWaitablePort
+ */
+NTSTATUS WINAPI wow64_NtCreateWaitablePort( UINT *args )
+{
+    ULONG *handle_ptr = get_ptr( &args );
+    OBJECT_ATTRIBUTES32 *attr32 = get_ptr( &args );
+    ULONG info_len = get_ulong( &args );
+    ULONG data_len = get_ulong( &args );
+    ULONG reserved = get_ulong( &args );
+
+    struct object_attr64 attr;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    *handle_ptr = 0;
+    status = NtCreateWaitablePort( &handle, objattr_32to64( &attr, attr32 ), info_len, data_len, reserved );
+    put_handle( handle_ptr, handle );
+    return status;
+}
+
+
+/**********************************************************************
  *           wow64_NtCreateSemaphore
  */
 NTSTATUS WINAPI wow64_NtCreateSemaphore( UINT *args )
@@ -528,8 +560,7 @@ NTSTATUS WINAPI wow64_NtImpersonateClientOfPort( UINT *args )
     HANDLE handle = get_handle( &args );
     LPC_MESSAGE *msg = get_ptr( &args );
 
-    FIXME( "%p %p: stub\n", handle, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtImpersonateClientOfPort( handle, msg );
 }
 
 
@@ -541,8 +572,7 @@ NTSTATUS WINAPI wow64_NtListenPort( UINT *args )
     HANDLE handle = get_handle( &args );
     LPC_MESSAGE *msg = get_ptr( &args );
 
-    FIXME( "%p %p: stub\n", handle, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtListenPort( handle, msg );
 }
 
 
@@ -1296,8 +1326,7 @@ NTSTATUS WINAPI wow64_NtReplyPort( UINT *args )
     HANDLE handle = get_handle( &args );
     LPC_MESSAGE *reply = get_ptr( &args );
 
-    FIXME( "%p %p: stub\n", handle, reply );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtReplyPort( handle, reply );
 }
 
 
@@ -1311,8 +1340,7 @@ NTSTATUS WINAPI wow64_NtReplyWaitReceivePort( UINT *args )
     LPC_MESSAGE *reply = get_ptr( &args );
     LPC_MESSAGE *msg = get_ptr( &args );
 
-    FIXME( "%p %p %p %p: stub\n", handle, id, reply, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtReplyWaitReceivePort( handle, id, reply, msg );
 }
 
 
@@ -1327,8 +1355,19 @@ NTSTATUS WINAPI wow64_NtReplyWaitReceivePortEx( UINT *args )
     LPC_MESSAGE *msg = get_ptr( &args );
     LARGE_INTEGER *timeout = get_ptr( &args );
 
-    FIXME( "%p %p %p %p %p: stub\n", handle, id, reply, msg, timeout );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtReplyWaitReceivePortEx( handle, id, reply, msg, timeout );
+}
+
+
+/**********************************************************************
+ *           wow64_NtRequestPort
+ */
+NTSTATUS WINAPI wow64_NtRequestPort( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    LPC_MESSAGE *msg = get_ptr( &args );
+
+    return NtRequestPort( handle, msg );
 }
 
 
@@ -1341,8 +1380,7 @@ NTSTATUS WINAPI wow64_NtRequestWaitReplyPort( UINT *args )
     LPC_MESSAGE *msg_in = get_ptr( &args );
     LPC_MESSAGE *msg_out = get_ptr( &args );
 
-    FIXME( "%p %p %p: stub\n", handle, msg_in, msg_out );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtRequestWaitReplyPort( handle, msg_in, msg_out );
 }
 
 
@@ -1373,9 +1411,14 @@ NTSTATUS WINAPI wow64_NtSecureConnectPort( UINT *args )
     void *info = get_ptr( &args );
     ULONG *info_len = get_ptr( &args );
 
-    FIXME( "%p %p %p %p %p %p %p %p %p: stub\n",
-           handle_ptr, name32, qos, write, sid, read, max_len, info, info_len );
-    return STATUS_NOT_IMPLEMENTED;
+    UNICODE_STRING name;
+    HANDLE handle = 0;
+    NTSTATUS status;
+
+    status = NtSecureConnectPort( &handle, unicode_str_32to64( &name, name32 ),
+                                  qos, write, sid, read, max_len, info, info_len );
+    put_handle( handle_ptr, handle );
+    return status;
 }
 
 

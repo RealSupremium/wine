@@ -3061,14 +3061,71 @@ NTSTATUS WINAPI NtOpenSection( HANDLE *handle, ACCESS_MASK access, const OBJECT_
 }
 
 
+/* LPC port access rights */
+#define PORT_CONNECT      0x0001
+#define PORT_ALL_ACCESS   (STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | PORT_CONNECT)
+
 /***********************************************************************
  *             NtCreatePort (NTDLL.@)
  */
 NTSTATUS WINAPI NtCreatePort( HANDLE *handle, OBJECT_ATTRIBUTES *attr, ULONG info_len,
                               ULONG data_len, ULONG *reserved )
 {
-    FIXME( "(%p,%p,%u,%u,%p),stub!\n", handle, attr, info_len, data_len, reserved );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+    data_size_t len;
+    struct object_attributes *objattr;
+
+    TRACE( "(%p,%p,%u,%u,%p)\n", handle, attr, info_len, data_len, reserved );
+
+    *handle = 0;
+    if ((ret = alloc_object_attributes( attr, &objattr, &len )))
+        return ret;
+
+    SERVER_START_REQ( create_lpc_port )
+    {
+        req->access = PORT_ALL_ACCESS;
+        req->flags = 0;
+        req->max_msg_len = data_len;
+        req->max_connect_info = info_len;
+        wine_server_add_data( req, objattr, len );
+        if (!(ret = wine_server_call( req )))
+            *handle = wine_server_ptr_handle( reply->handle );
+    }
+    SERVER_END_REQ;
+    free( objattr );
+    return ret;
+}
+
+
+/***********************************************************************
+ *             NtCreateWaitablePort (NTDLL.@)
+ */
+NTSTATUS WINAPI NtCreateWaitablePort( HANDLE *handle, OBJECT_ATTRIBUTES *attr, ULONG info_len,
+                                      ULONG data_len, ULONG reserved )
+{
+    unsigned int ret;
+    data_size_t len;
+    struct object_attributes *objattr;
+
+    TRACE( "(%p,%p,%u,%u,%u)\n", handle, attr, info_len, data_len, reserved );
+
+    *handle = 0;
+    if ((ret = alloc_object_attributes( attr, &objattr, &len )))
+        return ret;
+
+    SERVER_START_REQ( create_lpc_port )
+    {
+        req->access = PORT_ALL_ACCESS;
+        req->flags = 0x0001;  /* PORT_FLAG_WAITABLE */
+        req->max_msg_len = data_len;
+        req->max_connect_info = info_len;
+        wine_server_add_data( req, objattr, len );
+        if (!(ret = wine_server_call( req )))
+            *handle = wine_server_ptr_handle( reply->handle );
+    }
+    SERVER_END_REQ;
+    free( objattr );
+    return ret;
 }
 
 
@@ -3079,23 +3136,110 @@ NTSTATUS WINAPI NtConnectPort( HANDLE *handle, UNICODE_STRING *name, SECURITY_QU
                                LPC_SECTION_WRITE *write, LPC_SECTION_READ *read, ULONG *max_len,
                                void *info, ULONG *info_len )
 {
-    FIXME( "(%p,%s,%p,%p,%p,%p,%p,%p),stub!\n", handle, debugstr_us(name), qos,
-           write, read, max_len, info, info_len );
-    if (info && info_len) TRACE("msg = %s\n", debugstr_an( info, *info_len ));
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+    data_size_t len;
+    struct object_attributes *objattr;
+    OBJECT_ATTRIBUTES attr;
+    ULONG in_len = (info && info_len) ? *info_len : 0;
+    HANDLE port_handle;
+
+    TRACE( "(%p,%s,%p,%p,%p,%p,%p,%p)\n", handle, debugstr_us(name), qos, write, read, max_len, info, info_len );
+
+    if (!handle)
+        return STATUS_ACCESS_VIOLATION;
+    if (!name)
+        return STATUS_OBJECT_NAME_INVALID;
+
+    if (write)
+        FIXME( "LPC_SECTION_WRITE not supported\n" );
+    if (read)
+        FIXME( "LPC_SECTION_READ not supported\n" );
+
+    *handle = 0;
+    attr.Length = sizeof(attr);
+    attr.RootDirectory = 0;
+    attr.ObjectName = name;
+    attr.Attributes = 0;
+    attr.SecurityDescriptor = NULL;
+    attr.SecurityQualityOfService = qos;
+
+    if ((ret = alloc_object_attributes( &attr, &objattr, &len )))
+        return ret;
+
+    SERVER_START_REQ( connect_lpc_port )
+    {
+        req->access = PORT_ALL_ACCESS;
+        req->info_size = in_len;
+        wine_server_add_data( req, objattr, len );
+        if (in_len) wine_server_add_data( req, info, in_len );
+        if (!(ret = wine_server_call( req )))
+        {
+            port_handle = wine_server_ptr_handle( reply->handle );
+            if (info_len)
+                *info_len = reply->info_size;
+        }
+    }
+    SERVER_END_REQ;
+
+    free( objattr );
+
+    if (ret) return ret;
+
+    /* Wait for the connection to be accepted/rejected by the server */
+    for (;;)
+    {
+        unsigned int connect_status;
+
+        SERVER_START_REQ( get_lpc_connect_status )
+        {
+            req->handle = wine_server_obj_handle( port_handle );
+            ret = wine_server_call( req );
+            connect_status = reply->status;
+        }
+        SERVER_END_REQ;
+
+        if (ret)
+        {
+            NtClose( port_handle );
+            return ret;
+        }
+
+        if (connect_status != STATUS_PENDING)
+        {
+            if (connect_status == STATUS_SUCCESS)
+            {
+                *handle = port_handle;
+                return STATUS_SUCCESS;
+            }
+            else
+            {
+                NtClose( port_handle );
+                return connect_status;
+            }
+        }
+
+        ret = NtWaitForSingleObject( port_handle, FALSE, NULL );
+        if (ret)
+        {
+            NtClose( port_handle );
+            return ret;
+        }
+    }
 }
 
-
 /***********************************************************************
- *             NtSecureConnectPort (NTDLL.@)
+ *             NtReplyWaitReceivePort (NTDLL.@)
  */
 NTSTATUS WINAPI NtSecureConnectPort( HANDLE *handle, UNICODE_STRING *name, SECURITY_QUALITY_OF_SERVICE *qos,
                                      LPC_SECTION_WRITE *write, PSID sid, LPC_SECTION_READ *read,
                                      ULONG *max_len, void *info, ULONG *info_len )
 {
-    FIXME( "(%p,%s,%p,%p,%p,%p,%p,%p,%p),stub!\n", handle, debugstr_us(name), qos,
-           write, sid, read, max_len, info, info_len );
-    return STATUS_NOT_IMPLEMENTED;
+    TRACE( "(%p,%s,%p,%p,%p,%p,%p,%p,%p)\n", handle, debugstr_us(name), qos, write, sid, read, max_len, info, info_len );
+
+    if (sid)
+        FIXME( "SID verification not implemented\n" );
+
+    return NtConnectPort( handle, name, qos, write, read, max_len, info, info_len );
 }
 
 
@@ -3104,8 +3248,37 @@ NTSTATUS WINAPI NtSecureConnectPort( HANDLE *handle, UNICODE_STRING *name, SECUR
  */
 NTSTATUS WINAPI NtListenPort( HANDLE handle, LPC_MESSAGE *msg )
 {
-    FIXME("(%p,%p),stub!\n", handle, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p,%p)\n", handle, msg );
+
+    for (;;)
+    {
+        SERVER_START_REQ( listen_lpc_port )
+        {
+            req->handle = wine_server_obj_handle( handle );
+            wine_server_set_reply( req, msg ? msg->Data : NULL, msg ? 0x1000 : 0 );
+            ret = wine_server_call( req );
+            if (!ret && msg)
+            {
+                msg->DataSize = reply->msg_size;
+                msg->MessageSize = sizeof(*msg) + reply->msg_size;
+                msg->MessageType = 10;  /* LPC_CONNECTION_REQUEST */
+                msg->VirtualRangesOffset = 0;
+                msg->ClientId.UniqueProcess = ULongToHandle( reply->client_pid );
+                msg->ClientId.UniqueThread = ULongToHandle( reply->client_tid );
+                msg->MessageId = reply->msg_id;
+                msg->SectionSize = 0;
+            }
+        }
+        SERVER_END_REQ;
+
+        if (ret != STATUS_PENDING) break;
+
+        ret = NtWaitForSingleObject( handle, FALSE, NULL );
+        if (ret) break;
+    }
+    return ret;
 }
 
 
@@ -3115,8 +3288,28 @@ NTSTATUS WINAPI NtListenPort( HANDLE handle, LPC_MESSAGE *msg )
 NTSTATUS WINAPI NtAcceptConnectPort( HANDLE *handle, ULONG id, LPC_MESSAGE *msg, BOOLEAN accept,
                                      LPC_SECTION_WRITE *write, LPC_SECTION_READ *read )
 {
-    FIXME("(%p,%u,%p,%d,%p,%p),stub!\n", handle, id, msg, accept, write, read );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p,%u,%p,%d,%p,%p)\n", handle, id, msg, accept, write, read );
+
+    if (write)
+        FIXME( "LPC_SECTION_WRITE not supported\n" );
+    if (read)
+        FIXME( "LPC_SECTION_READ not supported\n" );
+
+    *handle = 0;
+
+    SERVER_START_REQ( accept_lpc_connect )
+    {
+        req->handle = 0;
+        req->accept = accept;
+        req->msg_id = msg ? msg->MessageId : 0;
+        req->context = id;
+        if (!(ret = wine_server_call( req )) && accept)
+            *handle = wine_server_ptr_handle( reply->handle );
+    }
+    SERVER_END_REQ;
+    return ret;
 }
 
 
@@ -3125,8 +3318,17 @@ NTSTATUS WINAPI NtAcceptConnectPort( HANDLE *handle, ULONG id, LPC_MESSAGE *msg,
  */
 NTSTATUS WINAPI NtCompleteConnectPort( HANDLE handle )
 {
-    FIXME( "(%p),stub!\n", handle );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p)\n", handle );
+
+    SERVER_START_REQ( complete_lpc_connect )
+    {
+        req->handle = wine_server_obj_handle( handle );
+        ret = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+    return ret;
 }
 
 
@@ -3156,8 +3358,17 @@ NTSTATUS WINAPI NtReadRequestData( HANDLE handle, LPC_MESSAGE *request, ULONG id
  */
 NTSTATUS WINAPI NtRegisterThreadTerminatePort( HANDLE handle )
 {
-    FIXME( "(%p),stub!\n", handle );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p)\n", handle );
+
+    SERVER_START_REQ( register_lpc_terminate_port )
+    {
+        req->handle = wine_server_obj_handle( handle );
+        ret = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+    return ret;
 }
 
 
@@ -3166,44 +3377,193 @@ NTSTATUS WINAPI NtRegisterThreadTerminatePort( HANDLE handle )
  */
 NTSTATUS WINAPI NtRequestWaitReplyPort( HANDLE handle, LPC_MESSAGE *msg_in, LPC_MESSAGE *msg_out )
 {
-    FIXME( "(%p,%p,%p),stub!\n", handle, msg_in, msg_out );
-    if (msg_in)
-        TRACE("datasize %u msgsize %u type %u ranges %u client %p/%p msgid %lu size %lu data %s\n",
-              msg_in->DataSize, msg_in->MessageSize, msg_in->MessageType, msg_in->VirtualRangesOffset,
-              msg_in->ClientId.UniqueProcess, msg_in->ClientId.UniqueThread, msg_in->MessageId,
-              msg_in->SectionSize, debugstr_an( (const char *)msg_in->Data, msg_in->DataSize ));
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+    USHORT data_size;
+
+    TRACE( "(%p,%p,%p)\n", handle, msg_in, msg_out );
+
+    if (!msg_in || !msg_out) return STATUS_INVALID_PARAMETER;
+
+    data_size = msg_in->DataSize;
+
+    /* Send the request message */
+    SERVER_START_REQ( request_lpc_reply )
+    {
+        req->handle = wine_server_obj_handle( handle );
+        req->data_size = data_size;
+        req->msg_type = 1;  /* request */
+        wine_server_add_data( req, msg_in->Data, data_size );
+        ret = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+
+    if (ret) return ret;
+
+    /* Wait for and receive the reply */
+    for (;;)
+    {
+        SERVER_START_REQ( reply_wait_receive_lpc )
+        {
+            req->handle = wine_server_obj_handle( handle );
+            req->reply_msg_id = 0;
+            req->reply_size = 0;
+            req->timeout = TIMEOUT_INFINITE;
+            /* Use a reasonable max size for LPC message data.
+             * sizeof(msg_out->Data) is just 1 due to ANYSIZE_ARRAY. */
+            wine_server_set_reply( req, msg_out->Data, 0x1000 );
+            ret = wine_server_call( req );
+            if (!ret)
+            {
+                msg_out->DataSize = reply->data_size;
+                msg_out->MessageSize = sizeof(*msg_out) + reply->data_size;
+                msg_out->MessageType = reply->msg_type;
+                msg_out->VirtualRangesOffset = 0;
+                msg_out->ClientId.UniqueProcess = ULongToHandle( reply->client_pid );
+                msg_out->ClientId.UniqueThread = ULongToHandle( reply->client_tid );
+                msg_out->MessageId = reply->msg_id;
+                msg_out->SectionSize = 0;
+            }
+        }
+        SERVER_END_REQ;
+
+        if (ret != STATUS_PENDING) break;
+
+        /* Wait on port for message availability */
+        ret = NtWaitForSingleObject( handle, FALSE, NULL );
+        if (ret) break;
+    }
+    return ret;
+}
+
+
+/***********************************************************************
+ *             NtRequestPort (NTDLL.@)
+ */
+NTSTATUS WINAPI NtRequestPort( HANDLE handle, LPC_MESSAGE *msg )
+{
+    unsigned int ret;
+    USHORT data_size;
+
+    TRACE( "(%p,%p)\n", handle, msg );
+
+    if (!msg)
+        return STATUS_INVALID_PARAMETER;
+
+    data_size = msg->DataSize;
+
+    SERVER_START_REQ( request_lpc_reply )
+    {
+        req->handle = wine_server_obj_handle( handle );
+        req->data_size = data_size;
+        req->msg_type = 3;  /* datagram */
+        wine_server_add_data( req, msg->Data, data_size );
+        ret = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+    return ret;
 }
 
 
 /***********************************************************************
  *             NtReplyPort (NTDLL.@)
  */
-NTSTATUS WINAPI NtReplyPort( HANDLE handle, LPC_MESSAGE *reply )
+NTSTATUS WINAPI NtReplyPort( HANDLE handle, LPC_MESSAGE *reply_msg )
 {
-    FIXME("(%p,%p),stub!\n", handle, reply );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+
+    TRACE( "(%p,%p)\n", handle, reply_msg );
+
+    if (!reply_msg)
+        return STATUS_INVALID_PARAMETER;
+
+    SERVER_START_REQ( reply_wait_receive_lpc )
+    {
+        req->handle = wine_server_obj_handle( handle );
+        req->reply_msg_id = reply_msg->MessageId;
+        req->reply_size = reply_msg->DataSize;
+        req->timeout = 0;  /* Don't wait for a new message */
+        wine_server_add_data( req, reply_msg->Data, reply_msg->DataSize );
+        ret = wine_server_call( req );
+        /* STATUS_PENDING just means no new message, which is fine for NtReplyPort */
+        if (ret == STATUS_PENDING)
+            ret = STATUS_SUCCESS;
+    }
+    SERVER_END_REQ;
+    return ret;
 }
 
 
 /***********************************************************************
  *             NtReplyWaitReceivePort (NTDLL.@)
  */
-NTSTATUS WINAPI NtReplyWaitReceivePort( HANDLE handle, ULONG *id, LPC_MESSAGE *reply, LPC_MESSAGE *msg )
+NTSTATUS WINAPI NtReplyWaitReceivePort( HANDLE handle, ULONG *id, LPC_MESSAGE *reply_msg, LPC_MESSAGE *msg )
 {
-    FIXME("(%p,%p,%p,%p),stub!\n", handle, id, reply, msg );
-    return STATUS_NOT_IMPLEMENTED;
+    return NtReplyWaitReceivePortEx( handle, id, reply_msg, msg, NULL );
 }
 
 
 /***********************************************************************
  *             NtReplyWaitReceivePortEx (NTDLL.@)
  */
-NTSTATUS WINAPI NtReplyWaitReceivePortEx( HANDLE handle, ULONG *id, LPC_MESSAGE *reply, LPC_MESSAGE *msg,
+NTSTATUS WINAPI NtReplyWaitReceivePortEx( HANDLE handle, ULONG *id, LPC_MESSAGE *reply_msg, LPC_MESSAGE *msg,
                                           LARGE_INTEGER *timeout )
 {
-    FIXME("(%p,%p,%p,%p,%p),stub!\n", handle, id, reply, msg, timeout );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int ret;
+    timeout_t abs_timeout = timeout ? timeout->QuadPart : TIMEOUT_INFINITE;
+    unsigned int reply_msg_id = 0;
+    USHORT reply_size = 0;
+
+    TRACE( "(%p,%p,%p,%p,%p)\n", handle, id, reply_msg, msg, timeout );
+
+    if (reply_msg)
+    {
+        reply_msg_id = reply_msg->MessageId;
+        reply_size = reply_msg->DataSize;
+    }
+
+    for (;;)
+    {
+        SERVER_START_REQ( reply_wait_receive_lpc )
+        {
+            req->handle = wine_server_obj_handle( handle );
+            req->reply_msg_id = reply_msg_id;
+            req->reply_size = reply_size;
+            req->timeout = abs_timeout;
+            if (reply_msg && reply_size)
+                wine_server_add_data( req, reply_msg->Data, reply_size );
+            if (msg)
+            {
+                /* Use a reasonable max size for LPC message data.
+                 * sizeof(msg->Data) is just 1 due to ANYSIZE_ARRAY. */
+                wine_server_set_reply( req, msg->Data, 0x1000 );
+            }
+            ret = wine_server_call( req );
+            if (!ret && msg)
+            {
+                msg->DataSize = reply->data_size;
+                msg->MessageSize = sizeof(*msg) + reply->data_size;
+                msg->MessageType = reply->msg_type;
+                msg->VirtualRangesOffset = 0;
+                msg->ClientId.UniqueProcess = ULongToHandle( reply->client_pid );
+                msg->ClientId.UniqueThread = ULongToHandle( reply->client_tid );
+                msg->MessageId = reply->msg_id;
+                msg->SectionSize = 0;
+                if (id) *id = (ULONG)(ULONG_PTR)reply->context;
+            }
+        }
+        SERVER_END_REQ;
+
+        /* After first iteration, don't send reply again */
+        reply_msg_id = 0;
+        reply_size = 0;
+
+        if (ret != STATUS_PENDING) break;
+
+        /* Wait on port for message availability */
+        ret = NtWaitForSingleObject( handle, FALSE, timeout );
+        if (ret) break;
+    }
+    return ret;
 }
 
 

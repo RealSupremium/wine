@@ -4277,3 +4277,102 @@ enum inproc_sync_type
     data_size_t         runtime_size;   /* size of client runtime data */
     VARARG(runtime,bytes);              /* client runtime data */
 @END
+
+
+/* Create an LPC port */
+@REQ(create_lpc_port)
+    unsigned int   access;            /* desired access */
+    unsigned int   flags;             /* port flags (waitable) */
+    unsigned int   max_msg_len;       /* maximum message length */
+    unsigned int   max_connect_info;  /* maximum connection info length */
+    VARARG(objattr,object_attributes);/* object attributes */
+@REPLY
+    obj_handle_t   handle;            /* port handle */
+@END
+
+
+/* Connect to an LPC port */
+@REQ(connect_lpc_port)
+    unsigned int   access;            /* desired access rights */
+    data_size_t    info_size;         /* size of connection info */
+    VARARG(objattr,object_attributes);/* object attributes */
+    VARARG(info,bytes);               /* connection info data */
+@REPLY
+    obj_handle_t   handle;            /* handle to client port */
+    data_size_t    info_size;         /* size of returned info */
+    VARARG(info,bytes);               /* returned connection info */
+@END
+
+
+/* Listen for connection requests */
+@REQ(listen_lpc_port)
+    obj_handle_t   handle;            /* handle to server port */
+@REPLY
+    client_ptr_t   message;           /* message pointer (unused) */
+    data_size_t    msg_size;          /* size of connection info */
+    process_id_t   client_pid;        /* client process ID */
+    thread_id_t    client_tid;        /* client thread ID */
+    unsigned int   msg_id;            /* message ID for accept */
+    VARARG(info,bytes);               /* connection info data */
+@END
+
+
+/* Accept or reject an LPC connection */
+@REQ(accept_lpc_connect)
+    obj_handle_t   handle;            /* handle (unused, connection found by msg_id) */
+    int            accept;            /* accept or reject */
+    unsigned int   msg_id;            /* message ID from listen */
+    client_ptr_t   context;           /* port context */
+    VARARG(info,bytes);               /* connection info to return */
+@REPLY
+    obj_handle_t   handle;            /* handle to communication port */
+@END
+
+
+/* Complete the connection */
+@REQ(complete_lpc_connect)
+    obj_handle_t   handle;            /* handle to communication port */
+@END
+
+
+/* Get connection status for client port */
+@REQ(get_lpc_connect_status)
+    obj_handle_t   handle;            /* handle to client port */
+@REPLY
+    unsigned int   status;            /* connection status */
+@END
+
+
+/* Send request and wait for reply */
+@REQ(request_lpc_reply)
+    obj_handle_t   handle;            /* port handle */
+    data_size_t    data_size;         /* size of message data */
+    unsigned int   msg_type;          /* message type */
+    VARARG(data,bytes);               /* message data */
+@REPLY
+    unsigned int   msg_id;            /* assigned message ID */
+@END
+
+
+/* Wait for message and reply to previous */
+@REQ(reply_wait_receive_lpc)
+    obj_handle_t   handle;            /* port handle */
+    unsigned int   reply_msg_id;      /* message ID to reply to (0 for no reply) */
+    data_size_t    reply_size;        /* size of reply data */
+    timeout_t      timeout;           /* timeout (unused currently) */
+    VARARG(reply,bytes);              /* reply data */
+@REPLY
+    unsigned int   msg_id;            /* received message ID */
+    unsigned int   msg_type;          /* message type */
+    process_id_t   client_pid;        /* sender's process ID */
+    thread_id_t    client_tid;        /* sender's thread ID */
+    client_ptr_t   context;           /* port context */
+    data_size_t    data_size;         /* size of message data */
+    VARARG(data,bytes);               /* message data */
+@END
+
+
+/* Register port for thread termination notification */
+@REQ(register_lpc_terminate_port)
+    obj_handle_t   handle;            /* handle to client port */
+@END
