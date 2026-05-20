@@ -6207,7 +6207,7 @@ static void test_audio_convert(void)
         ATTR_UINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, 22050),
         ATTR_UINT32(MF_MT_AUDIO_BLOCK_ALIGNMENT, 8),
         ATTR_UINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 22050 * 8),
-        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1, .todo = TRUE),
+        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1),
         ATTR_UINT32(MF_MT_AUDIO_CHANNEL_MASK, 3, .todo = TRUE),
         {0},
     };
@@ -6220,8 +6220,8 @@ static void test_audio_convert(void)
         ATTR_UINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, 44100),
         ATTR_UINT32(MF_MT_AUDIO_BLOCK_ALIGNMENT, 4),
         ATTR_UINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 44100 * 4),
-        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1, .todo = TRUE),
-        ATTR_UINT32(MF_MT_AUDIO_PREFER_WAVEFORMATEX, 1, .todo = TRUE),
+        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1),
+        ATTR_UINT32(MF_MT_AUDIO_PREFER_WAVEFORMATEX, 1),
         {0},
     };
     const MFT_OUTPUT_STREAM_INFO output_info =
@@ -6245,7 +6245,7 @@ static void test_audio_convert(void)
     const struct attribute_desc output_sample_attributes[] =
     {
         ATTR_UINT32(mft_output_sample_incomplete, 1),
-        ATTR_UINT32(MFSampleExtension_CleanPoint, has_video_processor /* 0 on Win7 */, .todo = TRUE),
+        ATTR_UINT32(MFSampleExtension_CleanPoint, has_video_processor /* 0 on Win7 */),
         {0},
     };
     const struct sample_desc output_sample_desc[] =
@@ -6346,21 +6346,18 @@ static void test_audio_convert(void)
 
     memset(&dmo_mt, 0, sizeof(dmo_mt));
     hr = IMediaObject_GetInputCurrentType(dmo, 0, &dmo_mt);
-    todo_wine ok(hr == S_OK, "GetInputCurrentType returned %#lx\n", hr);
-    todo_wine ok(IsEqualGUID(&dmo_mt.formattype, &FORMAT_WaveFormatEx), "got format %s\n", debugstr_guid(&dmo_mt.formattype));
-    todo_wine ok(dmo_mt.cbFormat >= sizeof(WAVEFORMATEX), "got cbFormat %#lx\n", dmo_mt.cbFormat);
+    ok(hr == S_OK, "GetInputCurrentType returned %#lx\n", hr);
+    ok(IsEqualGUID(&dmo_mt.formattype, &FORMAT_WaveFormatEx), "got format %s\n", debugstr_guid(&dmo_mt.formattype));
+    ok(dmo_mt.cbFormat >= sizeof(WAVEFORMATEX), "got cbFormat %#lx\n", dmo_mt.cbFormat);
 
     hr = MFCreateMediaTypeFromRepresentation(AM_MEDIA_TYPE_REPRESENTATION, &dmo_mt, &media_type);
-    todo_wine ok(hr == S_OK, "MFCreateMediaTypeFromRepresentation returned %#lx\n", hr);
-    if (hr == S_OK)
-    {
+    ok(hr == S_OK, "MFCreateMediaTypeFromRepresentation returned %#lx\n", hr);
     check_media_type(media_type, expect_input_type_desc, -1);
     IMFMediaType_Release(media_type);
 
     hr = IMediaObject_SetInputType(dmo, 0, &dmo_mt, 0);
     ok(hr == S_OK, "SetInputType returned %#lx\n", hr);
     check_mft_get_input_current_type_(__LINE__, transform, expect_input_type_desc, FALSE, TRUE);
-    }
 
     MoFreeMediaType(&dmo_mt);
     IMediaObject_Release(dmo);
@@ -6386,11 +6383,11 @@ static void test_audio_convert(void)
 
     check_mft_set_output_type_required(transform, output_type_desc);
     check_mft_set_output_type(transform, output_type_desc, S_OK);
-    check_mft_get_output_current_type_(__LINE__, transform, expect_output_type_desc, FALSE, TRUE);
+    check_mft_get_output_current_type(transform, expect_output_type_desc);
 
     check_mft_set_input_type(transform, input_type_desc, S_OK);
     /* setting the input type does not set the output type to null */
-    check_mft_get_output_current_type_(__LINE__, transform, expect_output_type_desc, FALSE, TRUE);
+    check_mft_get_output_current_type(transform, expect_output_type_desc);
 
 
     hr = IMFTransform_QueryInterface(transform, &IID_IMediaObject, (void **)&dmo);
@@ -6398,21 +6395,18 @@ static void test_audio_convert(void)
 
     memset(&dmo_mt, 0, sizeof(dmo_mt));
     hr = IMediaObject_GetOutputCurrentType(dmo, 0, &dmo_mt);
-    todo_wine ok(hr == S_OK, "GetOutputCurrentType returned %#lx\n", hr);
-    todo_wine ok(IsEqualGUID(&dmo_mt.formattype, &FORMAT_WaveFormatEx), "got format %s\n", debugstr_guid(&dmo_mt.formattype));
-    todo_wine ok(dmo_mt.cbFormat >= sizeof(WAVEFORMATEX), "got cbFormat %#lx\n", dmo_mt.cbFormat);
+    ok(hr == S_OK, "GetOutputCurrentType returned %#lx\n", hr);
+    ok(IsEqualGUID(&dmo_mt.formattype, &FORMAT_WaveFormatEx), "got format %s\n", debugstr_guid(&dmo_mt.formattype));
+    ok(dmo_mt.cbFormat >= sizeof(WAVEFORMATEX), "got cbFormat %#lx\n", dmo_mt.cbFormat);
 
     hr = MFCreateMediaTypeFromRepresentation(AM_MEDIA_TYPE_REPRESENTATION, &dmo_mt, &media_type);
-    todo_wine ok(hr == S_OK, "MFCreateMediaTypeFromRepresentation returned %#lx\n", hr);
-    if (hr == S_OK)
-    {
+    ok(hr == S_OK, "MFCreateMediaTypeFromRepresentation returned %#lx\n", hr);
     check_media_type(media_type, expect_output_type_desc, -1);
     IMFMediaType_Release(media_type);
 
     hr = IMediaObject_SetOutputType(dmo, 0, &dmo_mt, 0);
     ok(hr == S_OK, "SetOutputType returned %#lx\n", hr);
-    check_mft_get_output_current_type_(__LINE__, transform, expect_output_type_desc, FALSE, TRUE);
-    }
+    check_mft_get_output_current_type(transform, expect_output_type_desc);
 
     MoFreeMediaType(&dmo_mt);
     IMediaObject_Release(dmo);
@@ -8965,10 +8959,10 @@ static void test_color_convert(BOOL use_2d_buffer)
         ATTR_BLOB(MF_MT_MINIMUM_DISPLAY_APERTURE, &actual_aperture, 16),
         ATTR_RATIO(MF_MT_FRAME_SIZE, actual_width, actual_height),
         ATTR_UINT32(MF_MT_DEFAULT_STRIDE, actual_width),
-        ATTR_UINT32(MF_MT_SAMPLE_SIZE, actual_width * actual_height * 3 / 2, .todo = TRUE),
-        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1, .todo = TRUE),
-        ATTR_UINT32(MF_MT_FIXED_SIZE_SAMPLES, 1, .todo = TRUE),
-        ATTR_RATIO(MF_MT_PIXEL_ASPECT_RATIO, 1, 1, .todo = TRUE),
+        ATTR_UINT32(MF_MT_SAMPLE_SIZE, actual_width * actual_height * 3 / 2),
+        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1),
+        ATTR_UINT32(MF_MT_FIXED_SIZE_SAMPLES, 1),
+        ATTR_RATIO(MF_MT_PIXEL_ASPECT_RATIO, 1, 1),
         {0},
     };
     const struct attribute_desc expect_output_type_desc[] =
@@ -8977,10 +8971,10 @@ static void test_color_convert(BOOL use_2d_buffer)
         ATTR_GUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32),
         ATTR_RATIO(MF_MT_FRAME_SIZE, actual_width, actual_height),
         ATTR_UINT32(MF_MT_DEFAULT_STRIDE, actual_width * 4),
-        ATTR_UINT32(MF_MT_SAMPLE_SIZE, actual_width * actual_height * 4, .todo = TRUE),
-        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1, .todo = TRUE),
-        ATTR_UINT32(MF_MT_FIXED_SIZE_SAMPLES, 1, .todo = TRUE),
-        ATTR_RATIO(MF_MT_PIXEL_ASPECT_RATIO, 1, 1, .todo = TRUE),
+        ATTR_UINT32(MF_MT_SAMPLE_SIZE, actual_width * actual_height * 4),
+        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1),
+        ATTR_UINT32(MF_MT_FIXED_SIZE_SAMPLES, 1),
+        ATTR_RATIO(MF_MT_PIXEL_ASPECT_RATIO, 1, 1),
         {0},
     };
     const struct attribute_desc expect_output_type_desc_negative_stride[] =
@@ -8989,10 +8983,10 @@ static void test_color_convert(BOOL use_2d_buffer)
         ATTR_GUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32),
         ATTR_RATIO(MF_MT_FRAME_SIZE, actual_width, actual_height),
         ATTR_UINT32(MF_MT_DEFAULT_STRIDE, -actual_width * 4),
-        ATTR_UINT32(MF_MT_SAMPLE_SIZE, actual_width * actual_height * 4, .todo = TRUE),
-        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1, .todo = TRUE),
-        ATTR_UINT32(MF_MT_FIXED_SIZE_SAMPLES, 1, .todo = TRUE),
-        ATTR_RATIO(MF_MT_PIXEL_ASPECT_RATIO, 1, 1, .todo = TRUE),
+        ATTR_UINT32(MF_MT_SAMPLE_SIZE, actual_width * actual_height * 4),
+        ATTR_UINT32(MF_MT_ALL_SAMPLES_INDEPENDENT, 1),
+        ATTR_UINT32(MF_MT_FIXED_SIZE_SAMPLES, 1),
+        ATTR_RATIO(MF_MT_PIXEL_ASPECT_RATIO, 1, 1),
         {0},
     };
     const MFT_OUTPUT_STREAM_INFO output_info =
@@ -9159,7 +9153,7 @@ static void test_color_convert(BOOL use_2d_buffer)
 
     check_mft_set_input_type_required(transform, input_type_desc);
     check_mft_set_input_type(transform, input_type_desc, S_OK);
-    check_mft_get_input_current_type_(__LINE__, transform, expect_input_type_desc, FALSE, TRUE);
+    check_mft_get_input_current_type(transform, expect_input_type_desc);
 
 
     hr = IMFTransform_QueryInterface(transform, &IID_IMediaObject, (void **)&dmo);
@@ -9167,15 +9161,13 @@ static void test_color_convert(BOOL use_2d_buffer)
 
     memset(&dmo_mt, 0, sizeof(dmo_mt));
     hr = IMediaObject_GetInputCurrentType(dmo, 0, &dmo_mt);
-    todo_wine ok(hr == S_OK, "GetInputCurrentType returned %#lx\n", hr);
-    todo_wine ok(IsEqualGUID(&dmo_mt.formattype, &FORMAT_MFVideoFormat), "got format %s\n", debugstr_guid(&dmo_mt.formattype));
-    todo_wine ok(dmo_mt.cbFormat == sizeof(MFVIDEOFORMAT), "got cbFormat %#lx\n", dmo_mt.cbFormat);
+    ok(hr == S_OK, "GetInputCurrentType returned %#lx\n", hr);
+    ok(IsEqualGUID(&dmo_mt.formattype, &FORMAT_MFVideoFormat), "got format %s\n", debugstr_guid(&dmo_mt.formattype));
+    ok(dmo_mt.cbFormat == sizeof(MFVIDEOFORMAT), "got cbFormat %#lx\n", dmo_mt.cbFormat);
     ok(is_dmo_subtype(&dmo_mt.subtype), "got subtype %s\n", debugstr_guid(&dmo_mt.subtype));
 
     hr = MFCreateMediaTypeFromRepresentation(AM_MEDIA_TYPE_REPRESENTATION, &dmo_mt, &media_type);
-    todo_wine ok(hr == S_OK, "MFCreateMediaTypeFromRepresentation returned %#lx\n", hr);
-    if (hr == S_OK)
-    {
+    ok(hr == S_OK, "MFCreateMediaTypeFromRepresentation returned %#lx\n", hr);
     /* MFCreateMediaTypeFromRepresentation automatically converts MF to DMO media types */
     hr = IMFMediaType_SetGUID(media_type, &MF_MT_SUBTYPE, get_mf_subtype_for_am_subtype(&dmo_mt.subtype));
     ok(hr == S_OK, "SetGUID returned %#lx\n", hr);
@@ -9184,8 +9176,7 @@ static void test_color_convert(BOOL use_2d_buffer)
 
     hr = IMediaObject_SetInputType(dmo, 0, &dmo_mt, 0);
     ok(hr == S_OK, "SetInputType returned %#lx\n", hr);
-    check_mft_get_input_current_type_(__LINE__, transform, expect_input_type_desc, FALSE, TRUE);
-    }
+    check_mft_get_input_current_type(transform, expect_input_type_desc);
 
     MoFreeMediaType(&dmo_mt);
     IMediaObject_Release(dmo);
@@ -9200,7 +9191,7 @@ static void test_color_convert(BOOL use_2d_buffer)
         winetest_push_context("color conversion #%lu", i);
         check_mft_set_output_type_required(transform, color_conversion_tests[i].output_type_desc);
         check_mft_set_output_type(transform, color_conversion_tests[i].output_type_desc, S_OK);
-        check_mft_get_output_current_type_(__LINE__, transform, color_conversion_tests[i].expect_output_type_desc, FALSE, TRUE);
+        check_mft_get_output_current_type(transform, color_conversion_tests[i].expect_output_type_desc);
 
 
         hr = IMFTransform_QueryInterface(transform, &IID_IMediaObject, (void **)&dmo);
@@ -9208,15 +9199,14 @@ static void test_color_convert(BOOL use_2d_buffer)
 
         memset(&dmo_mt, 0, sizeof(dmo_mt));
         hr = IMediaObject_GetOutputCurrentType(dmo, 0, &dmo_mt);
-        todo_wine ok(hr == S_OK, "GetOutputCurrentType returned %#lx\n", hr);
-        todo_wine ok(IsEqualGUID(&dmo_mt.formattype, &FORMAT_MFVideoFormat), "got format %s\n", debugstr_guid(&dmo_mt.formattype));
-        todo_wine ok(dmo_mt.cbFormat == sizeof(MFVIDEOFORMAT), "got cbFormat %#lx\n", dmo_mt.cbFormat);
+        ok(hr == S_OK, "GetOutputCurrentType returned %#lx\n", hr);
+        ok(IsEqualGUID(&dmo_mt.formattype, &FORMAT_MFVideoFormat), "got format %s\n", debugstr_guid(&dmo_mt.formattype));
+        ok(dmo_mt.cbFormat == sizeof(MFVIDEOFORMAT), "got cbFormat %#lx\n", dmo_mt.cbFormat);
         ok(is_dmo_subtype(&dmo_mt.subtype), "got subtype %s\n", debugstr_guid(&dmo_mt.subtype));
 
         hr = MFCreateMediaTypeFromRepresentation(AM_MEDIA_TYPE_REPRESENTATION, &dmo_mt, &media_type);
-        todo_wine ok(hr == S_OK, "MFCreateMediaTypeFromRepresentation returned %#lx\n", hr);
-        if (hr == S_OK)
-        {
+        ok(hr == S_OK, "MFCreateMediaTypeFromRepresentation returned %#lx\n", hr);
+
         /* MFCreateMediaTypeFromRepresentation automatically converts MF to DMO media types */
         hr = IMFMediaType_SetGUID(media_type, &MF_MT_SUBTYPE, get_mf_subtype_for_am_subtype(&dmo_mt.subtype));
         ok(hr == S_OK, "SetGUID returned %#lx\n", hr);
@@ -9225,8 +9215,7 @@ static void test_color_convert(BOOL use_2d_buffer)
 
         hr = IMediaObject_SetOutputType(dmo, 0, &dmo_mt, 0);
         ok(hr == S_OK, "SetOutputType returned %#lx\n", hr);
-        check_mft_get_output_current_type_(__LINE__, transform, color_conversion_tests[i].expect_output_type_desc, FALSE, TRUE);
-        }
+        check_mft_get_output_current_type(transform, color_conversion_tests[i].expect_output_type_desc);
 
         MoFreeMediaType(&dmo_mt);
         IMediaObject_Release(dmo);
@@ -9749,7 +9738,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = rgb32_default_stride, .output_bitmap = L"rgb32frame-flip.bmp",
             .output_buffer_desc = use_2d_buffer ? rgb32_negative_stride : NULL,
             .output_sample_desc = &rgb32_sample_desc, .output_sample_2d_desc = &rgb32_sample_desc,
-            .delta = 2, /* Windows returns 0, Wine needs 2 */
         },
         { /* Test 1 */
             .input_type_desc = nv12_default_stride, .input_bitmap = L"nv12frame.bmp",
@@ -9757,7 +9745,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = rgb32_negative_stride, .output_bitmap = L"rgb32frame-flip.bmp",
             .output_buffer_desc = use_2d_buffer ? rgb32_negative_stride : NULL,
             .output_sample_desc = &rgb32_sample_desc, .output_sample_2d_desc = &rgb32_sample_desc,
-            .delta = 2, /* Windows returns 0, Wine needs 2 */
         },
         { /* Test 2 */
             .input_type_desc = nv12_default_stride, .input_bitmap = L"nv12frame.bmp",
@@ -9773,7 +9760,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = nv12_default_stride, .output_bitmap = L"nv12frame-flip.bmp", .output_bitmap_2d = L"nv12frame-flip-2d.bmp",
             .output_buffer_desc = use_2d_buffer ? nv12_default_stride : NULL,
             .output_sample_desc = &nv12_sample_desc, .output_sample_2d_desc = &nv12_sample_2d_desc,
-            .delta = 2, /* Windows returns 0, Wine needs 2 */
         },
         { /* Test 4 */
             .input_type_desc = rgb32_negative_stride, .input_bitmap = L"rgb32frame.bmp",
@@ -9781,7 +9767,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = nv12_default_stride, .output_bitmap = L"nv12frame-flip.bmp", .output_bitmap_2d = L"nv12frame-flip-2d.bmp",
             .output_buffer_desc = use_2d_buffer ? nv12_default_stride : NULL,
             .output_sample_desc = &nv12_sample_desc, .output_sample_2d_desc = &nv12_sample_2d_desc,
-            .delta = 2, /* Windows returns 0, Wine needs 2 */
         },
         { /* Test 5 */
             .input_type_desc = rgb32_positive_stride, .input_bitmap = L"rgb32frame.bmp",
@@ -9828,6 +9813,7 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_buffer_desc = use_2d_buffer ? rgb32_with_aperture : NULL,
             .output_sample_desc = &rgb32_sample_desc, .output_sample_2d_desc = &rgb32_sample_desc,
             .broken = TRUE, /* old Windows version incorrectly rescale */
+            .delta = 3, /* Windows returns 0, Wine needs 3 */
         },
         { /* Test 11 */
             .input_type_desc = rgb32_default_stride, .input_bitmap = L"rgb32frame.bmp",
@@ -9835,7 +9821,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = rgb555_default_stride, .output_bitmap = L"rgb555frame.bmp",
             .output_buffer_desc = use_2d_buffer ? rgb555_negative_stride : NULL,
             .output_sample_desc = &rgb555_sample_desc, .output_sample_2d_desc = &rgb555_sample_desc,
-            .delta = 5, /* Windows returns 0, Wine needs 5 */
         },
         { /* Test 12 */
             .input_type_desc = rgb32_default_stride, .input_bitmap = L"rgb32frame.bmp",
@@ -9843,7 +9828,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = rgb555_negative_stride, .output_bitmap = L"rgb555frame.bmp",
             .output_buffer_desc = use_2d_buffer ? rgb555_negative_stride : NULL,
             .output_sample_desc = &rgb555_sample_desc, .output_sample_2d_desc = &rgb555_sample_desc,
-            .delta = 5, /* Windows returns 0, Wine needs 5 */
         },
         { /* Test 13 */
             .input_type_desc = rgb32_default_stride, .input_bitmap = L"rgb32frame.bmp",
@@ -9851,7 +9835,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = rgb555_positive_stride, .output_bitmap = L"rgb555frame-flip.bmp",
             .output_buffer_desc = use_2d_buffer ? rgb555_positive_stride : NULL,
             .output_sample_desc = &rgb555_sample_desc, .output_sample_2d_desc = &rgb555_sample_desc,
-            .delta = 3, /* Windows returns 0, Wine needs 3 */
         },
         { /* Test 14 */
             .input_type_desc = rgb555_default_stride, .input_bitmap = L"rgb555frame.bmp",
@@ -9859,7 +9842,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = rgb555_positive_stride, .output_bitmap = L"rgb555frame-flip.bmp",
             .output_buffer_desc = use_2d_buffer ? rgb555_positive_stride : NULL,
             .output_sample_desc = &rgb555_sample_desc, .output_sample_2d_desc = &rgb555_sample_desc,
-            .delta = 4, /* Windows returns 0, Wine needs 4 */
         },
         { /* Test 15 */
             .input_type_desc = nv12_with_aperture, .input_bitmap = L"nv12frame.bmp",
@@ -9876,7 +9858,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_buffer_desc = use_2d_buffer ? rgb32_with_aperture : NULL,
             .output_sample_desc = &rgb32_sample_desc, .output_sample_2d_desc = &rgb32_sample_desc,
             .broken = TRUE, /* old Windows version incorrectly rescale */
-            .todo = use_2d_buffer,
         },
         { /* Test 17 */
             .input_type_desc = rgb32_with_aperture, .input_bitmap = L"rgb32frame-flip.bmp",
@@ -9901,7 +9882,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_buffer_desc = use_2d_buffer ? rgb32_default_stride : NULL,
             .output_sample_desc = &rgb32_sample_desc, .output_sample_2d_desc = &rgb32_sample_desc,
             .delta = 3, /* Windows returns 3 with 2D buffer */
-            .todo = use_2d_buffer,
         },
         { /* Test 20 */
             .input_type_desc = nv12_default_stride, .input_bitmap = L"nv12frame.bmp",
@@ -9910,7 +9890,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_buffer_desc = use_2d_buffer ? rgb32_positive_stride : NULL,
             .output_sample_desc = &rgb32_sample_desc, .output_sample_2d_desc = &rgb32_sample_desc,
             .delta = 3, /* Windows returns 3 with 2D buffer */
-            .todo = use_2d_buffer,
         },
 
         { /* Test 21, 2D only */
@@ -9919,7 +9898,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = rgb32_default_stride, .output_bitmap = L"rgb32frame-extra-width.bmp",
             .output_buffer_desc = rgb32_extra_width,
             .output_sample_desc = &rgb32_extra_width_sample_desc, .output_sample_2d_desc = &rgb32_extra_width_sample_desc,
-            .todo = TRUE,
         },
         { /* Test 22, 2D only */
             .input_type_desc = rgb32_default_stride, .input_bitmap = L"rgb32frame-extra-width.bmp",
@@ -9927,7 +9905,7 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = nv12_default_stride, .output_bitmap_1d = L"nv12frame.bmp", .output_bitmap_2d = L"nv12frame-2d.bmp",
             .output_buffer_desc = nv12_default_stride,
             .output_sample_desc = &nv12_sample_desc, .output_sample_2d_desc = &nv12_sample_2d_desc,
-            .delta = 2, /* Windows returns 2 with 1D buffer */ .todo = TRUE,
+            .delta = 2, /* Windows returns 2 with 1D buffer */
         },
         { /* Test 23, 2D only */
             .input_type_desc = rgb32_default_stride, .input_bitmap = L"rgb32frame-extra-width.bmp",
@@ -9935,7 +9913,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = nv12_default_stride, .output_bitmap_1d = L"nv12frame-extra-width.bmp", .output_bitmap_2d = L"nv12frame-extra-width-2d.bmp",
             .output_buffer_desc = nv12_extra_width,
             .output_sample_desc = &nv12_extra_width_sample_desc, .output_sample_2d_desc = &nv12_extra_width_sample_2d_desc,
-            .todo = TRUE,
         },
         { /* Test 24, 2D only */
             .input_type_desc = nv12_default_stride, .input_bitmap = L"nv12frame-extra-width.bmp",
@@ -9943,7 +9920,6 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = rgb32_default_stride, .output_bitmap_1d = L"rgb32frame.bmp", .output_bitmap_2d = L"rgb32frame.bmp",
             .output_buffer_desc = rgb32_default_stride,
             .output_sample_desc = &rgb32_sample_desc, .output_sample_2d_desc = &rgb32_sample_desc,
-            .todo = TRUE,
         },
         { /* Test 25 */
             .input_type_desc = rgb32_crop, .input_bitmap = L"rgb32frame-crop.bmp",
@@ -9951,8 +9927,7 @@ static void test_video_processor(BOOL use_2d_buffer)
             .output_type_desc = nv12_crop, .output_bitmap = L"nv12frame-crop.bmp", .output_bitmap_1d = L"nv12frame-crop-1d.bmp", .output_bitmap_2d = L"nv12frame-crop-2d.bmp",
             .output_buffer_desc = use_2d_buffer ? nv12_crop : NULL,
             .output_sample_desc = &nv12_crop_sample_desc, .output_sample_2d_desc = &nv12_crop_sample_2d_desc,
-            .delta = 2, /* Windows returns 1, Wine needs 2 */
-            .todo = use_2d_buffer,
+            .delta = 1, /* Windows returns 1, Wine needs 2 */
         },
     };
 
@@ -10142,7 +10117,6 @@ static void test_video_processor(BOOL use_2d_buffer)
     ok(hr == S_OK, "Failed to create a sample, hr %#lx.\n", hr);
 
     hr = check_mft_process_output(transform, output_sample, &output_status);
-    todo_wine
     ok(hr == MF_E_TRANSFORM_NEED_MORE_INPUT, "Unexpected hr %#lx.\n", hr);
 
     hr = IMFTransform_ProcessInput(transform, 0, input_sample, 0);

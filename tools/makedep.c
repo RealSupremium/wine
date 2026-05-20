@@ -182,6 +182,7 @@ static const char *delay_load_flags[MAX_ARCHS];
 static struct strarray debug_flags[MAX_ARCHS];
 static struct strarray target_flags[MAX_ARCHS];
 static struct strarray extra_cflags[MAX_ARCHS];
+static struct strarray extlib_flags[MAX_ARCHS];
 static struct strarray extra_cxxflags[MAX_ARCHS];
 static struct strarray disabled_dirs[MAX_ARCHS];
 static unsigned int native_archs[MAX_ARCHS];
@@ -1152,6 +1153,35 @@ static void parse_cxx_file( struct file *source, FILE *file )
 
 
 /*******************************************************************
+ *         parse_nasm_directive
+ */
+static void parse_nasm_directive( struct file *source, char *str )
+{
+    str = skip_spaces( str );
+    if (*str++ != '%') return;
+    str = skip_spaces( str );
+
+    if (!strncmp( str, "include", 7 ))
+        parse_include_directive( source, str + 7 );
+}
+
+
+/*******************************************************************
+ *         parse_nasm_file
+ */
+static void parse_nasm_file( struct file *source, FILE *file )
+{
+    char *buffer;
+
+    input_line = 0;
+    while ((buffer = get_line( file )))
+    {
+        parse_nasm_directive( source, buffer );
+    }
+}
+
+
+/*******************************************************************
  *         parse_rc_file
  */
 static void parse_rc_file( struct file *source, FILE *file )
@@ -1273,7 +1303,8 @@ static const struct
     { ".rc",  parse_rc_file },
     { ".ver", parse_rc_file },
     { ".in",  parse_in_file },
-    { ".sfd", parse_sfd_file }
+    { ".sfd", parse_sfd_file },
+    { ".asm", parse_nasm_file },
 };
 
 /*******************************************************************
@@ -2731,13 +2762,16 @@ static struct strarray get_version_defines( struct makefile *make )
 /*******************************************************************
  *         remove_warning_flags
  */
-static struct strarray remove_warning_flags( struct strarray flags )
+static struct strarray remove_warning_flags( struct strarray flags, const char *which )
 {
     struct strarray ret = empty_strarray;
 
     STRARRAY_FOR_EACH( flag, &flags )
-        if (strncmp( flag, "-W", 2 ) || !strncmp( flag, "-Wno-", 5 ))
-            strarray_add( &ret, flag );
+    {
+        if (which && strcmp( flag, which )) strarray_add( &ret, flag );
+        if (!which && !strncmp( flag, "-Wno-", 5 )) strarray_add( &ret, flag );
+        else if (!which && strncmp( flag, "-W", 2 )) strarray_add( &ret, flag );
+    }
     return ret;
 }
 
@@ -3529,6 +3563,47 @@ static void output_source_winmd( struct makefile *make, struct incl_file *source
 
 
 /*******************************************************************
+ *         output_source_nasm
+ */
+static void output_source_nasm( struct makefile *make, struct incl_file *source, const char *obj )
+{
+    struct strarray defines = get_source_defines( make, source, obj );
+    struct strarray targets = empty_strarray;
+    unsigned int arch;
+
+    for (arch = 1; arch < archs.count; arch++)
+    {
+        int cpu = get_cpu_from_name( archs.str[arch] );
+        const char *obj_name;
+
+        if (cpu != CPU_i386 && cpu != CPU_x86_64) continue;
+        if (!get_expanded_arch_var( make, "AS", arch )) continue;
+
+        obj_name = strmake( "%s%s.o", source->arch ? "" : arch_dirs[arch], obj );
+        strarray_add( &targets, obj_name );
+        strarray_add( &make->object_files[arch], obj_name );
+
+        output( "%s: %s\n", obj_dir_path( make, obj_name ), source->filename );
+        output( "\t%s%s -o $@ %s -I%s %s", cmd_prefix( "AS" ), arch_make_variable( "AS", arch ),
+                source->filename, src_dir_path( make, get_dirname( source->name ) ),
+                arch_make_variable( "ASMFLAGS", arch ) );
+        output_filenames( get_expanded_make_var_array( make, "ASMFLAGS" ) );
+        output_filenames( get_expanded_arch_var_array( make, "ASMDEFS", arch ) );
+        output_filenames( defines );
+        output( "\n" );
+    }
+
+    if (targets.count && source->dependencies.count)
+    {
+        output_filenames_obj_dir( make, targets );
+        output( ":" );
+        output_filenames( source->dependencies );
+        output( "\n" );
+    }
+}
+
+
+/*******************************************************************
  *         output_source_one_arch
  */
 static void output_source_one_arch( struct makefile *make, struct incl_file *source, const char *obj,
@@ -3583,24 +3658,35 @@ static void output_source_one_arch( struct makefile *make, struct incl_file *sou
         var_cflags = "$(x86_64_CFLAGS)";
         strarray_add( &cflags, "-D__arm64ec_x64__" );
         strarray_addall( &cflags, get_expanded_make_var_array( top_makefile, "x86_64_EXTRACFLAGS" ));
+        strarray_addall( &cflags, get_expanded_make_var_array( make, "x86_64_EXTRADEFS" ) );
     }
     else if (source->file->flags & FLAG_C_CXX)
     {
         var_cc     = arch_make_variable( "CXX", arch );
         var_cflags = arch_make_variable( "CXXFLAGS", arch );
         if (make->external)
-            strarray_addall( &cflags, remove_warning_flags( extra_cxxflags[arch] ));
+        {
+            struct strarray cxx_warnings = remove_warning_flags( extlib_flags[arch], "-Wno-pointer-sign" );
+            cxx_warnings = remove_warning_flags( cxx_warnings, "-Wno-discarded-qualifiers" );
+            strarray_addall( &cflags, cxx_warnings );
+            strarray_addall( &cflags, remove_warning_flags( extra_cxxflags[arch], NULL ));
+        }
         else
             strarray_addall( &cflags, extra_cxxflags[arch] );
+        strarray_addall( &cflags, get_expanded_arch_var_array( make, "EXTRADEFS", arch ) );
     }
     else
     {
         var_cc     = arch_make_variable( "CC", arch );
         var_cflags = arch_make_variable( "CFLAGS", arch );
         if (make->external)
-            strarray_addall( &cflags, remove_warning_flags( extra_cflags[arch] ));
+        {
+            strarray_addall( &cflags, extlib_flags[arch] );
+            strarray_addall( &cflags, remove_warning_flags( extra_cflags[arch], NULL ));
+        }
         else
             strarray_addall( &cflags, extra_cflags[arch] );
+        strarray_addall( &cflags, get_expanded_arch_var_array( make, "EXTRADEFS", arch ) );
     }
 
     if (!arch)
@@ -3765,6 +3851,7 @@ static const struct
     { "spec", output_source_spec },
     { "xml", output_source_xml },
     { "winmd", output_source_winmd },
+    { "asm", output_source_nasm },
     { NULL, output_source_default }
 };
 
@@ -5053,6 +5140,7 @@ int main( int argc, char *argv[] )
     {
         arch_pe_dirs[arch] = strmake( "%s-windows", archs.str[arch] );
         extra_cflags[arch] = get_expanded_arch_var_array( top_makefile, "EXTRACFLAGS", arch );
+        extlib_flags[arch] = get_expanded_arch_var_array( top_makefile, "EXTLIBFLAGS", arch );
         extra_cxxflags[arch] = get_expanded_arch_var_array( top_makefile, "EXTRACXXFLAGS", arch );
         disabled_dirs[arch] = get_expanded_arch_var_array( top_makefile, "DISABLED_SUBDIRS", arch );
         if (!is_multiarch( arch )) continue;

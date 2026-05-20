@@ -176,6 +176,73 @@ dnl
 AC_DEFUN([WINE_TRY_ASM_LINK],
 [AC_LINK_IFELSE([AC_LANG_PROGRAM([[$2]],[[asm($1); $3]])],[$4],[$5])])
 
+dnl **** Define ASM language macros ****
+dnl
+AC_LANG_DEFINE([ASM],[asm],[ASM],[AS],[],[ac_ext=S
+ac_compile='$AS $ASMFLAGS -o conftest.$ac_objext conftest.$ac_ext >&AS_MESSAGE_LOG_FD'
+])
+AU_DEFUN([AC_LANG_ASM],[AC_LANG(ASM)])
+m4_define([AC_LANG_PROGRAM(ASM)],[$1
+$2
+$3])
+AC_DEFUN([AC_LANG_COMPILER(ASM)],[AC_REQUIRE([AC_PROG_AS])])
+
+AN_MAKEVAR([AS],   [AC_PROG_AS])
+AN_PROGRAM([as],   [AC_PROG_AS])
+AC_DEFUN([AC_PROG_AS],
+[AC_LANG_PUSH(ASM)dnl
+AC_ARG_VAR([AS],[Assembly compiler command])dnl
+AC_ARG_VAR([ASMFLAGS],[Assembly compiler flags])dnl
+_AC_ARG_VAR_LDFLAGS()dnl
+m4_ifval([$1],[AC_CHECK_TOOLS(AS,[$1])],
+[AC_CHECK_TOOL(AS,as)
+if test -z "$AS"; then
+  AC_CHECK_PROG(AS,as,as,,,false)
+fi
+])
+
+# Provide some information about the compiler.
+_AS_ECHO_LOG([checking for _AC_LANG compiler version])
+set X $ac_compile
+ac_compiler=$[2]
+_AC_DO_LIMIT([$ac_compiler --version >&AS_MESSAGE_LOG_FD])
+m4_expand_once([_AC_COMPILER_EXEEXT])[]dnl
+m4_expand_once([_AC_COMPILER_OBJEXT])[]dnl
+AC_LANG_POP(ASM)dnl
+])# AC_PROG_AS
+
+dnl **** Compile a standalone assembly file ****
+dnl
+dnl Usage: WINE_TRY_PE_ASM(flag,asm-code,[header-line1],[header-line2],[action-if-found,[action-if-not-found]])
+dnl
+AC_DEFUN([WINE_TRY_PE_ASM],
+[{ AS_VAR_PUSHDEF([ac_var], ac_cv_${wine_arch}_asm_[[$1]])dnl
+AC_CACHE_CHECK([whether $AS supports m4_escape([$2])], ac_var,
+[ac_wine_check_saved_AS=$AS
+AS_VAR_SET_IF([${wine_arch}_AS],[AS_VAR_COPY([AS],[${wine_arch}_AS])],AS_VAR_SET([AS],[false]))
+AC_LANG_PUSH([ASM])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([$3],[$4],[$2])],[AS_VAR_SET(ac_var,yes)],[AS_VAR_SET(ac_var,no)])
+AC_LANG_POP([ASM])
+AS=$ac_wine_check_saved_AS])
+AS_VAR_IF([ac_var],[yes],[m4_default([$5],[AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -D]m4_toupper($1)[=1"])])],
+          [m4_default([$6],[AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -D]m4_toupper($1)[=0"])])])dnl
+AS_VAR_POPDEF([ac_var]) }])
+
+dnl **** Compile some inline assembly ****
+dnl
+dnl Usage: WINE_TRY_PE_INLINE_ASM(flag,asm-code,asm-code-2,[action-if-found,[action-if-not-found]])
+dnl
+AC_DEFUN([WINE_TRY_PE_INLINE_ASM],
+[{ AS_VAR_PUSHDEF([ac_var], ac_cv_${wine_arch}_inline_asm_[[$1]])dnl
+AC_CACHE_CHECK([whether $CC supports m4_escape([$2])], ac_var,
+[ac_wine_check_asm_saved_CC=$CC
+AS_VAR_COPY([CC],[${wine_arch}_CC])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[]],m4_ifval([$3],[[asm($2); asm($3);]],[[asm($2);]]))],[AS_VAR_SET(ac_var,yes)],[AS_VAR_SET(ac_var,no)])
+CC=$ac_wine_check_asm_saved_CC])
+AS_VAR_IF([ac_var],[yes],[m4_default([$4],[AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -D]m4_toupper($1)[=1"])])],
+          [m4_default([$5],[AS_VAR_APPEND([${wine_arch}_ASMDEFS],[" -D]m4_toupper($1)[=0"])])])dnl
+AS_VAR_POPDEF([ac_var]) }])
+
 dnl **** Check if we can link an empty program with special CFLAGS ****
 dnl
 dnl Usage: WINE_TRY_CFLAGS(flags,[action-if-yes,[action-if-no]])
