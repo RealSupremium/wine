@@ -5431,7 +5431,9 @@ NTSTATUS WINAPI NtSetInformationFile( HANDLE handle, IO_STATUS_BLOCK *io,
             else
                 flags = info->Flags;
 
-            if (flags & ~(FILE_RENAME_REPLACE_IF_EXISTS | FILE_RENAME_IGNORE_READONLY_ATTRIBUTE))
+            if (flags & ~(FILE_RENAME_REPLACE_IF_EXISTS |
+                          FILE_RENAME_IGNORE_READONLY_ATTRIBUTE |
+                          FILE_RENAME_POSIX_SEMANTICS))
                 FIXME( "unsupported flags: %#x\n", flags );
 
             name_str.Buffer = info->FileName;
@@ -5476,7 +5478,9 @@ NTSTATUS WINAPI NtSetInformationFile( HANDLE handle, IO_STATUS_BLOCK *io,
             else
                 flags = info->Flags;
 
-            if (flags & ~(FILE_LINK_REPLACE_IF_EXISTS | FILE_LINK_IGNORE_READONLY_ATTRIBUTE))
+            if (flags & ~(FILE_LINK_REPLACE_IF_EXISTS |
+                          FILE_LINK_IGNORE_READONLY_ATTRIBUTE |
+                          FILE_LINK_POSIX_SEMANTICS))
                 FIXME( "unsupported flags: %#x\n", flags );
 
             name_str.Buffer = info->FileName;
