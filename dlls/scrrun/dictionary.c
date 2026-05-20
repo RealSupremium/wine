@@ -681,25 +681,40 @@ static HRESULT WINAPI dictionary_put_Key(IDictionary *iface, VARIANT *key, VARIA
 {
     struct dictionary *dictionary = impl_from_IDictionary(iface);
     struct keyitem_pair *pair;
-    VARIANT empty;
+    VARIANT new_key, hash;
+    struct list *head;
     HRESULT hr;
 
     TRACE("%p, %s, %s.\n", iface, debugstr_variant(key), debugstr_variant(newkey));
 
-    if ((pair = get_keyitem_pair(dictionary, key)))
-    {
-        /* found existing pair for a key, add new pair with new key
-           and old item and remove old pair after that */
+    if (!(pair = get_keyitem_pair(dictionary, key)))
+        return CTL_E_ELEMENT_NOT_FOUND;
 
-        hr = IDictionary_Add(iface, newkey, &pair->item);
-        if (FAILED(hr))
-            return hr;
+    /* The key is renamed in place, preserving its value and enumeration
+       position; only collisions with a different pair are rejected. */
+    if (get_keyitem_pair(dictionary, newkey) && get_keyitem_pair(dictionary, newkey) != pair)
+        return CTL_E_KEY_ALREADY_EXISTS;
 
-        return IDictionary_Remove(iface, key);
-    }
+    hr = IDictionary_get_HashVal(iface, newkey, &hash);
+    if (FAILED(hr))
+        return hr;
 
-    VariantInit(&empty);
-    return IDictionary_Add(iface, newkey, &empty);
+    VariantInit(&new_key);
+    hr = VariantCopyInd(&new_key, newkey);
+    if (FAILED(hr))
+        return hr;
+
+    VariantClear(&pair->key);
+    pair->key = new_key;
+    pair->hash = V_I4(&hash);
+
+    list_remove(&pair->bucket);
+    head = get_bucket_head(dictionary, pair->hash);
+    if (!head->next)
+        list_init(head);
+    list_add_tail(head, &pair->bucket);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI dictionary_Keys(IDictionary *iface, VARIANT *keys)
