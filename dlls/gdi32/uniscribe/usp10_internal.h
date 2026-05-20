@@ -135,6 +135,7 @@ enum usp10_script
 
 #define GSUB_E_NOFEATURE -20
 #define GSUB_E_NOGLYPH -10
+#define GSUB_E_OUTOFMEMORY -30
 
 #define FEATURE_ALL_TABLES 0
 #define FEATURE_GSUB_TABLE 1
@@ -263,7 +264,7 @@ INT BIDI_ReorderL2vLevel(int level, int *pIndices, const BYTE* plevel, int cch, 
 HRESULT SHAPE_ContextualShaping(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa, WCHAR* pwcChars,
                              INT cChars, WORD* pwOutGlyphs, INT* pcGlyphs, INT cMaxGlyphs,
                              WORD *pwLogClust);
-void SHAPE_ApplyDefaultOpentypeFeatures(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa,
+HRESULT SHAPE_ApplyDefaultOpentypeFeatures(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa,
                                         WORD *pwOutGlyphs, INT* pcGlyphs, INT cMaxGlyphs,
                                         INT cChars, WORD *pwLogClust);
 void SHAPE_ApplyOpenTypePositions(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa,
@@ -297,7 +298,7 @@ DWORD OpenType_CMAP_GetGlyphIndex(HDC hdc, ScriptCache *psc, DWORD utf32c, LPWOR
 void OpenType_GDEF_UpdateGlyphProps(ScriptCache *psc, const WORD *pwGlyphs, const WORD cGlyphs,
                                     WORD *pwLogClust, const WORD cChars, SCRIPT_GLYPHPROP *pGlyphProp);
 int OpenType_apply_GSUB_lookup(const void *table, unsigned int lookup_index, WORD *glyphs,
-                               unsigned int glyph_index, int write_dir, int *glyph_count);
+                               unsigned int glyph_index, int write_dir, int *glyph_count, int max_glyphs);
 unsigned int OpenType_apply_GPOS_lookup(const ScriptCache *psc, const OUTLINETEXTMETRICW *otm,
         const LOGFONTW *logfont, const SCRIPT_ANALYSIS *analysis, int *advance, unsigned int lookup_index,
         const WORD *glyphs, unsigned int glyph_index, unsigned int glyph_count, GOFFSET *goffset);
