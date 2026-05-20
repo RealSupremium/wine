@@ -320,6 +320,7 @@ struct gdi_font
 struct font_backend_funcs
 {
     void  (*load_fonts)(void);
+    void  (*get_default_font_for_char)( DWORD ch, WCHAR *font_name );
     BOOL  (*enum_family_fallbacks)( UINT pitch_and_family, int index, WCHAR buffer[LF_FACESIZE] );
     INT   (*add_font)( const WCHAR *file, UINT flags );
     INT   (*add_mem_font)( void *ptr, SIZE_T size, UINT flags );
