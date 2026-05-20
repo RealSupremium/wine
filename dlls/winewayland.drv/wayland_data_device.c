@@ -26,6 +26,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <pwd.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -58,6 +59,10 @@ struct wayland_data_offer
 };
 
 static HWND clipboard_hwnd;
+static char *clipboard_tag;
+static const unsigned int fnv1a_offset_basis = 2166136261u;
+static const unsigned int fnv1a_prime = 16777619u;
+static const int tag_hash_hex_len = 8;
 static const WCHAR rich_text_formatW[] = {'R','i','c','h',' ','T','e','x','t',' ','F','o','r','m','a','t',0};
 static const WCHAR pngW[] = {'P','N','G',0};
 static const WCHAR jfifW[] = {'J','F','I','F',0};
@@ -521,7 +526,7 @@ static void handle_selection(struct wayland_data_device *data_device,
      * clipboard update. */
     wl_array_for_each(p, &data_offer->types)
     {
-        if (!strcmp(*p, WINEWAYLAND_TAG_MIME_TYPE))
+        if (!strcmp(*p, clipboard_tag))
         {
             TRACE("offer sent by winewayland, ignoring\n");
             wayland_data_offer_destroy(data_offer);
@@ -696,12 +701,49 @@ static const struct wl_data_device_listener data_device_listener =
     data_device_selection,
 };
 
+static void clipboard_tag_init(void)
+{
+    char buf[256];
+    const char *p;
+    const char *prefix = getenv("WINEPREFIX");
+    unsigned int hash = fnv1a_offset_basis;
+    int tag_len = sizeof(WINEWAYLAND_TAG_MIME_TYPE) + 1 + tag_hash_hex_len;
+
+    if (clipboard_tag) free(clipboard_tag);
+    if (!prefix)
+    {
+        const char *home = getenv("HOME");
+        if (!home)
+        {
+            struct passwd *pwd = getpwuid(getuid());
+            if (pwd) home = pwd->pw_dir;
+        }
+        if (!home || home[0] != '/')
+        {
+            WARN("WINEPREFIX not set and HOME invalid\n");
+            clipboard_tag = strdup(WINEWAYLAND_TAG_MIME_TYPE);
+            return;
+        }
+        snprintf(buf, sizeof(buf), "%s/.wine", home);
+        prefix = buf;
+    }
+
+    for (p = prefix; *p; p++)
+        hash = (hash ^ (unsigned char)*p) * fnv1a_prime;
+
+    clipboard_tag = malloc(tag_len);
+    snprintf(clipboard_tag, tag_len, "%s.%08x", WINEWAYLAND_TAG_MIME_TYPE, hash);
+    return;
+}
+
 void wayland_data_device_init(void)
 {
     struct wayland_data_device *data_device = &process_wayland.data_device;
     struct data_device_format *format = supported_formats;
 
     TRACE("\n");
+
+    clipboard_tag_init();
 
     pthread_mutex_lock(&data_device->mutex);
     if (process_wayland.zwlr_data_control_manager_v1)
@@ -810,12 +852,12 @@ static void clipboard_update(void)
 
     if (wl_source)
     {
-        wl_data_source_offer(wl_source, WINEWAYLAND_TAG_MIME_TYPE);
+        wl_data_source_offer(wl_source, clipboard_tag);
         wl_data_source_add_listener(wl_source, &data_source_listener, data_device);
     }
     else
     {
-        zwlr_data_control_source_v1_offer(zwlr_source, WINEWAYLAND_TAG_MIME_TYPE);
+        zwlr_data_control_source_v1_offer(zwlr_source, clipboard_tag);
         zwlr_data_control_source_v1_add_listener(zwlr_source, &data_control_source_listener, data_device);
     }
 
