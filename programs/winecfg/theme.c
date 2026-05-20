@@ -31,6 +31,7 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <shobjidl.h>
 #include <uxtheme.h>
 #include <tmschema.h>
 #include <shlobj.h>
@@ -479,6 +480,89 @@ static void update_dialog (HWND dialog)
     updating_ui = FALSE;
 }
 
+static void init_portal_file_dialog(HWND dialog)
+{
+    static const UINT portal_mode_ids[] =
+    {
+        IDS_FILEDIALOG_PORTAL_AUTO,
+        IDS_FILEDIALOG_PORTAL_ALWAYS,
+        IDS_FILEDIALOG_PORTAL_NEVER,
+    };
+    WCHAR mode_text[64];
+    WCHAR *buf;
+    int i, mode = 0;
+
+    SendDlgItemMessageW(dialog, IDC_FILEDIALOG_PORTAL, CB_RESETCONTENT, 0, 0);
+    for (i = 0; i < ARRAY_SIZE(portal_mode_ids); i++)
+        if (LoadStringW(GetModuleHandleW(NULL), portal_mode_ids[i], mode_text, ARRAY_SIZE(mode_text)))
+            SendDlgItemMessageW(dialog, IDC_FILEDIALOG_PORTAL, CB_ADDSTRING, 0, (LPARAM)mode_text);
+
+    buf = get_reg_key(config_key, keypath(L"X11 Driver"), L"FileDialogPortal", L"auto");
+    if (buf)
+    {
+        if (!wcscmp(buf, L"always"))
+            mode = 1;
+        else if (!wcscmp(buf, L"never"))
+            mode = 2;
+        free(buf);
+    }
+
+    SendDlgItemMessageW(dialog, IDC_FILEDIALOG_PORTAL, CB_SETCURSEL, mode, 0);
+}
+
+static BOOL show_portal_file_dialog_policy(void)
+{
+    WCHAR key[sizeof("System\\CurrentControlSet\\Control\\Video\\{}\\0000") + 40];
+    WCHAR *driver;
+    UINT guid_atom;
+    BOOL show;
+
+    show = TRUE;
+
+    guid_atom = HandleToULong(GetPropW(GetDesktopWindow(), L"__wine_display_device_guid"));
+    if (guid_atom)
+    {
+        wcscpy(key, L"System\\CurrentControlSet\\Control\\Video\\{");
+        if (GlobalGetAtomNameW(guid_atom, key + wcslen(key), 40))
+        {
+            wcscat(key, L"}\\0000");
+            if ((driver = get_reg_key(HKEY_LOCAL_MACHINE, key, L"GraphicsDriver", NULL)))
+            {
+                if (!wcscmp(driver, L"winemac.drv"))
+                    show = FALSE;
+                free(driver);
+            }
+        }
+    }
+
+    return show;
+}
+
+static void update_portal_file_dialog_ui(HWND dialog)
+{
+    BOOL show = show_portal_file_dialog_policy();
+    INT cmd = show ? SW_SHOW : SW_HIDE;
+
+    ShowWindow(GetDlgItem(dialog, IDC_FILEDIALOG_GROUP), cmd);
+    ShowWindow(GetDlgItem(dialog, IDC_FILEDIALOG_PORTAL_LABEL), cmd);
+    ShowWindow(GetDlgItem(dialog, IDC_FILEDIALOG_PORTAL), cmd);
+
+    if (show)
+        init_portal_file_dialog(dialog);
+}
+
+static void on_portal_file_dialog_changed(HWND dialog)
+{
+    static const WCHAR *values[] = { L"auto", L"always", L"never" };
+    int sel;
+
+    if (updating_ui) return;
+
+    sel = SendDlgItemMessageW(dialog, IDC_FILEDIALOG_PORTAL, CB_GETCURSEL, 0, 0);
+    if (sel >= 0 && sel < ARRAY_SIZE(values))
+        set_reg_key(config_key, keypath(L"X11 Driver"), L"FileDialogPortal", values[sel]);
+}
+
 static void on_theme_changed(HWND dialog) {
     int index;
 
@@ -628,43 +712,73 @@ static void do_parse_theme(WCHAR *file)
     free(keyName);
 }
 
+static BOOL pick_theme_file(HWND dialog, WCHAR *path, size_t path_len)
+{
+    COMDLG_FILTERSPEC filters[] =
+    {
+        { L"Theme files", L"*.msstyles;*.theme" },
+        { L"All files", L"*.*" }
+    };
+    IFileOpenDialog *fod = NULL;
+    IShellItem *item = NULL;
+    WCHAR title[100];
+    DWORD opts = 0;
+    HRESULT hr;
+    BOOL ret = FALSE;
+
+    if (!path || !path_len) return FALSE;
+    path[0] = 0;
+
+    LoadStringW(GetModuleHandleW(NULL), IDS_THEMEFILE_SELECT, title, ARRAY_SIZE(title));
+
+    hr = CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
+                          &IID_IFileOpenDialog, (void **)&fod);
+    if (FAILED(hr)) goto done;
+
+    hr = IFileOpenDialog_SetFileTypes(fod, ARRAY_SIZE(filters), filters);
+    if (FAILED(hr)) goto done;
+    hr = IFileOpenDialog_SetFileTypeIndex(fod, 1);
+    if (FAILED(hr)) goto done;
+
+    if (SUCCEEDED(IFileOpenDialog_GetOptions(fod, &opts)))
+    {
+        opts |= FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM;
+        IFileOpenDialog_SetOptions(fod, opts);
+    }
+
+    IFileOpenDialog_SetTitle(fod, title);
+
+    hr = IFileOpenDialog_Show(fod, dialog);
+    if (hr != S_OK) goto done;
+
+    if (FAILED(IFileOpenDialog_GetResult(fod, &item))) goto done;
+
+    {
+        PWSTR selected = NULL;
+        hr = IShellItem_GetDisplayName(item, SIGDN_FILESYSPATH, &selected);
+        if (SUCCEEDED(hr) && selected)
+        {
+            lstrcpynW(path, selected, path_len);
+            CoTaskMemFree(selected);
+            ret = TRUE;
+        }
+    }
+
+done:
+    if (item) IShellItem_Release(item);
+    if (fod) IFileOpenDialog_Release(fod);
+    return ret;
+}
+
 static void on_theme_install(HWND dialog)
 {
-  static const WCHAR filterMask[] = L"\0*.msstyles;*.theme\0";
-  OPENFILENAMEW ofn;
-  WCHAR filetitle[MAX_PATH];
   WCHAR file[MAX_PATH];
-  WCHAR filter[100];
-  WCHAR title[100];
+  WCHAR filetitle[MAX_PATH];
 
-  LoadStringW(GetModuleHandleW(NULL), IDS_THEMEFILE, filter, ARRAY_SIZE(filter) - ARRAY_SIZE(filterMask));
-  memcpy(filter + lstrlenW (filter), filterMask, sizeof(filterMask));
-  LoadStringW(GetModuleHandleW(NULL), IDS_THEMEFILE_SELECT, title, ARRAY_SIZE(title));
+  file[0] = '\0';
+  filetitle[0] = '\0';
 
-  ofn.lStructSize = sizeof(OPENFILENAMEW);
-  ofn.hwndOwner = dialog;
-  ofn.hInstance = 0;
-  ofn.lpstrFilter = filter;
-  ofn.lpstrCustomFilter = NULL;
-  ofn.nMaxCustFilter = 0;
-  ofn.nFilterIndex = 0;
-  ofn.lpstrFile = file;
-  ofn.lpstrFile[0] = '\0';
-  ofn.nMaxFile = ARRAY_SIZE(file);
-  ofn.lpstrFileTitle = filetitle;
-  ofn.lpstrFileTitle[0] = '\0';
-  ofn.nMaxFileTitle = ARRAY_SIZE(filetitle);
-  ofn.lpstrInitialDir = NULL;
-  ofn.lpstrTitle = title;
-  ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_ENABLESIZING;
-  ofn.nFileOffset = 0;
-  ofn.nFileExtension = 0;
-  ofn.lpstrDefExt = NULL;
-  ofn.lCustData = 0;
-  ofn.lpfnHook = NULL;
-  ofn.lpTemplateName = NULL;
-
-  if (GetOpenFileNameW(&ofn))
+  if (pick_theme_file(dialog, file, ARRAY_SIZE(file)))
   {
       WCHAR themeFilePath[MAX_PATH];
       SHFILEOPSTRUCTW shfop;
@@ -679,6 +793,7 @@ static void on_theme_install(HWND dialog)
           return;
       }
 
+      lstrcpynW(filetitle, PathFindFileNameW(file), ARRAY_SIZE(filetitle));
       PathRemoveExtensionW (filetitle);
 
       /* Construct path into which the theme file goes */
@@ -1169,6 +1284,7 @@ ThemeDlgProc (HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
             update_shell_folder_listview(hDlg);
             read_sysparams(hDlg);
             init_mime_types(hDlg);
+            update_portal_file_dialog_ui(hDlg);
             init_dialog(hDlg);
             break;
 
@@ -1191,6 +1307,7 @@ ThemeDlgProc (HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         case IDC_THEME_COLORCOMBO: /* fall through */
                         case IDC_THEME_SIZECOMBO: theme_dirty = TRUE; break;
                         case IDC_SYSPARAM_COMBO: on_sysparam_change(hDlg); return FALSE;
+                        case IDC_FILEDIALOG_PORTAL: on_portal_file_dialog_changed(hDlg); break;
                     }
                     SendMessageW(GetParent(hDlg), PSM_CHANGED, 0, 0);
                     break;

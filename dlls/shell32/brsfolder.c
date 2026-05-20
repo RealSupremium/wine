@@ -31,7 +31,9 @@
 #include "commoncontrols.h"
 #include "shellapi.h"
 #include "shresdef.h"
+#include "shobjidl.h"
 #include "shellfolder.h"
+#include "wine/appdefaults.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
@@ -98,6 +100,132 @@ static HTREEITEM InsertTreeViewItem( browse_info*, IShellFolder *,
 static inline DWORD BrowseFlagsToSHCONTF(UINT ulFlags)
 {
     return SHCONTF_FOLDERS | (ulFlags & BIF_BROWSEINCLUDEFILES ? SHCONTF_NONFOLDERS : 0);
+}
+
+enum portal_policy
+{
+    PORTAL_POLICY_AUTO,
+    PORTAL_POLICY_FORCE,
+    PORTAL_POLICY_NEVER,
+};
+
+static BOOL get_portal_policy_value(WCHAR *buffer, DWORD size)
+{
+    return wine_get_appdefaults_reg_sz(L"X11 Driver", L"FileDialogPortal", buffer, size);
+}
+
+static enum portal_policy get_portal_policy(void)
+{
+    const char *force_portal = getenv("WINE_FORCE_PORTAL");
+    WCHAR value[32];
+
+    if (force_portal && *force_portal == '1')
+        return PORTAL_POLICY_FORCE;
+
+    if (get_portal_policy_value(value, sizeof(value)))
+    {
+        if (!wcsicmp(value, L"always"))
+            return PORTAL_POLICY_FORCE;
+        if (!wcsicmp(value, L"never"))
+            return PORTAL_POLICY_NEVER;
+        if (!wcsicmp(value, L"auto"))
+            return PORTAL_POLICY_AUTO;
+    }
+
+    return PORTAL_POLICY_AUTO;
+}
+
+static BOOL should_use_portal_for_browsefolder(const BROWSEINFOW *bi)
+{
+    static const UINT unsupported_flags =
+        BIF_BROWSEFORCOMPUTER | BIF_BROWSEFORPRINTER | BIF_STATUSTEXT |
+        BIF_RETURNFSANCESTORS | BIF_BROWSEINCLUDEURLS | BIF_NOTRANSLATETARGETS;
+
+    enum portal_policy policy = get_portal_policy();
+
+    if (policy == PORTAL_POLICY_NEVER) return FALSE;
+    if (!bi) return FALSE;
+    if (bi->lpfn) return FALSE;
+    if (bi->pidlRoot) return FALSE;
+    if (bi->ulFlags & unsupported_flags) return FALSE;
+    return TRUE;
+}
+
+static LPITEMIDLIST browse_for_folder_portal(BROWSEINFOW *bi, HRESULT *status)
+{
+    IFileOpenDialog *pfd = NULL;
+    IShellItem *psi = NULL;
+    LPITEMIDLIST pidl = NULL;
+    DWORD flags;
+    HRESULT hr_init;
+    HRESULT hr;
+    BOOL com_initialized = FALSE;
+
+    if (status)
+        *status = E_FAIL;
+
+    hr_init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    if (SUCCEEDED(hr_init))
+        com_initialized = TRUE;
+    else if (hr_init != RPC_E_CHANGED_MODE)
+    {
+        if (status)
+            *status = hr_init;
+        return NULL;
+    }
+
+    if (FAILED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
+                                &IID_IFileOpenDialog, (void **)&pfd)))
+    {
+        if (status)
+            *status = E_FAIL;
+        if (com_initialized)
+            CoUninitialize();
+        return NULL;
+    }
+
+    hr = IFileOpenDialog_GetOptions(pfd, &flags);
+    if (SUCCEEDED(hr))
+    {
+        flags |= FOS_PICKFOLDERS | FOS_PATHMUSTEXIST;
+        if (bi->ulFlags & BIF_RETURNONLYFSDIRS)
+            flags |= FOS_FORCEFILESYSTEM;
+        hr = IFileOpenDialog_SetOptions(pfd, flags);
+    }
+
+    if (SUCCEEDED(hr) && bi->lpszTitle)
+        hr = IFileOpenDialog_SetTitle(pfd, bi->lpszTitle);
+
+    if (SUCCEEDED(hr))
+        hr = IFileOpenDialog_Show(pfd, bi->hwndOwner);
+
+    if (SUCCEEDED(hr))
+        hr = IFileOpenDialog_GetResult(pfd, &psi);
+
+    if (SUCCEEDED(hr))
+    {
+        PWSTR name = NULL;
+
+        hr = SHGetIDListFromObject((IUnknown *)psi, &pidl);
+        if (SUCCEEDED(hr) && bi->pszDisplayName &&
+            SUCCEEDED(IShellItem_GetDisplayName(psi, SIGDN_NORMALDISPLAY, &name)))
+        {
+            lstrcpynW(bi->pszDisplayName, name, MAX_PATH);
+            CoTaskMemFree(name);
+        }
+    }
+
+    if (psi)
+        IShellItem_Release(psi);
+    if (pfd)
+        IFileOpenDialog_Release(pfd);
+    if (com_initialized)
+        CoUninitialize();
+
+    if (status)
+        *status = hr;
+
+    return pidl;
 }
 
 static void browsefolder_callback( LPBROWSEINFOW lpBrowseInfo, HWND hWnd,
@@ -1213,10 +1341,19 @@ LPITEMIDLIST WINAPI SHBrowseForFolderA (LPBROWSEINFOA lpbi)
 LPITEMIDLIST WINAPI SHBrowseForFolderW (LPBROWSEINFOW lpbi)
 {
     browse_info info;
+    LPITEMIDLIST pidl;
+    HRESULT portal_hr = E_FAIL;
     DWORD r;
     HRESULT hr;
     const WCHAR * templateName;
     INITCOMMONCONTROLSEX icex;
+
+    if (should_use_portal_for_browsefolder(lpbi))
+    {
+        pidl = browse_for_folder_portal(lpbi, &portal_hr);
+        if (pidl || portal_hr == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+            return pidl;
+    }
 
     info.hWnd = 0;
     info.pidlRet = NULL;
