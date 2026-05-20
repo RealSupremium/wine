@@ -264,7 +264,7 @@ INT BIDI_ReorderL2vLevel(int level, int *pIndices, const BYTE* plevel, int cch, 
 HRESULT SHAPE_ContextualShaping(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa, WCHAR* pwcChars,
                              INT cChars, WORD* pwOutGlyphs, INT* pcGlyphs, INT cMaxGlyphs,
                              WORD *pwLogClust);
-void SHAPE_ApplyDefaultOpentypeFeatures(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa,
+HRESULT SHAPE_ApplyDefaultOpentypeFeatures(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa,
                                         WORD *pwOutGlyphs, INT* pcGlyphs, INT cMaxGlyphs,
                                         INT cChars, WORD *pwLogClust);
 void SHAPE_ApplyOpenTypePositions(HDC hdc, ScriptCache *psc, SCRIPT_ANALYSIS *psa,
