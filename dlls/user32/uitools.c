@@ -1435,12 +1435,34 @@ BOOL WINAPI SubtractRect( LPRECT dest, const RECT *src1, const RECT *src2 )
 INT WINAPI FillRect( HDC hdc, const RECT *rect, HBRUSH hbrush )
 {
     HBRUSH prev_brush;
+    RECT tmpRect;
+
+    if (rect->bottom < rect->top)
+    {
+        tmpRect.bottom = rect->top;
+        tmpRect.top = rect->bottom;
+    }
+    else
+    {
+        tmpRect.bottom = rect->bottom;
+        tmpRect.top = rect->top;
+    }
+    if (rect->right < rect->left)
+    {
+        tmpRect.right = rect->left;
+        tmpRect.left = rect->right;
+    }
+    else
+    {
+        tmpRect.right = rect->right;
+        tmpRect.left = rect->left;
+    }
 
     if (hbrush <= (HBRUSH) (COLOR_MAX + 1)) hbrush = GetSysColorBrush( HandleToULong(hbrush) - 1 );
 
     prev_brush = SelectObject( hdc, hbrush );
-    PatBlt( hdc, rect->left, rect->top,
-              rect->right - rect->left, rect->bottom - rect->top, PATCOPY );
+    PatBlt( hdc, tmpRect.left, tmpRect.top,
+              tmpRect.right - tmpRect.left, tmpRect.bottom - tmpRect.top, PATCOPY );
     if (prev_brush) SelectObject( hdc, prev_brush );
     return 1;
 }

@@ -31,6 +31,20 @@ static void test_FillRect(void)
     COLORREF col;
     HBRUSH old_brush;
     RECT r;
+    int i;
+    static const struct
+    {
+        const int x;
+        const int y;
+        const COLORREF col;
+        const BOOL todo_flag;
+    } test[] =
+    {
+        { 5, 5, 0x0, FALSE },
+        { 5, 6, 0xffffff, FALSE },
+        { 6, 5, 0xffffff, FALSE },
+        { 6, 6, 0xffffff, FALSE },
+    };
 
     /* fill bitmap data with white */
     memset(bits, 0xff, sizeof(bits));
@@ -56,6 +70,16 @@ static void test_FillRect(void)
     /* bitmap filled with last selected brush */
     col = GetPixel(hdcmem, 0, 0);
     ok(col == 0, "GetPixel returned %08lx, expected 0\n", col);
+
+    /* test negative height and width */
+    SetRect(&r, 6, 6, 5, 5);
+    FillRect(hdcmem, &r, GetStockObject(BLACK_BRUSH));
+    for (i = 0; i < ARRAYSIZE(test); i++)
+    {
+        col = GetPixel(hdcmem, test[i].x, test[i].y);
+        todo_wine_if (test[i].todo_flag)
+            ok(col == test[i].col, "GetPixel (%d,%d) returned %08lx, expected %08lx\n", test[i].x, test[i].y, col, test[i].col);
+    }
 
     SelectObject(hdcmem, oldhbmp);
     DeleteObject(hbmp);
