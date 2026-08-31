@@ -53,7 +53,7 @@ struct lconv
     char n_sep_by_space;
     char p_sign_posn;
     char n_sign_posn;
-#if _MSVCR_VER >= 100
+#if _MSVCR_VER == 0 || _MSVCR_VER >= 100
     wchar_t* _W_decimal_point;
     wchar_t* _W_thousands_sep;
     wchar_t* _W_int_curr_symbol;

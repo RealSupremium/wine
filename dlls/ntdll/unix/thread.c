@@ -2534,6 +2534,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
     }
 
     case ThreadPriority:
+    case ThreadActualBasePriority:
     {
         const DWORD *priority = data;
         if (length != sizeof(DWORD)) return STATUS_INVALID_PARAMETER;

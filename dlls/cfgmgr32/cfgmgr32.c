@@ -20,6 +20,7 @@
 #include "cfgmgr32_private.h"
 #include "initguid.h"
 #include "devpkey.h"
+#include "ddk/bthguid.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(setupapi);
 
@@ -711,6 +712,23 @@ static LSTATUS query_device_property( HKEY hkey, const struct device *dev, struc
 {
     if (!memcmp( &DEVPKEY_Device_InstanceId, &prop->key, sizeof(prop->key) ))
         return return_property_string( prop, dev->instance );
+
+    if (!memcmp( &DEVPKEY_Bluetooth_DeviceAddress, &prop->key, sizeof(prop->key) ))
+    {
+        unsigned int b[6];
+        WCHAR mac_str[16];
+        const WCHAR *p = dev->instance;
+        while (*p)
+        {
+            if (swscanf(p, L"%02x:%02x:%02x:%02x:%02x:%02x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) == 6 ||
+                swscanf(p, L"%02X:%02X:%02X:%02X:%02X:%02X", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) == 6)
+            {
+                swprintf(mac_str, ARRAY_SIZE(mac_str), L"%02X%02X%02X%02X%02X%02X", b[0], b[1], b[2], b[3], b[4], b[5]);
+                return return_property_string( prop, mac_str );
+            }
+            p++;
+        }
+    }
 
     for (UINT i = 0; i < ARRAY_SIZE(device_properties); i++)
     {

@@ -1588,7 +1588,7 @@ size_t CDECL wcsftime( wchar_t *str, size_t max,
     return wcsftime_helper(str, max, format, mstm, NULL, NULL);
 }
 
-#if _MSVCR_VER >= 110
+#if _MSVCR_VER == 0 || _MSVCR_VER >= 110
 /*********************************************************************
  *		_Wcsftime (MSVCR110.@)
  */

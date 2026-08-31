@@ -18,6 +18,8 @@
 #ifndef __HIDCLASS_H
 #define __HIDCLASS_H
 
+#include <devpropdef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

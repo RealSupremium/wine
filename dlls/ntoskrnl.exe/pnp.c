@@ -454,7 +454,22 @@ static void enumerate_new_device( DEVICE_OBJECT *device, HDEVINFO set, DEVICE_OB
         SetupDiSetDevicePropertyW( set, &sp_device, &DEVPKEY_Device_Parent, DEVPROP_TYPE_STRING,
                 (BYTE *)parent_id, (wcslen( parent_id ) + 1) * sizeof(WCHAR), 0 );
 
-    if (need_driver && !install_device_driver( device, set, &sp_device ) && !caps.RawDeviceOK)
+    if (!need_driver)
+    {
+        if (!get_device_id( device, BusQueryHardwareIDs, &id ) && id)
+        {
+            SetupDiSetDeviceRegistryPropertyW( set, &sp_device, SPDRP_HARDWAREID, (BYTE *)id,
+                sizeof_multiszW( id ) * sizeof(WCHAR) );
+            ExFreePool( id );
+        }
+        if (!get_device_id( device, BusQueryCompatibleIDs, &id ) && id)
+        {
+            SetupDiSetDeviceRegistryPropertyW( set, &sp_device, SPDRP_COMPATIBLEIDS, (BYTE *)id,
+                sizeof_multiszW( id ) * sizeof(WCHAR) );
+            ExFreePool( id );
+        }
+    }
+    else if (!install_device_driver( device, set, &sp_device ) && !caps.RawDeviceOK)
     {
         ERR("Unable to install a function driver for device %s.\n", debugstr_w(device_instance_id));
         return;

@@ -652,6 +652,8 @@
 # @ stub GetPackageVolumeSisPath
 @ stdcall GetPackagesByPackageFamily(wstr ptr ptr ptr ptr)
 @ stdcall GetPerformanceInfo(ptr long)
+@ stdcall GetPersistedRegistryLocationW(wstr wstr ptr long ptr long)
+@ stdcall GetPersistedRegistryValueW(ptr ptr ptr long ptr ptr long ptr)
 @ stdcall GetPhysicallyInstalledSystemMemory(ptr)
 # @ stub GetPreviousFgPolicyRefreshInfoInternal
 @ stdcall GetPriorityClass(long)

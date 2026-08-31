@@ -149,10 +149,38 @@ DWORD WINAPI WlanRegisterNotification(HANDLE handle, DWORD notify_source, BOOL i
                                       WLAN_NOTIFICATION_CALLBACK callback, void *context,
                                       void *reserved, DWORD *notify_prev)
 {
-    FIXME("(%p, %ld, %d, %p, %p, %p, %p) stub\n",
+    TRACE("(%p, %ld, %d, %p, %p, %p, %p)\n",
           handle, notify_source, ignore_dup, callback, context, reserved, notify_prev);
 
-    return ERROR_CALL_NOT_IMPLEMENTED;
+    if (notify_prev)
+        *notify_prev = 0;
+
+    return ERROR_SUCCESS;
+}
+
+DWORD WINAPI WlanGetNetworkBssList(HANDLE handle, const GUID *guid, const DOT11_SSID *ssid,
+                                   DOT11_BSS_TYPE bss_type, BOOL security_enabled,
+                                   void *reserved, WLAN_BSS_LIST **bss_list)
+{
+    FIXME("(%p, %s, %p, %d, %d, %p, %p) semi-stub\n",
+          handle, wine_dbgstr_guid(guid), ssid, bss_type, security_enabled, reserved, bss_list);
+
+    if (!handle || reserved || !bss_list)
+        return ERROR_INVALID_PARAMETER;
+
+    *bss_list = WlanAllocateMemory(sizeof(WLAN_BSS_LIST));
+    if (!*bss_list)
+        return ERROR_NOT_ENOUGH_MEMORY;
+
+    (*bss_list)->dwTotalSize = sizeof(WLAN_BSS_LIST);
+    (*bss_list)->dwNumberOfItems = 0;
+    return ERROR_SUCCESS;
+}
+
+DWORD WINAPI WlanInternalNonDisruptiveScan(HANDLE handle, const GUID *guid, void *reserved)
+{
+    TRACE("(%p, %s, %p)\n", handle, wine_dbgstr_guid(guid), reserved);
+    return ERROR_SUCCESS;
 }
 
 DWORD WINAPI WlanGetAvailableNetworkList(HANDLE handle, const GUID *guid, DWORD flags,

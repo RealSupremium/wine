@@ -1196,8 +1196,12 @@ static NTSTATUS hidraw_device_create(struct udev_device *dev, int fd, const char
     char buffer[MAX_PATH];
 
     desc.is_hidraw = TRUE;
-    if (!desc.product[0] && ioctl(fd, HIDIOCGRAWNAME(sizeof(buffer) - 1), buffer) >= 0)
-        ntdll_umbstowcs(buffer, strlen(buffer) + 1, desc.product, ARRAY_SIZE(desc.product));
+    memset(buffer, 0, sizeof(buffer));
+    if (ioctl(fd, HIDIOCGRAWNAME(sizeof(buffer) - 1), buffer) >= 0)
+    {
+        if (!desc.product[0])
+            ntdll_umbstowcs(buffer, strlen(buffer) + 1, desc.product, ARRAY_SIZE(desc.product));
+    }
 
     if (!desc.manufacturer[0]) memcpy(desc.manufacturer, hidraw, sizeof(hidraw));
     if (!desc.serialnumber[0]) memcpy(desc.serialnumber, zeros, sizeof(zeros));

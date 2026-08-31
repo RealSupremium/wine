@@ -173,6 +173,10 @@
 @ cdecl _Gettnames()
 @ extern _HUGE MSVCRT__HUGE
 @ cdecl _Strftime(ptr long str ptr ptr)
+@ cdecl _W_Getdays()
+@ cdecl _W_Getmonths()
+@ cdecl _W_Gettnames()
+@ cdecl _Wcsftime(ptr long wstr ptr ptr)
 @ cdecl _XcptFilter(long ptr)
 @ stdcall -arch=!i386 __C_specific_handler(ptr long ptr ptr)
 @ cdecl __CppXcptFilter(long ptr)

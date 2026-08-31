@@ -21,8 +21,10 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include "winternl.h"
 #include "initguid.h"
 #include "hid.h"
+#include "devpkey.h"
 #include "devguid.h"
 #include "ntddmou.h"
 #include "ntddkbd.h"
@@ -425,12 +427,16 @@ static WCHAR *query_hardware_ids(DEVICE_OBJECT *device)
     static const WCHAR hid_format[] = L"HID_DEVICE";
 
     struct phys_device *pdo = pdo_from_DEVICE_OBJECT( device );
+    struct func_device *fdo = fdo_from_DEVICE_OBJECT( pdo->parent_fdo );
     HIDP_COLLECTION_DESC *desc = pdo->collection_desc;
     HID_COLLECTION_INFORMATION *info = &pdo->information;
     WCHAR *dst;
     DWORD size;
 
-    size = sizeof(vid_pid_format);
+    size = (wcslen(pdo->base.device_id) + 1) * sizeof(WCHAR);
+    if (wcscmp(pdo->base.device_id, fdo->base.device_id))
+        size += (wcslen(fdo->base.device_id) + 1) * sizeof(WCHAR);
+    size += sizeof(vid_pid_format);
     size += sizeof(vid_usage_format);
     size += sizeof(usage_format);
     size += sizeof(hid_format);
@@ -438,6 +444,9 @@ static WCHAR *query_hardware_ids(DEVICE_OBJECT *device)
     if ((dst = ExAllocatePool(PagedPool, size + sizeof(WCHAR))))
     {
         DWORD len = size / sizeof(WCHAR), pos = 0;
+        pos += swprintf( dst + pos, len - pos, L"%s", pdo->base.device_id ) + 1;
+        if (wcscmp(pdo->base.device_id, fdo->base.device_id))
+            pos += swprintf( dst + pos, len - pos, L"%s", fdo->base.device_id ) + 1;
         pos += swprintf( dst + pos, len - pos, vid_pid_format, info->VendorID, info->ProductID ) + 1;
         pos += swprintf( dst + pos, len - pos, vid_usage_format, info->VendorID, desc->UsagePage, desc->Usage ) + 1;
         pos += swprintf( dst + pos, len - pos, usage_format, desc->UsagePage, desc->Usage ) + 1;
@@ -560,6 +569,38 @@ static NTSTATUS pdo_pnp( DEVICE_OBJECT *device, IRP *irp )
             {
                 ERR( "Failed to register interface, status %#lx.\n", status );
                 break;
+            }
+
+            if (IsEqualGUID( pdo->base.class_guid, &GUID_DEVINTERFACE_HID ))
+            {
+                USHORT vendor_id = pdo->information.VendorID;
+                USHORT product_id = pdo->information.ProductID;
+                USHORT version = pdo->information.VersionNumber;
+                USHORT usage_page = pdo->collection_desc->UsagePage;
+                USHORT usage_id = pdo->collection_desc->Usage;
+                BOOLEAN is_readonly = FALSE;
+                UNICODE_STRING container_str;
+                GUID container_guid;
+
+                IoSetDeviceInterfacePropertyData( &pdo->link_name, &DEVPKEY_DeviceInterface_HID_VendorId,
+                                                  LOCALE_NEUTRAL, 0, DEVPROP_TYPE_UINT16, sizeof(vendor_id), &vendor_id );
+                IoSetDeviceInterfacePropertyData( &pdo->link_name, &DEVPKEY_DeviceInterface_HID_ProductId,
+                                                  LOCALE_NEUTRAL, 0, DEVPROP_TYPE_UINT16, sizeof(product_id), &product_id );
+                IoSetDeviceInterfacePropertyData( &pdo->link_name, &DEVPKEY_DeviceInterface_HID_VersionNumber,
+                                                  LOCALE_NEUTRAL, 0, DEVPROP_TYPE_UINT16, sizeof(version), &version );
+                IoSetDeviceInterfacePropertyData( &pdo->link_name, &DEVPKEY_DeviceInterface_HID_UsagePage,
+                                                  LOCALE_NEUTRAL, 0, DEVPROP_TYPE_UINT16, sizeof(usage_page), &usage_page );
+                IoSetDeviceInterfacePropertyData( &pdo->link_name, &DEVPKEY_DeviceInterface_HID_UsageId,
+                                                  LOCALE_NEUTRAL, 0, DEVPROP_TYPE_UINT16, sizeof(usage_id), &usage_id );
+                IoSetDeviceInterfacePropertyData( &pdo->link_name, &DEVPKEY_DeviceInterface_HID_IsReadOnly,
+                                                  LOCALE_NEUTRAL, 0, DEVPROP_TYPE_BOOLEAN, sizeof(is_readonly), &is_readonly );
+
+                RtlInitUnicodeString( &container_str, pdo->base.container_id );
+                if (NT_SUCCESS( RtlGUIDFromString( &container_str, &container_guid ) ))
+                {
+                    IoSetDeviceInterfacePropertyData( &pdo->link_name, &DEVPKEY_Device_ContainerId,
+                                                      LOCALE_NEUTRAL, 0, DEVPROP_TYPE_GUID, sizeof(container_guid), &container_guid );
+                }
             }
 
             /* FIXME: This should probably be done in mouhid.sys. */

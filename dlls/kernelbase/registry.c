@@ -2008,6 +2008,27 @@ LSTATUS WINAPI RegGetValueW( HKEY hKey, LPCWSTR pszSubKey, LPCWSTR pszValue,
 
 
 /******************************************************************************
+ * GetPersistedRegistryValueW   (kernelbase.@)
+ */
+LSTATUS WINAPI GetPersistedRegistryValueW( PCWSTR keyPath, PCWSTR subkeyPath, PCWSTR valueName,
+                                          DWORD flags, DWORD *pdwType, PVOID pvData,
+                                          DWORD cbData, DWORD *pcbData )
+{
+    DWORD dataSize = cbData;
+    LSTATUS status;
+
+    TRACE("(%s, %s, %s, %ld, %p, %p, %ld, %p)\n",
+          debugstr_w(keyPath), debugstr_w(subkeyPath), debugstr_w(valueName),
+          flags, pdwType, pvData, cbData, pcbData);
+
+    status = RegGetValueW( HKEY_LOCAL_MACHINE, subkeyPath, valueName,
+                           flags, pdwType, pvData, &dataSize );
+    if (pcbData) *pcbData = dataSize;
+    return status;
+}
+
+
+/******************************************************************************
  * RegGetValueA   (kernelbase.@)
  *
  * See RegGetValueW.
@@ -4142,4 +4163,14 @@ BOOL WINAPI SHRegGetBoolUSValueW(const WCHAR *subkey, const WCHAR *value, BOOL i
         TRACE("returning default value %d\n", ret);
 
     return ret;
+}
+
+/***********************************************************************
+ *          GetPersistedRegistryLocationW (kernelbase.@)
+ */
+DWORD WINAPI GetPersistedRegistryLocationW( const WCHAR *path, const WCHAR *subkey, WCHAR *buffer, DWORD size, DWORD *needed, DWORD flags )
+{
+    FIXME( "path %s, subkey %s, buffer %p, size %ld, needed %p, flags %#lx stub!\n",
+           debugstr_w(path), debugstr_w(subkey), buffer, size, needed, flags );
+    return ERROR_NOT_SUPPORTED;
 }

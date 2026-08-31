@@ -244,6 +244,40 @@ typedef struct _WLAN_HOSTED_NETWORK_STATUS
     WLAN_HOSTED_NETWORK_PEER_STATE PeerList[1];
 } WLAN_HOSTED_NETWORK_STATUS, *PWLAN_HOSTED_NETWORK_STATUS;
 
+#define DOT11_RATE_SET_MAX_LENGTH 126
+typedef struct _WLAN_RATE_SET
+{
+    ULONG uRateSetLength;
+    USHORT usRateSet[DOT11_RATE_SET_MAX_LENGTH];
+} WLAN_RATE_SET, *PWLAN_RATE_SET;
+
+typedef struct _WLAN_BSS_ENTRY
+{
+    DOT11_SSID dot11Ssid;
+    ULONG uPhyId;
+    DOT11_MAC_ADDRESS dot11Bssid;
+    DOT11_BSS_TYPE dot11BssType;
+    DOT11_PHY_TYPE dot11BssPhyType;
+    LONG lRssi;
+    ULONG uLinkQuality;
+    BOOL bInRegDomain;
+    USHORT usBeaconPeriod;
+    ULONGLONG ullTimestamp;
+    ULONGLONG ullHostTimestamp;
+    USHORT usCapabilityInformation;
+    ULONG ulChCenterFrequency;
+    WLAN_RATE_SET wlanRateSet;
+    ULONG ulIeOffset;
+    ULONG ulIeSize;
+} WLAN_BSS_ENTRY, *PWLAN_BSS_ENTRY;
+
+typedef struct _WLAN_BSS_LIST
+{
+    DWORD dwTotalSize;
+    DWORD dwNumberOfItems;
+    WLAN_BSS_ENTRY wlanBssEntries[1];
+} WLAN_BSS_LIST, *PWLAN_BSS_LIST;
+
 DWORD WINAPI WlanCloseHandle(HANDLE, void *);
 DWORD WINAPI WlanEnumInterfaces(HANDLE, void *, WLAN_INTERFACE_INFO_LIST **);
 DWORD WINAPI WlanOpenHandle(DWORD, void *, DWORD *, HANDLE *);
@@ -252,6 +286,8 @@ void *WINAPI WlanAllocateMemory(DWORD) __WINE_ALLOC_SIZE(1) __WINE_DEALLOC(WlanF
 DWORD WINAPI WlanScan(HANDLE, const GUID *, const DOT11_SSID *, const WLAN_RAW_DATA *, void *);
 DWORD WINAPI WlanRegisterNotification(HANDLE, DWORD, BOOL, WLAN_NOTIFICATION_CALLBACK, void *, void *, DWORD *);
 DWORD WINAPI WlanGetAvailableNetworkList(HANDLE, const GUID *, DWORD, void *, WLAN_AVAILABLE_NETWORK_LIST **);
+DWORD WINAPI WlanGetNetworkBssList(HANDLE, const GUID *, const DOT11_SSID *, DOT11_BSS_TYPE, BOOL, void *, WLAN_BSS_LIST **);
+DWORD WINAPI WlanInternalNonDisruptiveScan(HANDLE, const GUID *, void *);
 DWORD WINAPI WlanQueryInterface(HANDLE, const GUID *, WLAN_INTF_OPCODE, void *, DWORD *, void **, WLAN_OPCODE_VALUE_TYPE *);
 
 #endif /* _WLAN_WLANAPI_H */

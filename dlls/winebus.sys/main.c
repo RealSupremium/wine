@@ -211,8 +211,9 @@ static WCHAR *get_device_id(DEVICE_OBJECT *device)
 {
     static const WCHAR input_format[] = L"&MI_%02u";
     static const WCHAR winebus_format[] = L"%s\\VID_%04X&PID_%04X";
+    static const WCHAR bthenum_format[] = L"BTHENUM\\{00001124-0000-1000-8000-00805f9b34fb}_VID&0002%04x_PID&%04x";
     struct device_extension *ext = (struct device_extension *)device->DeviceExtension;
-    DWORD pos = 0, len = 0, input_len = 0, winebus_len = 18;
+    DWORD pos = 0, len = 0, input_len = 0, winebus_len = 80;
     const WCHAR *bus_str;
     WCHAR *dst;
 
@@ -224,7 +225,10 @@ static WCHAR *get_device_id(DEVICE_OBJECT *device)
 
     if ((dst = ExAllocatePool(PagedPool, len * sizeof(WCHAR))))
     {
-        pos += swprintf(dst + pos, len - pos, winebus_format, bus_str, ext->desc.vid, ext->desc.pid);
+        if (ext->desc.bus_type == BUS_TYPE_BLUETOOTH)
+            pos += swprintf(dst + pos, len - pos, bthenum_format, ext->desc.vid, ext->desc.pid);
+        else
+            pos += swprintf(dst + pos, len - pos, winebus_format, bus_str, ext->desc.vid, ext->desc.pid);
         if (input_len) pos += swprintf(dst + pos, len - pos, input_format, ext->desc.input);
     }
 

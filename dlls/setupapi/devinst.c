@@ -2777,6 +2777,10 @@ static DWORD get_device_reg_property( HKEY base_key, const DEVPROPKEY *prop_key,
     return ret;
 }
 
+static DWORD get_device_property( struct device *device, HDEVINFO devinfo, PSP_DEVINFO_DATA device_data,
+                                  const DEVPROPKEY *prop_key, DEVPROPTYPE *prop_type, BYTE *buf, DWORD buf_size,
+                                  DWORD *req_size, DWORD flags );
+
 BOOL WINAPI SetupDiGetDeviceInterfacePropertyW( HDEVINFO devinfo, SP_DEVICE_INTERFACE_DATA *iface_data,
                                                 const DEVPROPKEY *key, DEVPROPTYPE *type, BYTE *buf, DWORD buf_size,
                                                 DWORD *req_size, DWORD flags )
@@ -2837,6 +2841,10 @@ BOOL WINAPI SetupDiGetDeviceInterfacePropertyW( HDEVINFO devinfo, SP_DEVICE_INTE
             ret = ERROR_INSUFFICIENT_BUFFER;
         if (req_size)
             *req_size = size;
+    }
+    else if (IsEqualDevPropKey( *key, DEVPKEY_Device_ContainerId ))
+    {
+        ret = get_device_property( iface->device, devinfo, NULL, key, type, buf, buf_size, req_size, flags );
     }
     else
         ret = get_device_reg_property( iface->refstr_key, key, type, buf, buf_size, req_size, flags );
@@ -3046,18 +3054,11 @@ BOOL WINAPI SetupDiGetDeviceRegistryPropertyA(HDEVINFO devinfo,
 /***********************************************************************
  *		SetupDiGetDeviceRegistryPropertyW (SETUPAPI.@)
  */
-BOOL WINAPI SetupDiGetDeviceRegistryPropertyW(HDEVINFO devinfo,
-        SP_DEVINFO_DATA *device_data, DWORD Property, DWORD *PropertyRegDataType,
-        BYTE *PropertyBuffer, DWORD PropertyBufferSize, DWORD *RequiredSize)
+static BOOL SETUPDI_GetDeviceRegistryPropertyW(struct device *device,
+    DWORD Property, DWORD *PropertyRegDataType, BYTE *PropertyBuffer,
+    DWORD PropertyBufferSize, DWORD *RequiredSize)
 {
     BOOL ret = FALSE;
-    struct device *device;
-
-    TRACE("devinfo %p, device_data %p, prop %ld, type %p, buffer %p, size %ld, required %p\n",
-            devinfo, device_data, Property, PropertyRegDataType, PropertyBuffer, PropertyBufferSize, RequiredSize);
-
-    if (!(device = get_device(devinfo, device_data)))
-        return FALSE;
 
     if (PropertyBufferSize && PropertyBuffer == NULL)
     {
@@ -3125,6 +3126,22 @@ BOOL WINAPI SetupDiGetDeviceRegistryPropertyW(HDEVINFO devinfo,
         SetLastError(ERROR_INVALID_DATA);
     }
     return ret;
+}
+
+BOOL WINAPI SetupDiGetDeviceRegistryPropertyW(HDEVINFO devinfo,
+        SP_DEVINFO_DATA *device_data, DWORD Property, DWORD *PropertyRegDataType,
+        BYTE *PropertyBuffer, DWORD PropertyBufferSize, DWORD *RequiredSize)
+{
+    struct device *device;
+
+    TRACE("devinfo %p, device_data %p, prop %ld, type %p, buffer %p, size %ld, required %p\n",
+            devinfo, device_data, Property, PropertyRegDataType, PropertyBuffer, PropertyBufferSize, RequiredSize);
+
+    if (!(device = get_device(devinfo, device_data)))
+        return FALSE;
+
+    return SETUPDI_GetDeviceRegistryPropertyW(device, Property, PropertyRegDataType,
+                                              PropertyBuffer, PropertyBufferSize, RequiredSize);
 }
 
 /***********************************************************************

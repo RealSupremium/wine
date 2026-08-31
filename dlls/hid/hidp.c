@@ -100,6 +100,7 @@ static NTSTATUS enum_value_caps( struct hid_preparsed_data *preparsed, HIDP_REPO
 {
     const struct hid_value_caps *caps, *caps_end;
     BOOL is_range, incompatible = FALSE;
+    USHORT initial_count = *count;
     LONG remaining = *count;
     NTSTATUS status;
 
@@ -110,15 +111,18 @@ static NTSTATUS enum_value_caps( struct hid_preparsed_data *preparsed, HIDP_REPO
         if (!match_value_caps( caps, filter )) continue;
         if (filter->report_id && caps->report_id != filter->report_id) incompatible = TRUE;
         else if (filter->array && (is_range || caps->report_count <= 1)) return HIDP_STATUS_NOT_VALUE_ARRAY;
-        else if (remaining-- > 0) status = callback( caps, user );
+        else if (remaining-- > 0)
+        {
+            if (user && *(void **)user) status = callback( caps, user );
+        }
     }
 
     if (status == HIDP_STATUS_NULL) status = HIDP_STATUS_SUCCESS;
     if (status != HIDP_STATUS_SUCCESS) return status;
 
     *count -= remaining;
-    if (*count == 0) return incompatible ? HIDP_STATUS_INCOMPATIBLE_REPORT_ID : HIDP_STATUS_USAGE_NOT_FOUND;
     if (remaining < 0) return HIDP_STATUS_BUFFER_TOO_SMALL;
+    if (*count == 0 && initial_count > 0) return incompatible ? HIDP_STATUS_INCOMPATIBLE_REPORT_ID : HIDP_STATUS_USAGE_NOT_FOUND;
     return HIDP_STATUS_SUCCESS;
 }
 
@@ -464,6 +468,8 @@ static NTSTATUS set_usage_value( const struct hid_value_caps *caps, void *user )
 
     if ((bit_count + 7) / 8 > params->value_len) return HIDP_STATUS_BUFFER_TOO_SMALL;
 
+    if (caps->report_id) ((unsigned char *)params->report_buf)[0] = caps->report_id;
+
     report_buf = (unsigned char *)params->report_buf + caps->start_byte + bit_offset / 8;
     copy_bits( report_buf, params->value_buf, bit_count, start_bit + bit_offset % 8 );
 
@@ -564,6 +570,8 @@ static NTSTATUS set_usage( const struct hid_value_caps *caps, void *user )
     ULONG index_min, bit, last;
     unsigned char *report_buf;
 
+    if (caps->report_id) ((unsigned char *)params->report_buf)[0] = caps->report_id;
+
     report_buf = (unsigned char *)params->report_buf + caps->start_byte;
 
     if (HID_VALUE_CAPS_IS_ARRAY( caps ))
@@ -627,6 +635,8 @@ static NTSTATUS unset_usage( const struct hid_value_caps *caps, void *user )
     const struct hid_value_caps *end = caps;
     struct unset_usage_params *params = user;
     unsigned char *report_buf;
+
+    if (caps->report_id) ((unsigned char *)params->report_buf)[0] = caps->report_id;
 
     report_buf = (unsigned char *)params->report_buf + caps->start_byte;
 
@@ -1048,6 +1058,8 @@ static NTSTATUS set_data( const struct hid_value_caps *caps, void *user )
     if (data->DataIndex < caps->data_index_min) return HIDP_STATUS_SUCCESS;
     if (data->DataIndex > caps->data_index_max) return HIDP_STATUS_SUCCESS;
     params->found = TRUE;
+
+    if (caps->report_id) ((unsigned char *)params->report_buf)[0] = caps->report_id;
 
     report_buf = (unsigned char *)params->report_buf + caps->start_byte;
 

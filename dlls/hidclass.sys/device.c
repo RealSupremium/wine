@@ -498,8 +498,8 @@ static NTSTATUS hid_device_xfer_report( struct phys_device *pdo, ULONG code, IRP
                                              sizeof(params->packet), TRUE, NULL, NULL );
         break;
     case IOCTL_HID_WRITE_REPORT:
-        /* WriteFile returns the output report length, not the minidriver count */
-        params->report_len = report_len;
+        /* WriteFile returns the written buffer length, not the minidriver count */
+        params->report_len = buffer_len;
         /* fallthrough */
     case IOCTL_HID_SET_FEATURE:
     case IOCTL_HID_SET_OUTPUT_REPORT:

@@ -38,6 +38,7 @@
 #include "spatialaudioclient.h"
 
 #include "mmdevapi_private.h"
+#include "setupapi.h"
 #include "devpkey.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(mmdevapi);
@@ -510,10 +511,29 @@ static MMDevice *MMDevice_Create(const WCHAR *name, GUID *id, EDataFlow flow, DW
 
                 PropVariantInit(&pv2);
 
-                if (SUCCEEDED(MMDevice_GetPropValue(id, flow, &devicepath_key, &pv2)) && pv2.vt == VT_LPWSTR) {
+                if (SUCCEEDED(MMDevice_GetPropValue(id, flow, &devicepath_key, &pv2)) && pv2.vt == VT_LPWSTR && pv2.pwszVal) {
                     const WCHAR *override;
+                    HDEVINFO hdev;
                     if ((override = find_product_name_override(pv2.pwszVal)) != NULL)
                         pv.pwszVal = (WCHAR*) override;
+
+                    hdev = SetupDiCreateDeviceInfoList(NULL, NULL);
+                    if (hdev != INVALID_HANDLE_VALUE) {
+                        SP_DEVICE_INTERFACE_DATA ifd = { sizeof(ifd) };
+                        if (SetupDiOpenDeviceInterfaceW(hdev, pv2.pwszVal, 0, &ifd)) {
+                            DEVPROPTYPE ptype;
+                            GUID container_guid;
+                            if (SetupDiGetDeviceInterfacePropertyW(hdev, &ifd, &DEVPKEY_Device_ContainerId, &ptype, (BYTE*)&container_guid, sizeof(container_guid), NULL, 0)) {
+                                WCHAR container_str[39];
+                                PROPVARIANT pv_c;
+                                StringFromGUID2(&container_guid, container_str, 39);
+                                pv_c.vt = VT_LPWSTR;
+                                pv_c.pwszVal = container_str;
+                                MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_Device_ContainerId, &pv_c);
+                            }
+                        }
+                        SetupDiDestroyDeviceInfoList(hdev);
+                    }
                 }
 
                 PropVariantClear(&pv2);
@@ -1625,6 +1645,39 @@ static HRESULT WINAPI MMDevPropStore_GetValue(IPropertyStore *iface, REFPROPERTY
         if (!pv->pwszVal)
             return E_OUTOFMEMORY;
         StringFromGUID2(&This->parent->devguid, pv->pwszVal, 39);
+        return S_OK;
+    }
+
+    if (IsEqualPropertyKey(*key, DEVPKEY_Device_ContainerId))
+    {
+        PROPVARIANT pv_reg;
+        PropVariantInit(&pv_reg);
+        hres = MMDevice_GetPropValue(&This->parent->devguid, This->parent->flow, key, &pv_reg);
+        if (SUCCEEDED(hres) && pv_reg.vt == VT_CLSID && pv_reg.puuid)
+        {
+            *pv = pv_reg;
+            return S_OK;
+        }
+        else if (SUCCEEDED(hres) && pv_reg.vt == VT_LPWSTR && pv_reg.pwszVal)
+        {
+            pv->vt = VT_CLSID;
+            pv->puuid = CoTaskMemAlloc(sizeof(GUID));
+            if (!pv->puuid)
+            {
+                PropVariantClear(&pv_reg);
+                return E_OUTOFMEMORY;
+            }
+            CLSIDFromString(pv_reg.pwszVal, pv->puuid);
+            PropVariantClear(&pv_reg);
+            return S_OK;
+        }
+        PropVariantClear(&pv_reg);
+
+        pv->vt = VT_CLSID;
+        pv->puuid = CoTaskMemAlloc(sizeof(GUID));
+        if (!pv->puuid)
+            return E_OUTOFMEMORY;
+        memset(pv->puuid, 0, sizeof(GUID));
         return S_OK;
     }
 
