@@ -417,6 +417,22 @@ static LSTATUS enum_class_device_interfaces( HKEY root, struct device_interface 
             for (UINT j = 0; !err && !(err = RegEnumKeyW( iface_key, j, iface->refstr, ARRAY_SIZE(iface->refstr) )); j++)
             {
                 ULONG len = swprintf( path, ARRAY_SIZE(path), L"\\\\?\\%s%s%s", instance, iface->refstr, iface->class );
+                for (WCHAR *c = path; *c; c++) *c = towlower(*c);
+                for (tmp = path; *tmp; tmp++)
+                {
+                    if (!wcsnicmp( tmp, L"hid", 3 ) && (tmp == path + 4 || *(tmp - 1) == '#'))
+                    {
+                        tmp[0] = 'H'; tmp[1] = 'I'; tmp[2] = 'D';
+                    }
+                    else if (!wcsnicmp( tmp, L"vid", 3 ) && *(tmp - 1) == '_')
+                    {
+                        tmp[0] = 'V'; tmp[1] = 'I'; tmp[2] = 'D';
+                    }
+                    else if (!wcsnicmp( tmp, L"pid", 3 ) && *(tmp - 1) == '_')
+                    {
+                        tmp[0] = 'P'; tmp[1] = 'I'; tmp[2] = 'D';
+                    }
+                }
                 if (all || device_interface_enabled( iface_key, iface )) err = callback( iface_key, iface, path, len + 1, context );
             }
             if (err == ERROR_NO_MORE_ITEMS) err = ERROR_SUCCESS;

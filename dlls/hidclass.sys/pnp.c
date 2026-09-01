@@ -624,7 +624,17 @@ static NTSTATUS pdo_pnp( DEVICE_OBJECT *device, IRP *irp )
             break;
 
         case IRP_MN_REMOVE_DEVICE:
+        {
+            TARGET_DEVICE_REMOVAL_NOTIFICATION change =
+            {
+                .Version = 1,
+                .Size = sizeof(change),
+                .Event = GUID_TARGET_DEVICE_REMOVE_COMPLETE,
+            };
+
             send_wm_input_device_change( pdo, GIDC_REMOVAL );
+
+            IoReportTargetDeviceChange( device, &change );
 
             IoSetDeviceInterfaceState( &pdo->link_name, FALSE );
             if (pdo->is_mouse) IoSetDeviceInterfaceState( &pdo->mouse_link_name, FALSE );
@@ -641,8 +651,19 @@ static NTSTATUS pdo_pnp( DEVICE_OBJECT *device, IRP *irp )
             IoCompleteRequest(irp, IO_NO_INCREMENT);
             IoDeleteDevice(device);
             return STATUS_SUCCESS;
+        }
 
         case IRP_MN_SURPRISE_REMOVAL:
+        {
+            TARGET_DEVICE_REMOVAL_NOTIFICATION change =
+            {
+                .Version = 1,
+                .Size = sizeof(change),
+                .Event = GUID_TARGET_DEVICE_REMOVE_COMPLETE,
+            };
+
+            IoReportTargetDeviceChange( device, &change );
+
             KeAcquireSpinLock( &pdo->lock, &irql );
             pdo->removed = TRUE;
             LIST_FOR_EACH_ENTRY_SAFE( queue, next, &pdo->queues, struct hid_queue, entry )
@@ -651,6 +672,7 @@ static NTSTATUS pdo_pnp( DEVICE_OBJECT *device, IRP *irp )
 
             status = STATUS_SUCCESS;
             break;
+        }
 
         case IRP_MN_QUERY_DEVICE_TEXT:
         {

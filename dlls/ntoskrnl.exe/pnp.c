@@ -20,6 +20,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "initguid.h"
 #include "ntoskrnl_private.h"
 #include "winreg.h"
 #include "winuser.h"
@@ -30,7 +31,6 @@
 
 #include "plugplay.h"
 
-#include "initguid.h"
 DEFINE_GUID(GUID_NULL,0,0,0,0,0,0,0,0,0,0,0);
 #include "devpkey.h"
 
@@ -1328,23 +1328,44 @@ NTSTATUS WINAPI IoRegisterDeviceInterface(DEVICE_OBJECT *device, const GUID *cla
  */
 NTSTATUS WINAPI IoReportTargetDeviceChange( DEVICE_OBJECT *device, void *data )
 {
-    TARGET_DEVICE_CUSTOM_NOTIFICATION *notification = data;
+    TARGET_DEVICE_CUSTOM_NOTIFICATION *custom_notification = data;
+    TARGET_DEVICE_REMOVAL_NOTIFICATION *removal_notification = data;
     OBJECT_NAME_INFORMATION *name_info;
     DEV_BROADCAST_HANDLE *event_handle;
-    DWORD size, data_size;
+    DWORD size, data_size = 0, event_code;
     NTSTATUS ret;
 
     TRACE( "(%p, %p)\n", device, data );
 
-    if (notification->Version != 1) return STATUS_INVALID_PARAMETER;
+    if (removal_notification->Version != 1) return STATUS_INVALID_PARAMETER;
 
     ret = ObQueryNameString( device, NULL, 0, &size );
     if (ret != STATUS_INFO_LENGTH_MISMATCH) return ret;
     if (!(name_info = malloc( size ))) return STATUS_NO_MEMORY;
     ret = ObQueryNameString( device, name_info, size, &size );
-    if (ret != STATUS_SUCCESS) return ret;
+    if (ret != STATUS_SUCCESS)
+    {
+        free( name_info );
+        return ret;
+    }
 
-    data_size = notification->Size - offsetof( TARGET_DEVICE_CUSTOM_NOTIFICATION, CustomDataBuffer );
+    if (IsEqualGUID( &removal_notification->Event, &GUID_TARGET_DEVICE_QUERY_REMOVE ))
+        event_code = DBT_DEVICEQUERYREMOVE;
+    else if (IsEqualGUID( &removal_notification->Event, &GUID_TARGET_DEVICE_QUERY_REMOVE_FAILED ))
+        event_code = DBT_DEVICEQUERYREMOVEFAILED;
+    else if (IsEqualGUID( &removal_notification->Event, &GUID_TARGET_DEVICE_REMOVE_PENDING ))
+        event_code = DBT_DEVICEREMOVEPENDING;
+    else if (IsEqualGUID( &removal_notification->Event, &GUID_TARGET_DEVICE_REMOVE_COMPLETE ))
+        event_code = DBT_DEVICEREMOVECOMPLETE;
+    else
+        event_code = DBT_CUSTOMEVENT;
+
+    if (removal_notification->Size >= sizeof(TARGET_DEVICE_CUSTOM_NOTIFICATION) &&
+        removal_notification->Size >= offsetof( TARGET_DEVICE_CUSTOM_NOTIFICATION, CustomDataBuffer ))
+    {
+        data_size = removal_notification->Size - offsetof( TARGET_DEVICE_CUSTOM_NOTIFICATION, CustomDataBuffer );
+    }
+
     size = offsetof( DEV_BROADCAST_HANDLE, dbch_data[data_size + 2 * sizeof(WCHAR)] );
     if (!(event_handle = calloc( 1, size )))
     {
@@ -1354,10 +1375,13 @@ NTSTATUS WINAPI IoReportTargetDeviceChange( DEVICE_OBJECT *device, void *data )
 
     event_handle->dbch_size = size;
     event_handle->dbch_devicetype = DBT_DEVTYP_HANDLE;
-    event_handle->dbch_eventguid = notification->Event;
-    event_handle->dbch_nameoffset = notification->NameBufferOffset;
-    memcpy( event_handle->dbch_data, notification->CustomDataBuffer, data_size );
-    send_devicechange( name_info->Name.Buffer, DBT_CUSTOMEVENT, (BYTE *)event_handle, event_handle->dbch_size );
+    event_handle->dbch_eventguid = removal_notification->Event;
+    if (data_size)
+    {
+        event_handle->dbch_nameoffset = custom_notification->NameBufferOffset;
+        memcpy( event_handle->dbch_data, custom_notification->CustomDataBuffer, data_size );
+    }
+    send_devicechange( name_info->Name.Buffer, event_code, (BYTE *)event_handle, event_handle->dbch_size );
     free( event_handle );
     free( name_info );
 

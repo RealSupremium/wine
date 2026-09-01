@@ -67,8 +67,19 @@ CALLBACK DWORD devnotify_callback( HANDLE handle, DWORD flags, DEV_BROADCAST_HDR
         action = CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL;
         break;
     case DBT_DEVICEREMOVECOMPLETE:
-        FIXME( "CM_NOTIFY_ACTION_DEVICEREMOVECOMPLETE not implemented\n" );
-        action = CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL;
+        if (header->dbch_devicetype == DBT_DEVTYP_HANDLE)
+            action = CM_NOTIFY_ACTION_DEVICEREMOVECOMPLETE;
+        else
+            action = CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL;
+        break;
+    case DBT_DEVICEQUERYREMOVE:
+        action = CM_NOTIFY_ACTION_DEVICEQUERYREMOVE;
+        break;
+    case DBT_DEVICEQUERYREMOVEFAILED:
+        action = CM_NOTIFY_ACTION_DEVICEQUERYREMOVEFAILED;
+        break;
+    case DBT_DEVICEREMOVEPENDING:
+        action = CM_NOTIFY_ACTION_DEVICEREMOVEPENDING;
         break;
     case DBT_CUSTOMEVENT:
         action = CM_NOTIFY_ACTION_DEVICECUSTOMEVENT;
