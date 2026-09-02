@@ -171,7 +171,8 @@ static DWORD get_device_index(struct device_desc *desc, struct list **before)
     /* The device list is sorted, so just increment the index until it doesn't match an index already in the list */
     LIST_FOR_EACH_ENTRY(ext, &device_list, struct device_extension, entry)
     {
-        if (ext->desc.vid == desc->vid && ext->desc.pid == desc->pid && ext->desc.input == desc->input)
+        if (ext->desc.vid == desc->vid && ext->desc.pid == desc->pid && ext->desc.input == desc->input &&
+            (!desc->serialnumber[0] || !wcscmp(ext->desc.serialnumber, desc->serialnumber)))
         {
             if (ext->index != index)
             {

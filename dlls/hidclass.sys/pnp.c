@@ -632,13 +632,16 @@ static NTSTATUS pdo_pnp( DEVICE_OBJECT *device, IRP *irp )
                 .Event = GUID_TARGET_DEVICE_REMOVE_COMPLETE,
             };
 
-            send_wm_input_device_change( pdo, GIDC_REMOVAL );
+            if (!pdo->removed)
+            {
+                send_wm_input_device_change( pdo, GIDC_REMOVAL );
 
-            IoReportTargetDeviceChange( device, &change );
+                IoReportTargetDeviceChange( device, &change );
 
-            IoSetDeviceInterfaceState( &pdo->link_name, FALSE );
-            if (pdo->is_mouse) IoSetDeviceInterfaceState( &pdo->mouse_link_name, FALSE );
-            if (pdo->is_keyboard) IoSetDeviceInterfaceState( &pdo->keyboard_link_name, FALSE );
+                IoSetDeviceInterfaceState( &pdo->link_name, FALSE );
+                if (pdo->is_mouse) IoSetDeviceInterfaceState( &pdo->mouse_link_name, FALSE );
+                if (pdo->is_keyboard) IoSetDeviceInterfaceState( &pdo->keyboard_link_name, FALSE );
+            }
 
             KeAcquireSpinLock( &pdo->lock, &irql );
             LIST_FOR_EACH_ENTRY_SAFE( queue, next, &pdo->queues, struct hid_queue, entry )
@@ -662,7 +665,13 @@ static NTSTATUS pdo_pnp( DEVICE_OBJECT *device, IRP *irp )
                 .Event = GUID_TARGET_DEVICE_REMOVE_COMPLETE,
             };
 
+            send_wm_input_device_change( pdo, GIDC_REMOVAL );
+
             IoReportTargetDeviceChange( device, &change );
+
+            IoSetDeviceInterfaceState( &pdo->link_name, FALSE );
+            if (pdo->is_mouse) IoSetDeviceInterfaceState( &pdo->mouse_link_name, FALSE );
+            if (pdo->is_keyboard) IoSetDeviceInterfaceState( &pdo->keyboard_link_name, FALSE );
 
             KeAcquireSpinLock( &pdo->lock, &irql );
             pdo->removed = TRUE;
