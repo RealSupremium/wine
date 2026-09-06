@@ -1,0 +1,104 @@
+name: Build Wine Inside SteamRT 3 Container
+
+on:
+  push:
+    branches: [ "master", "wmr-changes" ]
+  pull_request:
+    branches: [ "master", "wmr-changes" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install System Dependencies
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          echo "deb http://security.debian.org/debian-security bullseye-security main" >> /etc/apt/sources.list
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            bison \
+            flex \
+            pkg-config \
+            git \
+            curl \
+            ca-certificates \
+            xz-utils \
+            zip \
+            ccache \
+            gcc-mingw-w64-x86-64 \
+            gcc-mingw-w64-i686 \
+            g++-mingw-w64-x86-64 \
+            g++-mingw-w64-i686 \
+            libxkbregistry-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxxf86vm-dev \
+            libvulkan-dev \
+            libfreetype-dev \
+            libfontconfig-dev \
+            libgnutls28-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libdbus-1-dev \
+            libudev-dev \
+            libusb-1.0-0-dev \
+            libsdl2-dev \
+            libpcap-dev \
+            libpcsclite-dev \
+            libsane-dev \
+            libgphoto2-dev \
+            libcapi20-dev \
+            libcups2-dev \
+            libv4l-dev \
+            libva-dev \
+            libavcodec-dev \
+            libavformat-dev \
+            libswresample-dev \
+            libavutil-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libgstreamer1.0-dev \
+            libkrb5-dev \
+            ocl-icd-opencl-dev \
+            samba-dev \
+            unixodbc-dev
+          curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz | tar -xJ -C /usr/local --strip-components=1
+
+      - name: Configure Wine
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          mkdir -p build
+          cd build
+          ../configure \
+            --enable-win64 \
+            --disable-tests
+
+      - name: Build Wine
+        run: |
+          make -C build -j$(nproc)
+
+      - name: Install Wine
+        run: |
+          make -C build install DESTDIR="${GITHUB_WORKSPACE}/wine-install"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: wine-steamrt3
+          path: wine-install/usr/local
