@@ -97,6 +97,7 @@ struct device
     HKEY                  key;
     BOOL                  phantom;
     WCHAR                *instanceId;
+    WCHAR                *originalId;
     struct list           interfaces;
     GUID                  class;
     DEVINST               devnode;
@@ -350,15 +351,13 @@ static BOOL is_valid_property_type(DEVPROPTYPE prop_type)
 static LPWSTR SETUPDI_CreateSymbolicLinkPath(LPCWSTR instanceId,
         const GUID *InterfaceClassGuid, LPCWSTR ReferenceString)
 {
-    static const WCHAR fmt[] = L"\\\\?\\%s#%s";
-    WCHAR guidStr[39];
+    static const WCHAR fmt[] = L"\\\\?\\%s#{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}";
     DWORD len;
     LPWSTR ret;
 
-    SETUPDI_GuidToString(InterfaceClassGuid, guidStr);
     /* omit length of format specifiers, but include NULL terminator: */
     len = lstrlenW(fmt) - 4 + 1;
-    len += lstrlenW(instanceId) + lstrlenW(guidStr);
+    len += lstrlenW(instanceId) + 38;
     if (ReferenceString && *ReferenceString)
     {
         /* space for a hash between string and reference string: */
@@ -367,7 +366,11 @@ static LPWSTR SETUPDI_CreateSymbolicLinkPath(LPCWSTR instanceId,
     ret = malloc(len * sizeof(WCHAR));
     if (ret)
     {
-        int printed = swprintf(ret, len, fmt, instanceId, guidStr);
+        int printed = swprintf(ret, len, fmt, instanceId, 
+            InterfaceClassGuid->Data1, InterfaceClassGuid->Data2, InterfaceClassGuid->Data3,
+            InterfaceClassGuid->Data4[0], InterfaceClassGuid->Data4[1], InterfaceClassGuid->Data4[2],
+            InterfaceClassGuid->Data4[3], InterfaceClassGuid->Data4[4], InterfaceClassGuid->Data4[5],
+            InterfaceClassGuid->Data4[6], InterfaceClassGuid->Data4[7]);
         LPWSTR ptr;
 
         /* replace '\\' with '#' after the "\\\\?\\" beginning */
@@ -420,7 +423,7 @@ static struct device_iface *SETUPDI_CreateDeviceInterface(struct device *device,
     }
 
     iface = malloc(sizeof(*iface));
-    symlink = SETUPDI_CreateSymbolicLinkPath(device->instanceId, class, refstr);
+    symlink = SETUPDI_CreateSymbolicLinkPath(device->originalId, class, refstr);
 
     if (!iface || !symlink)
     {
@@ -747,6 +750,7 @@ static void delete_device(struct device *device)
 
     RegCloseKey(device->key);
     free(device->instanceId);
+    free(device->originalId);
     free(device->drivers);
 
     LIST_FOR_EACH_ENTRY_SAFE(iface, next, &device->interfaces,
@@ -789,6 +793,14 @@ static struct device *create_device(struct DeviceInfoSet *set,
     if (!(device->instanceId = wcsdup(instanceid)))
     {
         SetLastError(ERROR_OUTOFMEMORY);
+        free(device);
+        return NULL;
+    }
+
+    if (!(device->originalId = wcsdup(instanceid)))
+    {
+        SetLastError(ERROR_OUTOFMEMORY);
+        free(device->instanceId);
         free(device);
         return NULL;
     }
@@ -1948,17 +1960,18 @@ static void SETUPDI_EnumerateMatchingInterfaces(struct DeviceInfoSet *set, const
 
         /* Copy path, starting after the "\\?\". */
         wcscpy(buf, &path[4]);
-        /* Replace the last '#' with a NULL terminator. */
-        tmp = wcsrchr(buf, '#');
-        *tmp = 0;
+        if ((refstr = wcsrchr(buf, '\\')))
+            *refstr++ = 0;
 
-        /*
-         * Characters between the last '#' and the '{' from the GUID contain
-         * the refstr, if present.
-         */
-        refstr = tmp + 1;
-        tmp = wcschr(refstr, '{');
-        *tmp = 0;
+        if ((tmp = wcsrchr(buf, '#')))
+        {
+            *tmp = 0;
+            if (!refstr)
+            {
+                refstr = tmp + 1;
+                if ((tmp = wcschr(refstr, '{'))) *tmp = 0;
+            }
+        }
 
         /* Now replace '#' with '\' to reconstruct the instance ID. */
         for (tmp = wcschr(buf, '#'); tmp; tmp = wcschr(tmp + 1, '#'))
